@@ -1,0 +1,19 @@
+:root {
+  --primary: #00f0d3;
+  --primary-bright: #33fff0;
+  --primary-dim: #007a6b;
+  --fg: #cbf4ed;
+  --fg-dim: #9ca3af;
+  --fg-muted: #4a6767;
+  --bg: #16171d;
+  --bg-card: #202b30;
+  --bg-code: #0d0e12;
+  --border: #4a6767;
+  --border-dim: #304345;
+  --accent-warn: #f0c800;
+  --accent-err: #f04848;
+
+  --sans: 'Tomorrow', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --max-width: 960px;
+}

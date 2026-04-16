@@ -1,0 +1,64 @@
+---
+---
+
+<nav>
+  <div class="container nav-inner">
+    <a href="/" class="brand">
+      <span class="brand-mark">nex</span>
+    </a>
+    <div class="nav-links">
+      <a href="#install">Install</a>
+      <a href="#features">Features</a>
+      <a href="#usage">Usage</a>
+      <a href="https://github.com/styrene-lab/nex" target="_blank" rel="noopener">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<style>
+  nav {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    background: rgba(22, 23, 29, 0.85);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border-dim);
+  }
+  .nav-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 56px;
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--fg);
+    font-weight: 700;
+    font-size: 1.1rem;
+  }
+  .brand:hover { color: var(--primary); }
+  .brand-mark {
+    font-family: var(--mono);
+    color: var(--primary);
+    font-size: 1.3rem;
+  }
+  .nav-links {
+    display: flex;
+    gap: 1.5rem;
+    font-size: 0.9rem;
+  }
+  .nav-links a {
+    color: var(--fg-dim);
+    transition: color 0.15s;
+  }
+  .nav-links a:hover {
+    color: var(--primary);
+  }
+  @media (max-width: 480px) {
+    .nav-links { gap: 1rem; font-size: 0.8rem; }
+  }
+</style>

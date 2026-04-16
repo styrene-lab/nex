@@ -1,0 +1,37 @@
+[package]
+name = "nex-pkg"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/styrene-lab/nex"
+description = "Package manager UX for nix-darwin + homebrew"
+
+[[bin]]
+name = "nex"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive", "env"] }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+tempfile = "3"
+dirs = "6"
+console = "0.15"
+serde_json = "1"
+dialoguer = "0.11"
+
+[dev-dependencies]
+assert_cmd = "2"
+predicates = "3"
+tempfile = "3"
+
+[lints.rust]
+unsafe_code = "forbid"
+unused_imports = "warn"
+
+[lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+unwrap_used = "warn"

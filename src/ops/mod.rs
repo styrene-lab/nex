@@ -1,0 +1,10 @@
+pub mod diff;
+pub mod gc;
+pub mod install;
+pub mod list;
+pub mod remove;
+pub mod rollback;
+pub mod search;
+pub mod switch;
+pub mod try_pkg;
+pub mod update;

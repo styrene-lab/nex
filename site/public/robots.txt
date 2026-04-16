@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://nex.styrene.io/sitemap-index.xml

@@ -1,0 +1,9 @@
+target/
+result
+result-*
+.direnv/
+.pi/
+*.nex-backup
+site/node_modules/
+site/dist/
+site/.astro/

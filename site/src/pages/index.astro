@@ -1,0 +1,425 @@
+---
+import Base from '../layouts/Base.astro';
+---
+
+<Base title="nex — nix the brew">
+
+<!-- Hero -->
+<section class="hero">
+  <div class="container">
+    <p class="eyebrow">Package management for nix-darwin</p>
+    <h1>nix the brew.</h1>
+    <p class="tagline">
+      One command to install, remove, search, and update packages across
+      <strong>Nix</strong> and <strong>Homebrew</strong> on macOS.
+      Declarative under the hood. Imperative at the surface.
+    </p>
+    <div class="install-block" id="install">
+      <div class="install-cmd" role="button" tabindex="0" id="install-btn">
+        <code>curl -fsSL https://nex.styrene.io/install.sh | sh</code>
+        <span class="copy-hint" id="copy-hint">click to copy</span>
+      </div>
+      <p class="install-alt">
+        or <code>cargo install nex-pkg</code>
+        &middot; <code>nix profile install github:styrene-lab/nex</code>
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- What it does -->
+<section class="demo">
+  <div class="container">
+    <div class="terminal">
+      <div class="terminal-bar">
+        <span class="dot red"></span>
+        <span class="dot yellow"></span>
+        <span class="dot green"></span>
+        <span class="terminal-title">~</span>
+      </div>
+      <pre><code><span class="prompt">$</span> <span class="cmd">nex install</span> htop bat eza
+  <span class="added">+</span> htop
+  <span class="added">+</span> bat
+  <span class="added">+</span> eza
+<span class="status">&gt;&gt;&gt; switching...</span>
+<span class="status">&gt;&gt;&gt; done</span>
+
+<span class="prompt">$</span> <span class="cmd">nex install --cask</span> slack
+  <span class="added">+</span> slack
+<span class="status">&gt;&gt;&gt; switching...</span>
+<span class="status">&gt;&gt;&gt; done</span>
+
+<span class="prompt">$</span> <span class="cmd">nex remove</span> htop
+  <span class="removed">-</span> htop
+<span class="status">&gt;&gt;&gt; switching...</span>
+<span class="status">&gt;&gt;&gt; done</span></code></pre>
+    </div>
+  </div>
+</section>
+
+<!-- Features -->
+<section id="features">
+  <div class="container">
+    <h2>How it works</h2>
+    <div class="features-grid">
+      <div class="feature">
+        <h3>One verb</h3>
+        <p>
+          <code>nex install foo</code> figures out the right config file,
+          edits it, and runs <code>darwin-rebuild switch</code>.
+          No manual file editing. No remembering which file.
+        </p>
+      </div>
+      <div class="feature">
+        <h3>Atomic rollback</h3>
+        <p>
+          Every edit is backed up before the switch. If the build fails,
+          your config is restored automatically. No half-broken state.
+        </p>
+      </div>
+      <div class="feature">
+        <h3>Three tiers</h3>
+        <p>
+          <code>nex install</code> for Nix packages.
+          <code>--cask</code> for GUI apps via Homebrew.
+          <code>--brew</code> for formulae that need to stay in Homebrew.
+          One tool, three backends.
+        </p>
+      </div>
+      <div class="feature">
+        <h3>Declarative truth</h3>
+        <p>
+          Under the hood, your packages live in <code>.nix</code> files
+          checked into git. Reproducible across machines. Diff-able.
+          Rollback-able. The config <em>is</em> the install state.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Usage -->
+<section id="usage">
+  <div class="container">
+    <h2>Usage</h2>
+    <div class="usage-grid">
+      <div class="usage-item">
+        <code class="usage-cmd">nex install htop</code>
+        <span class="usage-desc">Install a Nix package</span>
+      </div>
+      <div class="usage-item">
+        <code class="usage-cmd">nex install --cask slack</code>
+        <span class="usage-desc">Install a GUI app via Homebrew</span>
+      </div>
+      <div class="usage-item">
+        <code class="usage-cmd">nex install --brew rustup</code>
+        <span class="usage-desc">Install a Homebrew formula</span>
+      </div>
+      <div class="usage-item">
+        <code class="usage-cmd">nex remove htop</code>
+        <span class="usage-desc">Remove from wherever it's declared</span>
+      </div>
+      <div class="usage-item">
+        <code class="usage-cmd">nex search "http"</code>
+        <span class="usage-desc">Search nixpkgs</span>
+      </div>
+      <div class="usage-item">
+        <code class="usage-cmd">nex list</code>
+        <span class="usage-desc">Show all declared packages</span>
+      </div>
+      <div class="usage-item">
+        <code class="usage-cmd">nex update</code>
+        <span class="usage-desc">Update flake inputs + rebuild</span>
+      </div>
+      <div class="usage-item">
+        <code class="usage-cmd">nex try htop</code>
+        <span class="usage-desc">Ephemeral shell, no install</span>
+      </div>
+      <div class="usage-item">
+        <code class="usage-cmd">nex rollback</code>
+        <span class="usage-desc">Revert to previous generation</span>
+      </div>
+      <div class="usage-item">
+        <code class="usage-cmd">nex switch</code>
+        <span class="usage-desc">Rebuild and activate</span>
+      </div>
+      <div class="usage-item">
+        <code class="usage-cmd">nex diff</code>
+        <span class="usage-desc">Preview what would change</span>
+      </div>
+      <div class="usage-item">
+        <code class="usage-cmd">nex gc</code>
+        <span class="usage-desc">Garbage collect nix store</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Why -->
+<section class="why">
+  <div class="container">
+    <h2>Why nex?</h2>
+    <div class="comparison">
+      <div class="comparison-col before">
+        <h3>Before</h3>
+        <pre><code><span class="fg-dim"># Open the right nix file...</span>
+vim nix/modules/home/base.nix
+<span class="fg-dim"># Add the package to the list...</span>
+<span class="fg-dim"># Save, exit...</span>
+darwin-rebuild switch --flake .#hostname
+<span class="fg-dim"># Did it break? Check. Revert manually.</span></code></pre>
+      </div>
+      <div class="comparison-col after">
+        <h3>After</h3>
+        <pre><code>nex install htop</code></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+</Base>
+
+<script>
+  const btn = document.getElementById('install-btn');
+  const hint = document.getElementById('copy-hint');
+  if (btn && hint) {
+    btn.addEventListener('click', async () => {
+      await navigator.clipboard.writeText('curl -fsSL https://nex.styrene.io/install.sh | sh');
+      hint.textContent = 'copied!';
+      setTimeout(() => { hint.textContent = 'click to copy'; }, 2000);
+    });
+  }
+</script>
+
+<style>
+  /* Hero */
+  .hero {
+    padding-top: 8rem;
+    padding-bottom: 4rem;
+    text-align: center;
+  }
+  .eyebrow {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    color: var(--primary);
+    margin-bottom: 1rem;
+    font-weight: 600;
+  }
+  .hero h1 {
+    font-family: var(--mono);
+    font-size: clamp(2.5rem, 8vw, 4.5rem);
+    font-weight: 700;
+    color: var(--fg);
+    line-height: 1.1;
+    margin-bottom: 1.5rem;
+  }
+  .tagline {
+    font-size: 1.15rem;
+    color: var(--fg-dim);
+    max-width: 560px;
+    margin: 0 auto 2.5rem;
+    line-height: 1.7;
+  }
+  .tagline strong {
+    color: var(--fg);
+  }
+
+  /* Install block */
+  .install-block {
+    max-width: 580px;
+    margin: 0 auto;
+  }
+  .install-cmd {
+    background: var(--bg-code);
+    border: 1px solid var(--border-dim);
+    border-radius: 8px;
+    padding: 1rem 1.5rem;
+    font-family: var(--mono);
+    font-size: 0.95rem;
+    color: var(--primary);
+    cursor: pointer;
+    position: relative;
+    transition: border-color 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+  .install-cmd:hover {
+    border-color: var(--primary-dim);
+  }
+  .copy-hint {
+    font-size: 0.7rem;
+    color: var(--fg-muted);
+    white-space: nowrap;
+  }
+  .install-alt {
+    margin-top: 0.75rem;
+    font-size: 0.8rem;
+    color: var(--fg-muted);
+  }
+  .install-alt code {
+    color: var(--fg-dim);
+    background: var(--bg-code);
+    padding: 0.15em 0.4em;
+    border-radius: 3px;
+    font-size: 0.8rem;
+  }
+
+  /* Terminal demo */
+  .demo {
+    padding-top: 2rem;
+  }
+  .terminal {
+    background: var(--bg-code);
+    border: 1px solid var(--border-dim);
+    border-radius: 10px;
+    overflow: hidden;
+    max-width: 600px;
+    margin: 0 auto;
+  }
+  .terminal-bar {
+    background: #1a1b22;
+    padding: 0.6rem 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+  }
+  .dot.red { background: #ff5f57; }
+  .dot.yellow { background: #febc2e; }
+  .dot.green { background: #28c840; }
+  .terminal-title {
+    margin-left: 0.5rem;
+    font-size: 0.75rem;
+    color: var(--fg-muted);
+    font-family: var(--mono);
+  }
+  .terminal pre {
+    padding: 1.25rem 1.5rem;
+    font-size: 0.85rem;
+    line-height: 1.7;
+    overflow-x: auto;
+  }
+  .prompt { color: var(--fg-muted); }
+  .cmd { color: var(--primary); font-weight: 600; }
+  .added { color: #28c840; font-weight: 700; }
+  .removed { color: #ff5f57; font-weight: 700; }
+  .status { color: var(--primary-dim); }
+
+  /* Features */
+  #features h2, #usage h2, .why h2 {
+    font-family: var(--mono);
+    font-size: 1.8rem;
+    margin-bottom: 2rem;
+    color: var(--fg);
+  }
+  .features-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 1.5rem;
+  }
+  .feature {
+    background: var(--bg-card);
+    border: 1px solid var(--border-dim);
+    border-radius: 8px;
+    padding: 1.5rem;
+  }
+  .feature h3 {
+    font-family: var(--mono);
+    font-size: 1rem;
+    color: var(--primary);
+    margin-bottom: 0.75rem;
+  }
+  .feature p {
+    font-size: 0.9rem;
+    color: var(--fg-dim);
+    line-height: 1.6;
+  }
+  .feature code {
+    color: var(--fg);
+    background: var(--bg-code);
+    padding: 0.1em 0.35em;
+    border-radius: 3px;
+    font-size: 0.85em;
+  }
+
+  /* Usage grid */
+  .usage-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 0.5rem;
+  }
+  .usage-item {
+    display: flex;
+    align-items: baseline;
+    gap: 1rem;
+    padding: 0.6rem 0;
+    border-bottom: 1px solid var(--border-dim);
+  }
+  .usage-cmd {
+    font-family: var(--mono);
+    font-size: 0.85rem;
+    color: var(--primary);
+    white-space: nowrap;
+    min-width: 240px;
+  }
+  .usage-desc {
+    font-size: 0.85rem;
+    color: var(--fg-dim);
+  }
+
+  /* Why / comparison */
+  .comparison {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+  }
+  .comparison-col {
+    background: var(--bg-card);
+    border: 1px solid var(--border-dim);
+    border-radius: 8px;
+    padding: 1.5rem;
+  }
+  .comparison-col h3 {
+    font-family: var(--mono);
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 1rem;
+  }
+  .before h3 { color: var(--fg-muted); }
+  .after h3 { color: var(--primary); }
+  .comparison pre {
+    font-size: 0.8rem;
+    line-height: 1.7;
+    overflow-x: auto;
+  }
+  .comparison .fg-dim { color: var(--fg-muted); }
+  .after pre code {
+    color: var(--primary);
+    font-size: 1.1rem;
+    font-weight: 600;
+  }
+
+  @media (max-width: 640px) {
+    .comparison {
+      grid-template-columns: 1fr;
+    }
+    .usage-item {
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+    .usage-cmd { min-width: auto; }
+    .install-cmd {
+      flex-direction: column;
+      gap: 0.5rem;
+      font-size: 0.8rem;
+    }
+  }
+</style>

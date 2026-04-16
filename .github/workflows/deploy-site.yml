@@ -1,0 +1,106 @@
+name: Deploy nex.styrene.io
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'site/**'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'site/**'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Cloudflare Pages
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      deployments: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+          cache-dependency-path: site/pnpm-lock.yaml
+
+      - name: Install
+        run: cd site && pnpm install --frozen-lockfile
+
+      - name: Build
+        run: cd site && pnpm build
+
+      - name: Deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          npx wrangler@latest pages project create nex-styrene-io --production-branch main 2>&1 || true
+          npx wrangler@latest pages deploy site/dist --project-name nex-styrene-io --commit-dirty=true
+
+      - name: Attach custom domain
+        if: github.ref == 'refs/heads/main'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          curl -s -X POST \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/pages/projects/nex-styrene-io/domains" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d '{"name":"nex.styrene.io"}' | python3 -c "
+          import json,sys
+          r=json.load(sys.stdin)
+          errs=[e for e in r.get('errors',[]) if e.get('code') not in (8000018,8000019)]
+          sys.exit(1 if errs else 0)
+          "
+
+      - name: Upsert DNS — nex.styrene.io CNAME
+        if: github.ref == 'refs/heads/main'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          python3 - <<'EOF'
+          import json, os, sys, urllib.request
+
+          token = os.environ["CLOUDFLARE_API_TOKEN"]
+          headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+
+          def cf(method, path, body=None):
+              url = f"https://api.cloudflare.com/client/v4{path}"
+              data = json.dumps(body).encode() if body else None
+              req = urllib.request.Request(url, data=data, headers=headers, method=method)
+              with urllib.request.urlopen(req) as r:
+                  return json.load(r)
+
+          zones = cf("GET", "/zones?name=styrene.io")
+          zone_id = zones["result"][0]["id"]
+          print(f"Zone ID: {zone_id}")
+
+          existing = cf("GET", f"/zones/{zone_id}/dns_records?name=nex.styrene.io&per_page=100")
+          for rec in existing["result"]:
+              if rec["type"] in ("A", "AAAA", "CNAME"):
+                  print(f"Deleting {rec['type']} {rec['name']} → {rec['content']}")
+                  cf("DELETE", f"/zones/{zone_id}/dns_records/{rec['id']}")
+
+          result = cf("POST", f"/zones/{zone_id}/dns_records", {
+              "type": "CNAME",
+              "name": "nex.styrene.io",
+              "content": "nex-styrene-io.pages.dev",
+              "proxied": True,
+              "ttl": 1,
+          })
+          if result.get("success"):
+              print("Created CNAME nex.styrene.io → nex-styrene-io.pages.dev (proxied)")
+          else:
+              print(f"ERROR: {result.get('errors')}", file=sys.stderr)
+              sys.exit(1)
+          EOF

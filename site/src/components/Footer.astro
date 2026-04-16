@@ -1,0 +1,50 @@
+---
+---
+
+<footer>
+  <div class="container footer-inner">
+    <span class="copy">&copy; 2026 <a href="https://styrene.io">Styrene Labs</a>, Black Meridian LLC</span>
+    <div class="footer-links">
+      <a href="https://github.com/styrene-lab/nex" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://styrene.io" target="_blank" rel="noopener">Styrene Labs</a>
+    </div>
+  </div>
+</footer>
+
+<style>
+  footer {
+    border-top: 1px solid var(--border-dim);
+    padding: 2rem 0;
+    margin-top: 4rem;
+  }
+  .footer-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 0.85rem;
+    color: var(--fg-muted);
+  }
+  .footer-links {
+    display: flex;
+    gap: 1.5rem;
+  }
+  .footer-links a {
+    color: var(--fg-muted);
+  }
+  .footer-links a:hover {
+    color: var(--primary);
+  }
+  .copy a {
+    color: var(--fg-muted);
+  }
+  .copy a:hover {
+    color: var(--primary);
+  }
+  @media (max-width: 640px) {
+    .footer-inner {
+      flex-direction: column;
+      gap: 0.75rem;
+      text-align: center;
+    }
+  }
+</style>
