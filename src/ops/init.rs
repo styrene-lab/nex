@@ -70,6 +70,25 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
         return Ok(());
     }
 
+    // Ensure git tree is clean so nix doesn't warn about dirty tree
+    let _ = Command::new("git")
+        .args(["add", "-A"])
+        .current_dir(&repo_path)
+        .output();
+    let _ = Command::new("git")
+        .args(["diff", "--cached", "--quiet"])
+        .current_dir(&repo_path)
+        .status()
+        .and_then(|s| {
+            if !s.success() {
+                Command::new("git")
+                    .args(["commit", "-m", "nex init"])
+                    .current_dir(&repo_path)
+                    .output()?;
+            }
+            Ok(s)
+        });
+
     println!();
     output::status("building (this takes a few minutes on first run)...");
 
@@ -94,13 +113,16 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
 
     output::status("activating (sudo required)...");
 
-    // Back up nix.conf before first switch
-    if Path::new("/etc/nix/nix.conf").exists()
-        && !Path::new("/etc/nix/nix.conf.pre-darwin").exists()
-    {
-        let _ = Command::new("sudo")
-            .args(["cp", "/etc/nix/nix.conf", "/etc/nix/nix.conf.pre-darwin"])
-            .status();
+    // nix-darwin refuses to overwrite files in /etc on first run.
+    // Move them out of the way so activation can proceed.
+    let etc_files = ["/etc/shells", "/etc/nix/nix.conf"];
+    for path in &etc_files {
+        let p = Path::new(path);
+        let backup = format!("{path}.before-nix-darwin");
+        if p.exists() && !Path::new(&backup).exists() {
+            info("backing up", &format!("{path} → {backup}"));
+            let _ = Command::new("sudo").args(["mv", path, &backup]).status();
+        }
     }
 
     // Use the darwin-rebuild from the build result, via sudo
@@ -184,6 +206,10 @@ fn ok(label: &str, detail: &str) {
         label,
         style(detail).dim()
     );
+}
+
+fn info(label: &str, detail: &str) {
+    eprintln!("  {} {}: {}", style("→").cyan(), label, style(detail).dim());
 }
 
 fn install_nix() -> Result<()> {
