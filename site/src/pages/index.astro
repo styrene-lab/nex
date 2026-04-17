@@ -21,7 +21,7 @@ import Base from '../layouts/Base.astro';
       </div>
       <p class="install-alt">
         or <code>cargo install nex-pkg</code>
-        &middot; <code>nix profile install github:styrene-lab/nex</code>
+        &middot; <code>nix profile add github:styrene-lab/nex</code>
       </p>
     </div>
   </div>
@@ -78,12 +78,19 @@ import Base from '../layouts/Base.astro';
         </p>
       </div>
       <div class="feature">
-        <h3>Three tiers</h3>
+        <h3>Smart resolution</h3>
         <p>
-          <code>nex install</code> for Nix packages.
-          <code>--cask</code> for GUI apps via Homebrew.
-          <code>--brew</code> for formulae that need to stay in Homebrew.
-          One tool, three backends.
+          <code>nex install zed</code> finds <code>zed-editor</code> in nixpkgs,
+          detects the cask, compares versions, and recommends the best source.
+          Name aliases built in &mdash; <code>rg</code> finds <code>ripgrep</code>.
+        </p>
+      </div>
+      <div class="feature">
+        <h3>Safe onboarding</h3>
+        <p>
+          <code>nex adopt</code> captures your existing brew packages into the
+          config before the first switch. Detects PATH collisions with manually
+          installed binaries and offers to pin them. Nothing gets nuked.
         </p>
       </div>
       <div class="feature">
@@ -92,6 +99,15 @@ import Base from '../layouts/Base.astro';
           Under the hood, your packages live in <code>.nix</code> files
           checked into git. Reproducible across machines. Diff-able.
           Rollback-able. The config <em>is</em> the install state.
+        </p>
+      </div>
+      <div class="feature">
+        <h3>Self-maintaining</h3>
+        <p>
+          <code>nex self-update</code> pulls the latest release.
+          <code>nex doctor</code> checks your config for common issues and
+          fixes them. <code>nex migrate</code> identifies brew packages
+          that can move to nix.
         </p>
       </div>
     </div>
@@ -108,8 +124,12 @@ import Base from '../layouts/Base.astro';
         <span class="usage-desc">Bootstrap nix-darwin + homebrew from scratch</span>
       </div>
       <div class="usage-item">
+        <code class="usage-cmd">nex adopt</code>
+        <span class="usage-desc">Capture existing brew packages into the config</span>
+      </div>
+      <div class="usage-item">
         <code class="usage-cmd">nex install htop</code>
-        <span class="usage-desc">Install a Nix package</span>
+        <span class="usage-desc">Install a package (auto-resolves source)</span>
       </div>
       <div class="usage-item">
         <code class="usage-cmd">nex install --cask slack</code>
@@ -140,16 +160,28 @@ import Base from '../layouts/Base.astro';
         <span class="usage-desc">Ephemeral shell, no install</span>
       </div>
       <div class="usage-item">
-        <code class="usage-cmd">nex rollback</code>
-        <span class="usage-desc">Revert to previous generation</span>
-      </div>
-      <div class="usage-item">
         <code class="usage-cmd">nex switch</code>
         <span class="usage-desc">Rebuild and activate</span>
       </div>
       <div class="usage-item">
+        <code class="usage-cmd">nex rollback</code>
+        <span class="usage-desc">Revert to previous generation</span>
+      </div>
+      <div class="usage-item">
         <code class="usage-cmd">nex diff</code>
         <span class="usage-desc">Preview what would change</span>
+      </div>
+      <div class="usage-item">
+        <code class="usage-cmd">nex migrate</code>
+        <span class="usage-desc">Find brew packages that can move to nix</span>
+      </div>
+      <div class="usage-item">
+        <code class="usage-cmd">nex doctor</code>
+        <span class="usage-desc">Check and fix config issues</span>
+      </div>
+      <div class="usage-item">
+        <code class="usage-cmd">nex self-update</code>
+        <span class="usage-desc">Update nex to the latest release</span>
       </div>
       <div class="usage-item">
         <code class="usage-cmd">nex gc</code>
@@ -166,16 +198,24 @@ import Base from '../layouts/Base.astro';
     <div class="comparison">
       <div class="comparison-col before">
         <h3>Before</h3>
-        <pre><code><span class="fg-dim"># Open the right nix file...</span>
+        <pre><code><span class="fg-dim"># Which file was it again?</span>
 vim nix/modules/home/base.nix
 <span class="fg-dim"># Add the package to the list...</span>
 <span class="fg-dim"># Save, exit...</span>
 darwin-rebuild switch --flake .#hostname
-<span class="fg-dim"># Did it break? Check. Revert manually.</span></code></pre>
+<span class="fg-dim"># Did it break? Revert manually.</span>
+<span class="fg-dim"># Was it a cask? Different file.</span>
+<span class="fg-dim"># Is "zed" the right attr name?</span></code></pre>
       </div>
       <div class="comparison-col after">
         <h3>After</h3>
-        <pre><code>nex install htop</code></pre>
+        <pre><code><span class="fg-dim"># First time? Bring your packages.</span>
+nex init
+nex adopt
+nex switch
+
+<span class="fg-dim"># Then just:</span>
+nex install zed</code></pre>
       </div>
     </div>
   </div>
