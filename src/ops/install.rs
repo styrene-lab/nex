@@ -207,8 +207,10 @@ fn install_as(
             edit::insert(&config.nix_packages_file, &nixfile::NIX_PACKAGES, attr)
         }
         Source::BrewCask => {
+            // Use the canonical cask name (e.g. "vscode" -> "visual-studio-code")
+            let cask = crate::aliases::brew_cask_name(pkg).unwrap_or(pkg);
             session.backup(&config.homebrew_file)?;
-            edit::insert(&config.homebrew_file, &nixfile::HOMEBREW_CASKS, pkg)
+            edit::insert(&config.homebrew_file, &nixfile::HOMEBREW_CASKS, cask)
         }
         Source::BrewFormula => {
             session.backup(&config.homebrew_file)?;

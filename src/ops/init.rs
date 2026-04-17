@@ -535,6 +535,8 @@ nix-darwin.lib.darwinSystem {
 
 {{
 {nix_block}
+  nixpkgs.config.allowUnfree = true;
+
   system.primaryUser = username;
 
   environment.shells = [ pkgs.bash ];

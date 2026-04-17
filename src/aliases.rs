@@ -29,6 +29,22 @@ const ALIASES: &[(&str, &str)] = &[
     ("python", "python3"),
 ];
 
+/// Brew cask name mappings — (input_name, brew_cask_name).
+/// Used by the resolver to check casks under the correct name when the
+/// user types a shorthand or nixpkgs attr name.
+const BREW_CASK_ALIASES: &[(&str, &str)] = &[
+    ("vscode", "visual-studio-code"),
+    ("code", "visual-studio-code"),
+    ("zed", "zed"),
+    ("zed-editor", "zed"),
+    ("iterm2", "iterm2"),
+    ("docker", "docker"),
+    ("docker-desktop", "docker"),
+    ("1password", "1password"),
+    ("_1password-gui", "1password"),
+    ("wezterm", "wezterm"),
+];
+
 /// Look up the nixpkgs attribute for a given name.
 /// Returns the canonical attr if found, or None.
 pub fn nixpkgs_attr_static(name: &str) -> Option<&'static str> {
@@ -44,6 +60,17 @@ pub fn nixpkgs_attr_static(name: &str) -> Option<&'static str> {
 /// Returns the canonical attr if found, or the original name.
 pub fn nixpkgs_attr<'a>(name: &'a str) -> &'a str {
     nixpkgs_attr_static(name).unwrap_or(name)
+}
+
+/// Look up the brew cask name for a given input.
+/// Returns the cask name if known, or None.
+pub fn brew_cask_name(name: &str) -> Option<&'static str> {
+    for &(alias, cask) in BREW_CASK_ALIASES {
+        if alias == name {
+            return Some(cask);
+        }
+    }
+    None
 }
 
 /// Get all names that map to the same nixpkgs attribute as the given name.

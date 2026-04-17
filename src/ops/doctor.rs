@@ -17,6 +17,9 @@ pub fn run(config: &Config) -> Result<()> {
         // Changes were made — need a switch
     }
 
+    // Check unfree packages allowed
+    check_allow_unfree(config, &mut fixed)?;
+
     if fixed > 0 {
         // Commit the changes so nix doesn't complain about dirty tree
         let repo = &config.repo;
@@ -139,6 +142,55 @@ fn check_mac_app_util(config: &Config, fixed: &mut usize) -> Result<bool> {
             info("patched", &mkhost_path.display().to_string());
         }
     }
+
+    *fixed += 1;
+    Ok(true)
+}
+
+/// Check if nixpkgs.config.allowUnfree is set. Many common packages
+/// (vscode, slack, spotify, terraform, vault) are unfree.
+fn check_allow_unfree(config: &Config, fixed: &mut usize) -> Result<bool> {
+    // Check all nix files in the repo for any unfree config
+    let base_path = config.repo.join("nix/modules/darwin/base.nix");
+    if !base_path.exists() {
+        return Ok(false);
+    }
+
+    let content = std::fs::read_to_string(&base_path)
+        .with_context(|| format!("reading {}", base_path.display()))?;
+
+    if content.contains("allowUnfree") {
+        ok("unfree packages", "nixpkgs.config.allowUnfree is set");
+        return Ok(false);
+    }
+
+    warn(
+        "unfree packages",
+        "not allowed — vscode, slack, spotify, etc. will fail to install",
+    );
+
+    // Insert after the nix.enable or nix.settings line
+    let patched = if content.contains("nix.enable = false;") {
+        content.replace(
+            "nix.enable = false;",
+            "nix.enable = false;\n\n  nixpkgs.config.allowUnfree = true;",
+        )
+    } else if content.contains("nix.settings.experimental-features") {
+        content.replace(
+            "nix.settings.experimental-features",
+            "nixpkgs.config.allowUnfree = true;\n\n  nix.settings.experimental-features",
+        )
+    } else {
+        // Can't find a good insertion point
+        output::warn(
+            "could not auto-patch base.nix — add `nixpkgs.config.allowUnfree = true;` manually",
+        );
+        return Ok(false);
+    };
+
+    std::fs::write(&base_path, patched)
+        .with_context(|| format!("writing {}", base_path.display()))?;
+    info("patched", &base_path.display().to_string());
 
     *fixed += 1;
     Ok(true)

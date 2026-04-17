@@ -71,8 +71,13 @@ pub fn resolve(pkg: &str) -> Result<ResolveResult> {
     }
 
     if brew_checked {
-        // Check brew cask
-        if let Some(version) = exec::brew_cask_info(pkg)? {
+        // Check brew cask — try the raw name, then known cask aliases
+        let cask_version =
+            exec::brew_cask_info(pkg)?.or(match crate::aliases::brew_cask_name(pkg) {
+                Some(cask_name) if cask_name != pkg => exec::brew_cask_info(cask_name)?,
+                _ => None,
+            });
+        if let Some(version) = cask_version {
             candidates.push(Candidate {
                 source: Source::BrewCask,
                 version,
