@@ -12,6 +12,8 @@
   --border-dim: #304345;
   --accent-warn: #f0c800;
   --accent-err: #f04848;
+  --c-nix: #5cbbf6;
+  --c-brew: #fbb040;
 
   --sans: 'Tomorrow', system-ui, sans-serif;
   --mono: 'JetBrains Mono', ui-monospace, monospace;

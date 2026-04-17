@@ -2,13 +2,13 @@
 import Base from '../layouts/Base.astro';
 ---
 
-<Base title="nex — nix the brew">
+<Base title="nex — nex the briw">
 
 <!-- Hero -->
 <section class="hero">
   <div class="container">
     <p class="eyebrow">Package management for nix-darwin</p>
-    <h1>nix the brew.</h1>
+    <h1><span class="c-nix">n</span><span class="c-brew">e</span><span class="c-nix">x</span> the <span class="c-brew">br</span><span class="c-nix">i</span><span class="c-brew">w</span>.</h1>
     <p class="tagline">
       One command to install, remove, search, and update packages across
       <strong>Nix</strong> and <strong>Homebrew</strong> on macOS.
@@ -218,6 +218,8 @@ darwin-rebuild switch --flake .#hostname
     line-height: 1.1;
     margin-bottom: 1.5rem;
   }
+  .c-nix { color: var(--c-nix); }
+  .c-brew { color: var(--c-brew); }
   .tagline {
     font-size: 1.15rem;
     color: var(--fg-dim);
