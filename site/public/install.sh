@@ -56,17 +56,19 @@ try_prebuilt() {
   fi
 
   info "Downloading prebuilt binary for ${TARGET}..."
-  local tmpdir
-  tmpdir=$(mktemp -d)
-  trap 'rm -rf "$tmpdir"' EXIT
+  _TMPDIR=$(mktemp -d)
+  trap 'rm -rf "$_TMPDIR"' EXIT
 
-  curl -fsSL "$url" -o "$tmpdir/nex.tar.gz"
-  tar -xzf "$tmpdir/nex.tar.gz" -C "$tmpdir"
+  curl -fsSL "$url" -o "$_TMPDIR/nex.tar.gz"
+  tar -xzf "$_TMPDIR/nex.tar.gz" -C "$_TMPDIR"
 
   local install_dir="${NEX_INSTALL_DIR:-$HOME/.local/bin}"
   mkdir -p "$install_dir"
-  mv "$tmpdir/nex" "$install_dir/nex"
+  mv "$_TMPDIR/nex" "$install_dir/nex"
   chmod +x "$install_dir/nex"
+
+  rm -rf "$_TMPDIR"
+  trap - EXIT
 
   printf "  installed to %s\n" "$install_dir/nex"
   ensure_path "$install_dir"
