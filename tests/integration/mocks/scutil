@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Mock scutil for integration tests.
+set -euo pipefail
+
+if [[ "${1:-}" == "--get" && "${2:-}" == "LocalHostName" ]]; then
+  echo "${MOCK_HOSTNAME:-test-host}"
+  exit 0
+fi
+
+echo "mock scutil: unsupported args: $*" >&2
+exit 1

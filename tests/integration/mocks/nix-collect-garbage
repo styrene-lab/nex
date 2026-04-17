@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Mock nix-collect-garbage for integration tests.
+echo "mock: 0 store paths deleted"
+exit 0

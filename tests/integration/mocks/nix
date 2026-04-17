@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+# Mock nix binary for integration tests.
+# Handles: eval, search, build, shell, store, flake
+set -euo pipefail
+
+# Package database: attr → version
+declare -A NIXPKGS=(
+  [htop]="3.3.0"
+  [ripgrep]="14.1.0"
+  [git]="2.44.0"
+  [vim]="9.1.0"
+  [firefox]="128.0"
+  [wget]="1.24.5"
+  [jq]="1.7.1"
+  [tmux]="3.4"
+  [btop]="1.3.2"
+  [curl]="8.7.1"
+  [tree]="2.1.1"
+  [nodejs]="22.2.0"
+  [bash]="5.2"
+  [zsh]="5.9"
+  [neovim]="0.10.0"
+  [go]="1.22.3"
+)
+
+cmd="${1:-}"
+shift || true
+
+case "$cmd" in
+  eval)
+    # nix eval nixpkgs#pkg.version --raw
+    # nix eval nixpkgs#pkg.name --raw
+    # nix eval .#darwinConfigurations.host.system --show-trace (from init)
+    expr=""
+    raw=false
+    for arg in "$@"; do
+      case "$arg" in
+        --raw) raw=true ;;
+        --show-trace) ;;
+        nixpkgs#*) expr="$arg" ;;
+        .*) exit 0 ;;  # flake eval — just succeed
+      esac
+    done
+
+    if [[ -z "$expr" ]]; then
+      exit 0
+    fi
+
+    # Parse nixpkgs#pkg.field
+    rest="${expr#nixpkgs#}"
+    pkg="${rest%%.*}"
+    field="${rest#*.}"
+
+    if [[ -n "${NIXPKGS[$pkg]+set}" ]]; then
+      case "$field" in
+        version) printf '%s' "${NIXPKGS[$pkg]}" ;;
+        name)    printf '%s' "$pkg" ;;
+        *)       printf '%s' "$pkg" ;;
+      esac
+      exit 0
+    else
+      exit 1
+    fi
+    ;;
+
+  search)
+    # nix search nixpkgs <query>
+    query="${2:-}"
+    echo "* nixpkgs.${query} (0.0.0)"
+    echo "  Mock search result for ${query}"
+    exit 0
+    ;;
+
+  build)
+    # nix build .#darwinConfigurations.host.system --show-trace
+    # Create a fake result symlink if we're in a repo dir
+    if [[ -d "nix" ]]; then
+      mkdir -p result/sw/bin
+      cat > result/sw/bin/darwin-rebuild << 'INNER'
+#!/usr/bin/env bash
+exec darwin-rebuild "$@"
+INNER
+      chmod +x result/sw/bin/darwin-rebuild
+    fi
+    exit 0
+    ;;
+
+  shell)
+    # nix shell nixpkgs#pkg — just succeed
+    echo "entering mock nix shell"
+    exit 0
+    ;;
+
+  store)
+    subcmd="${1:-}"
+    case "$subcmd" in
+      gc)
+        echo "0 store paths deleted, 0.00 MiB freed"
+        ;;
+      diff-closures)
+        echo "no changes"
+        ;;
+    esac
+    exit 0
+    ;;
+
+  flake)
+    subcmd="${1:-}"
+    case "$subcmd" in
+      update)
+        echo "mock: flake inputs updated"
+        ;;
+    esac
+    exit 0
+    ;;
+
+  --version)
+    echo "nix (Nix) 2.22.0"
+    exit 0
+    ;;
+
+  *)
+    echo "mock nix: unknown command '$cmd'" >&2
+    exit 1
+    ;;
+esac

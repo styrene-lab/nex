@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Mock darwin-rebuild for integration tests.
+# Set MOCK_SWITCH_FAIL=1 to simulate a failed switch.
+set -euo pipefail
+
+cmd="${1:-}"
+
+case "$cmd" in
+  switch)
+    if [[ "${MOCK_SWITCH_FAIL:-}" == "1" ]]; then
+      echo "error: build failed (mock)" >&2
+      exit 1
+    fi
+    echo "mock: darwin-rebuild switch succeeded"
+    exit 0
+    ;;
+  build)
+    echo "mock: darwin-rebuild build succeeded"
+    exit 0
+    ;;
+  *)
+    echo "mock darwin-rebuild: unknown command '$cmd'" >&2
+    exit 1
+    ;;
+esac

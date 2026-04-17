@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# Mock sudo: just execute the command without privilege escalation.
+exec "$@"

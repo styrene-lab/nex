@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+# Mock brew binary for integration tests.
+# Handles: --version, info, list, leaves
+set -euo pipefail
+
+# Exit immediately if brew is supposed to be unavailable
+if [[ "${MOCK_BREW_UNAVAILABLE:-}" == "1" ]]; then
+  exit 127
+fi
+
+# Cask database: name → version
+declare -A CASKS=(
+  [firefox]="128.0.3"
+  [slack]="4.39.0"
+  [spotify]="1.2.40"
+  [docker]="4.30.0"
+  [visual-studio-code]="1.89.1"
+)
+
+# Formula database: name → version
+declare -A FORMULAE=(
+  [wget]="1.24.5"
+  [rustup]="1.27.1"
+  [cmake]="3.29.3"
+)
+
+# Installed casks (simulate what's on disk)
+INSTALLED_CASKS=(slack spotify docker)
+
+# Installed formula leaves (top-level, not deps)
+INSTALLED_LEAVES=(wget rustup cmake)
+
+cmd="${1:-}"
+
+case "$cmd" in
+  --version)
+    echo "Homebrew 4.4.0"
+    exit 0
+    ;;
+
+  info)
+    shift
+    json_flag=false
+    kind=""
+    pkg=""
+    for arg in "$@"; do
+      case "$arg" in
+        --json=v2) json_flag=true ;;
+        --cask)    kind="cask" ;;
+        --formula) kind="formula" ;;
+        *)         pkg="$arg" ;;
+      esac
+    done
+
+    if [[ "$kind" == "cask" ]]; then
+      if [[ -n "${CASKS[$pkg]+set}" ]]; then
+        ver="${CASKS[$pkg]}"
+        cat <<EOF
+{"casks":[{"token":"${pkg}","version":"${ver}","name":["${pkg}"],"desc":"Mock cask"}]}
+EOF
+        exit 0
+      else
+        exit 1
+      fi
+    elif [[ "$kind" == "formula" ]]; then
+      if [[ -n "${FORMULAE[$pkg]+set}" ]]; then
+        ver="${FORMULAE[$pkg]}"
+        cat <<EOF
+{"formulae":[{"name":"${pkg}","versions":{"stable":"${ver}"},"desc":"Mock formula"}]}
+EOF
+        exit 0
+      else
+        exit 1
+      fi
+    fi
+    exit 1
+    ;;
+
+  list)
+    shift
+    kind=""
+    for arg in "$@"; do
+      case "$arg" in
+        --cask)    kind="cask" ;;
+        --formula) kind="formula" ;;
+      esac
+    done
+
+    if [[ "$kind" == "cask" ]]; then
+      printf '%s\n' "${INSTALLED_CASKS[@]}"
+    elif [[ "$kind" == "formula" ]]; then
+      printf '%s\n' "${INSTALLED_LEAVES[@]}"
+    fi
+    exit 0
+    ;;
+
+  leaves)
+    printf '%s\n' "${INSTALLED_LEAVES[@]}"
+    exit 0
+    ;;
+
+  *)
+    echo "mock brew: unknown command '$cmd'" >&2
+    exit 1
+    ;;
+esac
