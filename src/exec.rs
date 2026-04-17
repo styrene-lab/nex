@@ -5,16 +5,21 @@ use anyhow::{bail, Context, Result};
 
 /// Run a command, inheriting stdout/stderr. Returns Ok if exit code 0.
 fn run(cmd: &mut Command) -> Result<()> {
-    let status = cmd
-        .status()
-        .with_context(|| format!("failed to run: {:?}", cmd))?;
-    if !status.success() {
-        bail!(
-            "command failed with exit code {}",
+    let program = cmd.get_program().to_string_lossy().to_string();
+    match cmd.status() {
+        Ok(status) if status.success() => Ok(()),
+        Ok(status) => bail!(
+            "{program} failed with exit code {}",
             status.code().unwrap_or(-1)
-        );
+        ),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            bail!(
+                "{program} not found — is it installed and in your PATH?\n\
+                   hint: if you haven't run darwin-rebuild yet, see: nex.styrene.io"
+            )
+        }
+        Err(e) => Err(e).with_context(|| format!("failed to run {program}")),
     }
-    Ok(())
 }
 
 /// Validate that a nix package attribute exists in nixpkgs.
