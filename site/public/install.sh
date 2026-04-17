@@ -169,11 +169,17 @@ fi
 
 if ! $installed; then
   printf "\n"
-  fail "Could not install nex."
-  printf "\n"
-  printf "  Install one of:\n"
-  printf "  • ${C}nix${N}   — https://determinate.systems/nix-installer\n"
-  printf "  • ${C}cargo${N} — https://rustup.rs\n\n"
+  printf " ${R}✗${N} Could not install nex.\n\n"
+  printf "  No prebuilt binary available for ${B}${TARGET}${N}.\n"
+  if ! $has_nix; then
+    printf "  ${Y}!${N} nix not found\n"
+  fi
+  if ! $has_cargo; then
+    printf "  ${Y}!${N} cargo not found\n"
+  fi
+  printf "\n  Install one of these, then re-run:\n"
+  printf "  • ${C}nix${N}   — curl --proto '=https' -sSf -L https://install.determinate.systems/nix | sh\n"
+  printf "  • ${C}cargo${N} — curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh\n\n"
   exit 1
 fi
 
