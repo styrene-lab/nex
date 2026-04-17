@@ -84,7 +84,7 @@ try_prebuilt() {
     return 1
   fi
 
-  install_dir="${NEX_INSTALL_DIR:-$HOME/.local/bin}"
+  install_dir="$(pick_install_dir)"
   mkdir -p "$install_dir"
   mv "$_TMPDIR/nex" "$install_dir/nex"
   chmod +x "$install_dir/nex"
@@ -158,16 +158,64 @@ try_cargo() {
   return 0
 }
 
+# Choose the best install directory.
+# Explicit override > /usr/local/bin (if writable) > ~/.local/bin
+pick_install_dir() {
+  if [ -n "${NEX_INSTALL_DIR:-}" ]; then
+    printf '%s' "$NEX_INSTALL_DIR"
+    return
+  fi
+
+  # /usr/local/bin is in PATH everywhere — prefer it if writable
+  if [ -d /usr/local/bin ] && [ -w /usr/local/bin ]; then
+    printf '%s' "/usr/local/bin"
+    return
+  fi
+
+  printf '%s' "$HOME/.local/bin"
+}
+
+# Append a PATH export to a shell profile if not already present.
+patch_profile() {
+  profile="$1"
+  dir="$2"
+  marker='# Added by nex installer'
+
+  [ -f "$profile" ] || return 1
+  # Already patched
+  grep -qF "$marker" "$profile" 2>/dev/null && return 0
+
+  printf '\n%s\nexport PATH="%s:$PATH"\n' "$marker" "$dir" >> "$profile"
+  return 0
+}
+
 ensure_path() {
   dir="$1"
   case ":$PATH:" in
-    *":$dir:"*) ;;
-    *)
-      warn "$dir is not in your PATH"
-      printf "\n  Add to your shell profile:\n"
-      printf "  %bexport PATH=\"\$PATH:%s\"%b\n" "$C" "$dir" "$N"
-      ;;
+    *":$dir:"*) return ;;  # already in PATH
   esac
+
+  # Auto-patch shell profiles so it persists
+  patched=false
+  for profile in "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.profile"; do
+    if patch_profile "$profile" "$dir"; then
+      patched=true
+    fi
+  done
+
+  # If no profile existed at all, create .zshrc (macOS default) or .bashrc
+  if [ "$patched" = "false" ]; then
+    if [ "$OS" = "Darwin" ]; then
+      target="$HOME/.zshrc"
+    else
+      target="$HOME/.bashrc"
+    fi
+    printf '# Added by nex installer\nexport PATH="%s:$PATH"\n' "$dir" > "$target"
+    patched=true
+  fi
+
+  # Add to current session too
+  export PATH="$dir:$PATH"
 }
 
 # ─── Main ────────────────────────────────────────────────────────────────────
