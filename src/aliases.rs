@@ -12,18 +12,23 @@ const ALIASES: &[(&str, &str)] = &[
     ("bat", "bat"),
     ("lg", "lazygit"),
     ("hx", "helix"),
-    // Brew name -> nixpkgs attr (where they differ)
+    // Common name -> nixpkgs attr (where they differ)
     ("zed", "zed-editor"),
-    ("wezterm", "wezterm"),
     ("neovim", "neovim"),
     ("nvim", "neovim"),
     ("code", "vscode"),
     ("visual-studio-code", "vscode"),
-    ("iterm2", "iterm2"),
     ("1password", "_1password-gui"),
     ("1password-cli", "_1password"),
     ("docker", "docker"),
     ("docker-desktop", "docker"),
+    ("zoom", "zoom-us"),
+    ("sublime", "sublime4"),
+    ("sublime-text", "sublime4"),
+    ("terraform", "terraform"),
+    ("hashicorp-terraform", "terraform"),
+    ("vault", "vault"),
+    ("hashicorp-vault", "vault"),
     // Python version aliases
     ("python3", "python3"),
     ("python", "python3"),
@@ -33,16 +38,36 @@ const ALIASES: &[(&str, &str)] = &[
 /// Used by the resolver to check casks under the correct name when the
 /// user types a shorthand or nixpkgs attr name.
 const BREW_CASK_ALIASES: &[(&str, &str)] = &[
+    // Editors
     ("vscode", "visual-studio-code"),
     ("code", "visual-studio-code"),
     ("zed", "zed"),
     ("zed-editor", "zed"),
-    ("iterm2", "iterm2"),
+    ("sublime", "sublime-text"),
+    ("sublime4", "sublime-text"),
+    // Communication
+    ("slack", "slack"),
+    ("discord", "discord"),
+    ("zoom", "zoom"),
+    ("zoom-us", "zoom"),
+    ("spotify", "spotify"),
+    ("postman", "postman"),
+    // Browsers
+    ("firefox", "firefox"),
+    ("chrome", "google-chrome"),
+    ("google-chrome", "google-chrome"),
+    ("brave", "brave-browser"),
+    // Dev tools
     ("docker", "docker"),
     ("docker-desktop", "docker"),
+    ("iterm2", "iterm2"),
+    ("wezterm", "wezterm"),
+    ("obsidian", "obsidian"),
     ("1password", "1password"),
     ("_1password-gui", "1password"),
-    ("wezterm", "wezterm"),
+    // Hashicorp
+    ("terraform", "hashicorp-terraform"),
+    ("vault", "hashicorp-vault"),
 ];
 
 /// Look up the nixpkgs attribute for a given name.
