@@ -221,11 +221,51 @@ fn find_darwin_rebuild() -> Result<String> {
 }
 
 /// Run darwin-rebuild switch (requires sudo for system activation).
+/// After a successful switch, re-registers nix .app bundles with LaunchServices
+/// so Spotlight displays correct icons.
 pub fn darwin_rebuild_switch(repo: &Path, hostname: &str) -> Result<()> {
     let dr = find_darwin_rebuild()?;
     run(Command::new("sudo")
         .args([&dr, "switch", "--flake", &format!(".#{hostname}")])
-        .current_dir(repo))
+        .current_dir(repo))?;
+    refresh_app_icons();
+    Ok(())
+}
+
+/// Re-register nix .app bundles with LaunchServices so Spotlight shows correct icons.
+fn refresh_app_icons() {
+    let lsregister = "/System/Library/Frameworks/CoreServices.framework/\
+                      Frameworks/LaunchServices.framework/Support/lsregister";
+
+    if !Path::new(lsregister).exists() {
+        return;
+    }
+
+    let app_dirs: Vec<std::path::PathBuf> = [
+        dirs::home_dir().map(|h| h.join("Applications/Home Manager Apps")),
+        Some(std::path::PathBuf::from("/Applications/Nix Apps")),
+    ]
+    .into_iter()
+    .flatten()
+    .filter(|d| d.exists())
+    .collect();
+
+    if app_dirs.is_empty() {
+        return;
+    }
+
+    for dir in &app_dirs {
+        let entries = match std::fs::read_dir(dir) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("app") {
+                let _ = Command::new(lsregister).args(["-f"]).arg(&path).output();
+            }
+        }
+    }
 }
 
 /// Run darwin-rebuild build (for diff). No sudo needed — build only.
