@@ -42,9 +42,17 @@ pub enum Resolution {
     NotFound,
 }
 
+/// Full result of resolve(), including whether all sources were checked.
+pub struct ResolveResult {
+    pub resolution: Resolution,
+    /// True if brew was available and checked during resolution.
+    pub brew_checked: bool,
+}
+
 /// Resolve a package across nixpkgs, brew casks, and brew formulae.
-pub fn resolve(pkg: &str) -> Result<Resolution> {
+pub fn resolve(pkg: &str) -> Result<ResolveResult> {
     let mut candidates = Vec::new();
+    let brew_checked = exec::brew_available();
 
     // Check nixpkgs
     if let Some(version) = exec::nix_eval_version(pkg)? {
@@ -54,41 +62,48 @@ pub fn resolve(pkg: &str) -> Result<Resolution> {
         });
     }
 
-    // Check brew cask
-    if let Some(version) = exec::brew_cask_info(pkg)? {
-        candidates.push(Candidate {
-            source: Source::BrewCask,
-            version,
-        });
-    }
-
-    // Check brew formula (only if not found as cask — formulae and casks rarely overlap)
-    if !candidates.iter().any(|c| c.source == Source::BrewCask) {
-        if let Some(version) = exec::brew_formula_info(pkg)? {
+    if brew_checked {
+        // Check brew cask
+        if let Some(version) = exec::brew_cask_info(pkg)? {
             candidates.push(Candidate {
-                source: Source::BrewFormula,
+                source: Source::BrewCask,
                 version,
             });
         }
+
+        // Check brew formula (only if not found as cask — formulae and casks rarely overlap)
+        if !candidates.iter().any(|c| c.source == Source::BrewCask) {
+            if let Some(version) = exec::brew_formula_info(pkg)? {
+                candidates.push(Candidate {
+                    source: Source::BrewFormula,
+                    version,
+                });
+            }
+        }
     }
 
-    match candidates.len() {
-        0 => Ok(Resolution::NotFound),
+    let resolution = match candidates.len() {
+        0 => Resolution::NotFound,
         1 => {
             // Safe: len checked above
             #[allow(clippy::unwrap_used)]
             let candidate = candidates.into_iter().next().unwrap();
-            Ok(Resolution::Single(candidate))
+            Resolution::Single(candidate)
         }
         _ => {
             let (recommended, reason) = recommend(&candidates);
-            Ok(Resolution::Conflict {
+            Resolution::Conflict {
                 candidates,
                 recommended,
                 reason,
-            })
+            }
         }
-    }
+    };
+
+    Ok(ResolveResult {
+        resolution,
+        brew_checked,
+    })
 }
 
 /// Decide which source to recommend when there's a conflict.

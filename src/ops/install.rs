@@ -109,9 +109,22 @@ fn is_already_declared(config: &Config, pkg: &str) -> Result<bool> {
 
 /// Resolve which source to use for a package (auto mode).
 fn resolve_source(pkg: &str, dry_run: bool) -> Result<Source> {
-    let resolution = resolve::resolve(pkg)?;
+    let result = resolve::resolve(pkg)?;
 
-    match resolution {
+    // Warn if brew wasn't available — the user might be getting nix-only
+    // results for packages that should be casks.
+    if !result.brew_checked {
+        if let Resolution::Single(ref c) = result.resolution {
+            if c.source == Source::Nix {
+                output::warn(
+                    "brew not available — cask/formula check skipped; \
+                     use --cask or --brew to install via homebrew",
+                );
+            }
+        }
+    }
+
+    match result.resolution {
         Resolution::Single(candidate) => Ok(candidate.source),
         Resolution::Conflict {
             candidates,
@@ -129,7 +142,12 @@ fn resolve_source(pkg: &str, dry_run: bool) -> Result<Source> {
             }
         }
         Resolution::NotFound => {
-            output::not_found(pkg, "not found in nixpkgs or homebrew");
+            let hint = if result.brew_checked {
+                "not found in nixpkgs or homebrew"
+            } else {
+                "not found in nixpkgs (brew unavailable — install homebrew?)"
+            };
+            output::not_found(pkg, hint);
             anyhow::bail!("package {pkg} not found");
         }
     }

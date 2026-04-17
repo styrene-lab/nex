@@ -30,6 +30,10 @@ pub fn status(action: &str) {
     eprintln!("{}", style(format!(">>> {action}")).cyan().bold());
 }
 
+pub fn warn(msg: &str) {
+    eprintln!("{} {}", style("warning:").yellow().bold(), msg);
+}
+
 pub fn error(msg: &str) {
     eprintln!("{} {}", style("error:").red().bold(), msg);
 }

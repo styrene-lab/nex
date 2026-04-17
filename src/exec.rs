@@ -51,6 +51,17 @@ pub fn nix_eval_version(pkg: &str) -> Result<Option<String>> {
     }
 }
 
+/// Check whether the `brew` binary is available.
+pub fn brew_available() -> bool {
+    Command::new("brew")
+        .arg("--version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
 /// Check if a brew cask exists and return its version.
 pub fn brew_cask_info(pkg: &str) -> Result<Option<String>> {
     let output = Command::new("brew")
@@ -108,6 +119,44 @@ pub fn brew_formula_info(pkg: &str) -> Result<Option<String>> {
         .map(String::from);
 
     Ok(version)
+}
+
+/// List installed brew formulae (top-level only, not deps).
+pub fn brew_leaves() -> Result<Vec<String>> {
+    let output = Command::new("brew")
+        .arg("leaves")
+        .stderr(std::process::Stdio::null())
+        .output();
+
+    let output = match output {
+        Ok(o) if o.status.success() => o,
+        _ => return Ok(Vec::new()),
+    };
+
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(String::from)
+        .collect())
+}
+
+/// List installed brew casks.
+pub fn brew_list_casks() -> Result<Vec<String>> {
+    let output = Command::new("brew")
+        .args(["list", "--cask"])
+        .stderr(std::process::Stdio::null())
+        .output();
+
+    let output = match output {
+        Ok(o) if o.status.success() => o,
+        _ => return Ok(Vec::new()),
+    };
+
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter(|l| !l.is_empty())
+        .map(String::from)
+        .collect())
 }
 
 /// Search nixpkgs for packages matching a query.

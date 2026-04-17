@@ -35,8 +35,8 @@ impl Config {
             .or_else(|| file_config.repo_path.map(PathBuf::from))
             .or_else(|| discover::find_repo().ok())
             .context(
-                "Could not find nix-darwin repo. Set NEX_REPO, \
-                 create ~/.config/nex/config.toml, or run from within the repo.",
+                "Could not find nix-darwin repo. Run `nex init`, set NEX_REPO, \
+                 or create ~/.config/nex/config.toml with repo_path.",
             )?;
 
         let hostname = cli_hostname
@@ -74,14 +74,31 @@ impl Config {
     }
 }
 
+/// Canonical config directory: ~/.config/nex/
+pub fn config_dir() -> Result<PathBuf> {
+    let home = dirs::home_dir().context("no home directory")?;
+    Ok(home.join(".config/nex"))
+}
+
 fn load_file_config() -> Result<FileConfig> {
-    let config_dir = dirs::config_dir().context("no config directory")?;
-    let config_path = config_dir.join("nex/config.toml");
-    if !config_path.exists() {
-        return Ok(FileConfig::default());
+    // Primary: ~/.config/nex/config.toml (documented, discoverable)
+    let primary = config_dir()?.join("config.toml");
+    if primary.exists() {
+        let content = std::fs::read_to_string(&primary)
+            .with_context(|| format!("reading {}", primary.display()))?;
+        return Ok(toml::from_str(&content)?);
     }
-    let content = std::fs::read_to_string(&config_path)
-        .with_context(|| format!("reading {}", config_path.display()))?;
-    let config: FileConfig = toml::from_str(&content)?;
-    Ok(config)
+
+    // Fallback: platform config dir (~/Library/Application Support/nex/ on macOS)
+    // for backwards compatibility with configs written before this fix.
+    if let Some(platform_dir) = dirs::config_dir() {
+        let legacy = platform_dir.join("nex/config.toml");
+        if legacy.exists() {
+            let content = std::fs::read_to_string(&legacy)
+                .with_context(|| format!("reading {}", legacy.display()))?;
+            return Ok(toml::from_str(&content)?);
+        }
+    }
+
+    Ok(FileConfig::default())
 }

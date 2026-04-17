@@ -12,6 +12,54 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
     println!("  {} — first-time setup", style("nex init").bold());
     println!();
 
+    // 0. Check if a nix-darwin config already exists
+    if let Ok(existing) = crate::discover::find_repo() {
+        eprintln!(
+            "  {} found existing nix-darwin config at {}",
+            style("!").yellow().bold(),
+            style(existing.display()).cyan()
+        );
+        eprintln!();
+
+        let adopt = dialoguer::Confirm::new()
+            .with_prompt(format!(
+                "  Use {} instead of creating a new config?",
+                existing.display()
+            ))
+            .default(true)
+            .interact()?;
+
+        if adopt {
+            let hostname = crate::discover::hostname()?;
+            let config_dir = crate::config::config_dir()?;
+
+            if !dry_run {
+                std::fs::create_dir_all(&config_dir)?;
+                let config_content = format!(
+                    "repo_path = \"{}\"\nhostname = \"{}\"\n",
+                    existing.display(),
+                    hostname
+                );
+                std::fs::write(config_dir.join("config.toml"), &config_content)?;
+            }
+
+            ok("config repo", &existing.display().to_string());
+            ok(
+                "config",
+                &config_dir.join("config.toml").display().to_string(),
+            );
+            eprintln!();
+            eprintln!(
+                "  nex is now using {}. Run {} to activate.",
+                style(existing.display()).cyan(),
+                style("nex switch").bold()
+            );
+            eprintln!();
+            return Ok(());
+        }
+        eprintln!();
+    }
+
     // 1. Check / install Nix
     let has_nix = check_cmd("nix");
     if has_nix {
@@ -45,9 +93,7 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
     ok("config repo", &repo_path.display().to_string());
 
     // 5. Write nex config so future commands find the repo
-    let config_dir = dirs::config_dir()
-        .context("could not determine config directory")?
-        .join("nex");
+    let config_dir = crate::config::config_dir()?;
 
     if !dry_run {
         std::fs::create_dir_all(&config_dir)?;
@@ -397,6 +443,7 @@ nix-darwin.lib.darwinSystem {
       home-manager = {
         useGlobalPkgs = true;
         useUserPackages = true;
+        backupFileExtension = "backup";
         extraSpecialArgs = { inherit hostname username; };
       };
     }
