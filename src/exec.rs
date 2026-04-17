@@ -115,24 +115,35 @@ pub fn nix_search(query: &str) -> Result<()> {
     run(Command::new("nix").args(["search", "nixpkgs", query]))
 }
 
-/// Run darwin-rebuild switch.
+/// Run darwin-rebuild switch (requires sudo for system activation).
 pub fn darwin_rebuild_switch(repo: &Path, hostname: &str) -> Result<()> {
-    run(Command::new("darwin-rebuild")
-        .args(["switch", "--flake", &format!(".#{hostname}")])
+    run(Command::new("sudo")
+        .args([
+            "darwin-rebuild",
+            "switch",
+            "--flake",
+            &format!(".#{hostname}"),
+        ])
         .current_dir(repo))
 }
 
-/// Run darwin-rebuild build (for diff).
+/// Run darwin-rebuild build (for diff). No sudo needed — build only.
 pub fn darwin_rebuild_build(repo: &Path, hostname: &str) -> Result<()> {
     run(Command::new("darwin-rebuild")
         .args(["build", "--flake", &format!(".#{hostname}")])
         .current_dir(repo))
 }
 
-/// Run darwin-rebuild --rollback.
+/// Run darwin-rebuild --rollback (requires sudo for system activation).
 pub fn darwin_rebuild_rollback(repo: &Path, hostname: &str) -> Result<()> {
-    run(Command::new("darwin-rebuild")
-        .args(["switch", "--rollback", "--flake", &format!(".#{hostname}")])
+    run(Command::new("sudo")
+        .args([
+            "darwin-rebuild",
+            "switch",
+            "--rollback",
+            "--flake",
+            &format!(".#{hostname}"),
+        ])
         .current_dir(repo))
 }
 

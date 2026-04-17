@@ -92,7 +92,7 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
         );
     }
 
-    output::status("activating...");
+    output::status("activating (sudo required)...");
 
     // Back up nix.conf before first switch
     if Path::new("/etc/nix/nix.conf").exists()
@@ -103,42 +103,40 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
             .status();
     }
 
-    let switch_status = Command::new("nix")
-        .args([
-            "run",
-            "path:./result",
-            "--",
-            "switch",
-            "--flake",
-            &format!(".#{hostname}"),
-        ])
-        .current_dir(&repo_path)
-        .status();
-
-    // Try direct path to darwin-rebuild in the build result
-    let switch_ok = match switch_status {
-        Ok(s) if s.success() => true,
-        _ => {
-            // Fallback: try using the built result directly
-            let result_path = repo_path.join("result/sw/bin/darwin-rebuild");
-            if result_path.exists() {
-                Command::new(&result_path)
-                    .args(["switch", "--flake", &format!(".#{hostname}")])
-                    .current_dir(&repo_path)
-                    .status()
-                    .map(|s| s.success())
-                    .unwrap_or(false)
-            } else {
-                false
-            }
-        }
+    // Use the darwin-rebuild from the build result, via sudo
+    let result_path = repo_path.join("result/sw/bin/darwin-rebuild");
+    let switch_ok = if result_path.exists() {
+        Command::new("sudo")
+            .args([
+                result_path.to_string_lossy().as_ref(),
+                "switch",
+                "--flake",
+                &format!(".#{hostname}"),
+            ])
+            .current_dir(&repo_path)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    } else {
+        // Fallback: maybe darwin-rebuild is already in PATH
+        Command::new("sudo")
+            .args([
+                "darwin-rebuild",
+                "switch",
+                "--flake",
+                &format!(".#{hostname}"),
+            ])
+            .current_dir(&repo_path)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
     };
 
     if !switch_ok {
         println!();
         output::error("automatic activation failed — run manually:");
         println!(
-            "  cd {} && ./result/sw/bin/darwin-rebuild switch --flake .#{}",
+            "  cd {} && sudo ./result/sw/bin/darwin-rebuild switch --flake .#{}",
             repo_path.display(),
             hostname
         );
