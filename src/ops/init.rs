@@ -1,0 +1,476 @@
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+use anyhow::{bail, Context, Result};
+use console::style;
+
+use crate::output;
+
+/// Run `nex init` — bootstrap nix, homebrew, and a nix-darwin config on a fresh Mac.
+pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
+    println!();
+    println!("  {} — first-time setup", style("nex init").bold());
+    println!();
+
+    // 1. Check / install Nix
+    let has_nix = check_cmd("nix");
+    if has_nix {
+        ok("nix", &capture_version("nix", &["--version"]));
+    } else if dry_run {
+        output::dry_run("would install Determinate Nix");
+    } else {
+        install_nix()?;
+    }
+
+    // 2. Check / install Homebrew
+    let has_brew = check_cmd("brew");
+    if has_brew {
+        ok("homebrew", &capture_version("brew", &["--version"]));
+    } else if dry_run {
+        output::dry_run("would install Homebrew");
+    } else {
+        install_homebrew()?;
+    }
+
+    // 3. Detect hostname
+    let hostname = crate::discover::hostname()?;
+    ok("hostname", &hostname);
+
+    // 4. Set up the nix-darwin config repo
+    let repo_path = match from {
+        Some(url) => clone_repo(&url, dry_run)?,
+        None => scaffold_repo(&hostname, dry_run)?,
+    };
+
+    ok("config repo", &repo_path.display().to_string());
+
+    // 5. Write nex config so future commands find the repo
+    let config_dir = dirs::config_dir()
+        .context("could not determine config directory")?
+        .join("nex");
+
+    if !dry_run {
+        std::fs::create_dir_all(&config_dir)?;
+        let config_content = format!(
+            "repo_path = \"{}\"\nhostname = \"{}\"\n",
+            repo_path.display(),
+            hostname
+        );
+        std::fs::write(config_dir.join("config.toml"), config_content)?;
+    }
+    ok(
+        "config",
+        &config_dir.join("config.toml").display().to_string(),
+    );
+
+    // 6. First build + switch
+    if dry_run {
+        output::dry_run("would run darwin-rebuild switch");
+        println!();
+        return Ok(());
+    }
+
+    println!();
+    output::status("building (this takes a few minutes on first run)...");
+
+    // First build to verify it works
+    let build_status = Command::new("nix")
+        .args([
+            "build",
+            &format!(".#darwinConfigurations.{hostname}.system"),
+            "--show-trace",
+        ])
+        .current_dir(&repo_path)
+        .status()
+        .context("failed to run nix build")?;
+
+    if !build_status.success() {
+        bail!(
+            "nix build failed — check the config at {}\n\
+             You can fix issues and re-run: nex init",
+            repo_path.display()
+        );
+    }
+
+    output::status("activating...");
+
+    // Back up nix.conf before first switch
+    if Path::new("/etc/nix/nix.conf").exists()
+        && !Path::new("/etc/nix/nix.conf.pre-darwin").exists()
+    {
+        let _ = Command::new("sudo")
+            .args(["cp", "/etc/nix/nix.conf", "/etc/nix/nix.conf.pre-darwin"])
+            .status();
+    }
+
+    let switch_status = Command::new("nix")
+        .args([
+            "run",
+            "path:./result",
+            "--",
+            "switch",
+            "--flake",
+            &format!(".#{hostname}"),
+        ])
+        .current_dir(&repo_path)
+        .status();
+
+    // Try direct path to darwin-rebuild in the build result
+    let switch_ok = match switch_status {
+        Ok(s) if s.success() => true,
+        _ => {
+            // Fallback: try using the built result directly
+            let result_path = repo_path.join("result/sw/bin/darwin-rebuild");
+            if result_path.exists() {
+                Command::new(&result_path)
+                    .args(["switch", "--flake", &format!(".#{hostname}")])
+                    .current_dir(&repo_path)
+                    .status()
+                    .map(|s| s.success())
+                    .unwrap_or(false)
+            } else {
+                false
+            }
+        }
+    };
+
+    if !switch_ok {
+        println!();
+        output::error("automatic activation failed — run manually:");
+        println!(
+            "  cd {} && ./result/sw/bin/darwin-rebuild switch --flake .#{}",
+            repo_path.display(),
+            hostname
+        );
+        println!();
+        println!("  After that, open a new terminal and nex is ready.");
+        return Ok(());
+    }
+
+    println!();
+    println!("  {} Setup complete.", style("✓").green().bold());
+    println!();
+    println!("  Open a {} and run:", style("new terminal").bold());
+    println!(
+        "  {}  Install a package",
+        style("  nex install htop").cyan()
+    );
+    println!("  {}  Show all packages", style("  nex list").cyan());
+    println!();
+
+    Ok(())
+}
+
+fn check_cmd(name: &str) -> bool {
+    Command::new("which")
+        .arg(name)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+fn capture_version(cmd: &str, args: &[&str]) -> String {
+    Command::new(cmd)
+        .args(args)
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().lines().next().unwrap_or("").to_string())
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+fn ok(label: &str, detail: &str) {
+    eprintln!(
+        "  {} {}: {}",
+        style("✓").green().bold(),
+        label,
+        style(detail).dim()
+    );
+}
+
+fn install_nix() -> Result<()> {
+    output::status("installing Determinate Nix...");
+    let status = Command::new("sh")
+        .args([
+            "-c",
+            "curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install",
+        ])
+        .status()
+        .context("failed to run nix installer")?;
+
+    if !status.success() {
+        bail!("nix installation failed");
+    }
+
+    // Source nix in current process env
+    if let Ok(profile) =
+        std::fs::read_to_string("/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh")
+    {
+        // Can't source bash in Rust, but we can update PATH
+        for line in profile.lines() {
+            if line.starts_with("export PATH=") || line.contains("PATH=") {
+                if let Some(path_val) = line.split('=').nth(1) {
+                    let cleaned = path_val
+                        .trim_matches('"')
+                        .replace("$PATH", &std::env::var("PATH").unwrap_or_default());
+                    std::env::set_var("PATH", cleaned);
+                }
+            }
+        }
+    }
+    // Simpler fallback: just add the known nix paths
+    let current_path = std::env::var("PATH").unwrap_or_default();
+    std::env::set_var(
+        "PATH",
+        format!("/nix/var/nix/profiles/default/bin:{current_path}"),
+    );
+
+    Ok(())
+}
+
+fn install_homebrew() -> Result<()> {
+    output::status("installing Homebrew...");
+    let status = Command::new("sh")
+        .args([
+            "-c",
+            "/bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"",
+        ])
+        .status()
+        .context("failed to run Homebrew installer")?;
+
+    if !status.success() {
+        bail!("Homebrew installation failed");
+    }
+
+    // Add homebrew to PATH for this process
+    let current_path = std::env::var("PATH").unwrap_or_default();
+    std::env::set_var("PATH", format!("/opt/homebrew/bin:{current_path}"));
+
+    Ok(())
+}
+
+fn clone_repo(url: &str, dry_run: bool) -> Result<PathBuf> {
+    let home = dirs::home_dir().context("no home directory")?;
+    let repo_path = home.join("macos-nix");
+
+    if repo_path.exists() {
+        return Ok(repo_path);
+    }
+
+    if dry_run {
+        output::dry_run(&format!("would clone {url} to {}", repo_path.display()));
+        return Ok(repo_path);
+    }
+
+    output::status(&format!("cloning {url}..."));
+    let status = Command::new("git")
+        .args(["clone", url, &repo_path.display().to_string()])
+        .status()
+        .context("failed to run git clone")?;
+
+    if !status.success() {
+        bail!("git clone failed");
+    }
+
+    Ok(repo_path)
+}
+
+fn scaffold_repo(hostname: &str, dry_run: bool) -> Result<PathBuf> {
+    let home = dirs::home_dir().context("no home directory")?;
+    let repo_path = home.join("macos-nix");
+
+    if repo_path.exists() {
+        return Ok(repo_path);
+    }
+
+    if dry_run {
+        output::dry_run(&format!(
+            "would scaffold nix-darwin config at {}",
+            repo_path.display()
+        ));
+        return Ok(repo_path);
+    }
+
+    output::status("scaffolding nix-darwin config...");
+
+    // Create directory structure
+    let host_dir = repo_path.join(format!("nix/hosts/{hostname}"));
+    let darwin_dir = repo_path.join("nix/modules/darwin");
+    let home_dir = repo_path.join("nix/modules/home");
+    let lib_dir = repo_path.join("nix/lib");
+
+    std::fs::create_dir_all(&host_dir)?;
+    std::fs::create_dir_all(&darwin_dir)?;
+    std::fs::create_dir_all(&home_dir)?;
+    std::fs::create_dir_all(&lib_dir)?;
+
+    let user = std::env::var("USER").unwrap_or_else(|_| "user".to_string());
+
+    // flake.nix
+    std::fs::write(
+        repo_path.join("flake.nix"),
+        format!(
+            r#"{{
+  description = "macOS workstation management — nix-darwin + home-manager";
+
+  inputs = {{
+    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+    nix-darwin = {{
+      url = "github:LnL7/nix-darwin";
+      inputs.nixpkgs.follows = "nixpkgs";
+    }};
+    home-manager = {{
+      url = "github:nix-community/home-manager";
+      inputs.nixpkgs.follows = "nixpkgs";
+    }};
+  }};
+
+  outputs = {{ self, nixpkgs, nix-darwin, home-manager }}:
+    let
+      mkHost = import ./nix/lib/mkHost.nix {{ inherit nixpkgs nix-darwin home-manager; }};
+    in
+    {{
+      darwinConfigurations."{hostname}" = mkHost {{
+        hostname = "{hostname}";
+        system = "aarch64-darwin";
+        username = "{user}";
+        hostModule = ./nix/hosts/{hostname};
+      }};
+    }};
+}}
+"#
+        ),
+    )?;
+
+    // mkHost.nix
+    std::fs::write(
+        lib_dir.join("mkHost.nix"),
+        r#"{ nixpkgs, nix-darwin, home-manager }:
+
+{ hostname, system, username, hostModule }:
+
+nix-darwin.lib.darwinSystem {
+  inherit system;
+  specialArgs = { inherit hostname username; };
+  modules = [
+    hostModule
+    home-manager.darwinModules.home-manager
+    {
+      home-manager = {
+        useGlobalPkgs = true;
+        useUserPackages = true;
+        extraSpecialArgs = { inherit hostname username; };
+      };
+    }
+  ];
+}
+"#,
+    )?;
+
+    // Host default.nix
+    std::fs::write(
+        host_dir.join("default.nix"),
+        r#"{ pkgs, hostname, username, ... }:
+
+{
+  imports = [
+    ../../modules/darwin/base.nix
+    ../../modules/darwin/homebrew.nix
+  ];
+
+  networking.hostName = hostname;
+  networking.localHostName = hostname;
+
+  home-manager.users.${username} = import ../../modules/home/base.nix;
+
+  system.stateVersion = 6;
+}
+"#,
+    )?;
+
+    // darwin/base.nix
+    std::fs::write(
+        darwin_dir.join("base.nix"),
+        r#"{ pkgs, username, ... }:
+
+{
+  nix.settings.experimental-features = [ "nix-command" "flakes" ];
+  nix.package = pkgs.nix;
+
+  system.primaryUser = username;
+  nix.settings.trusted-users = [ username ];
+
+  environment.shells = [ pkgs.bash ];
+  users.users.${username} = {
+    shell = pkgs.bash;
+    home = "/Users/${username}";
+  };
+
+  security.pam.services.sudo_local.touchIdAuth = true;
+}
+"#,
+    )?;
+
+    // darwin/homebrew.nix
+    std::fs::write(
+        darwin_dir.join("homebrew.nix"),
+        r#"{ ... }:
+
+{
+  homebrew = {
+    enable = true;
+    onActivation = {
+      autoUpdate = true;
+      upgrade = true;
+      cleanup = "zap";
+    };
+    brews = [
+    ];
+    casks = [
+    ];
+  };
+}
+"#,
+    )?;
+
+    // home/base.nix
+    std::fs::write(
+        home_dir.join("base.nix"),
+        "{ pkgs, username, ... }:\n\
+         \n\
+         {\n\
+         \x20 home = {\n\
+         \x20   username = username;\n\
+         \x20   homeDirectory = \"/Users/${username}\";\n\
+         \x20   stateVersion = \"25.05\";\n\
+         \x20 };\n\
+         \n\
+         \x20 home.packages = with pkgs; [\n\
+         \x20   git\n\
+         \x20   vim\n\
+         \x20 ];\n\
+         \n\
+         \x20 programs.home-manager.enable = true;\n\
+         }\n",
+    )?;
+
+    // Init git repo
+    let _ = Command::new("git")
+        .args(["init"])
+        .current_dir(&repo_path)
+        .output();
+    let _ = Command::new("git")
+        .args(["branch", "-m", "main"])
+        .current_dir(&repo_path)
+        .output();
+    let _ = Command::new("git")
+        .args(["add", "-A"])
+        .current_dir(&repo_path)
+        .output();
+    let _ = Command::new("git")
+        .args(["commit", "-m", "init: nex scaffold"])
+        .current_dir(&repo_path)
+        .output();
+
+    Ok(repo_path)
+}

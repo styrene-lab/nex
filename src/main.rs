@@ -19,7 +19,13 @@ fn main() -> Result<()> {
 
     match &cli.command {
         // Commands that don't need config resolution
-        Command::Search { query } => return ops::search::run(query),
+        Command::Init { .. } | Command::Search { .. } | Command::Gc => {}
+        _ => {}
+    }
+
+    match cli.command {
+        Command::Init { from } => return ops::init::run(from, cli.dry_run),
+        Command::Search { query } => return ops::search::run(&query),
         Command::Gc => return ops::gc::run(),
         _ => {}
     }
@@ -65,6 +71,6 @@ fn main() -> Result<()> {
         Command::Try { package } => ops::try_pkg::run(&package),
         Command::Diff => ops::diff::run(&config),
         // Already handled above
-        Command::Search { .. } | Command::Gc => unreachable!(),
+        Command::Init { .. } | Command::Search { .. } | Command::Gc => unreachable!(),
     }
 }

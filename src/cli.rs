@@ -24,6 +24,12 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
+    /// Set up nix-darwin + homebrew on this Mac
+    Init {
+        /// Clone an existing nix-darwin repo instead of scaffolding
+        #[arg(long)]
+        from: Option<String>,
+    },
     /// Install packages
     Install {
         /// Force install as a Nix package (skip auto-resolution)
