@@ -61,6 +61,7 @@ fn main() -> Result<()> {
             };
             ops::remove::run(&config, mode, &packages, cli.dry_run)
         }
+        Command::Adopt => ops::adopt::run(&config, cli.dry_run),
         Command::List => ops::list::run(&config),
         Command::Migrate => ops::migrate::run(&config),
         Command::Doctor => ops::doctor::run(&config),

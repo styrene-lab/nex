@@ -30,6 +30,8 @@ pub enum Command {
         #[arg(long)]
         from: Option<String>,
     },
+    /// Capture all installed brew packages into the nex config
+    Adopt,
     /// Install packages
     Install {
         /// Force install as a Nix package (skip auto-resolution)

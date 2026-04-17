@@ -227,10 +227,39 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
         return Ok(());
     }
 
+    // Check if brew has existing packages that need adopting
+    let has_brew_packages = crate::exec::brew_available()
+        && (!crate::exec::brew_leaves().unwrap_or_default().is_empty()
+            || !crate::exec::brew_list_casks()
+                .unwrap_or_default()
+                .is_empty());
+
+    if has_brew_packages {
+        println!();
+        eprintln!(
+            "  {} existing brew packages detected",
+            style("!").yellow().bold()
+        );
+        eprintln!(
+            "  Run {} to add them to the nex config before switching.",
+            style("nex adopt").bold()
+        );
+        eprintln!(
+            "  This prevents {} from removing your installed packages.",
+            style("cleanup = \"zap\"").dim()
+        );
+    }
+
     println!();
     println!("  {} Setup complete.", style("✓").green().bold());
     println!();
-    println!("  Open a {} and run:", style("new terminal").bold());
+    println!("  Next steps:");
+    if has_brew_packages {
+        println!(
+            "  {}  Capture existing brew packages",
+            style("  nex adopt").cyan()
+        );
+    }
     println!(
         "  {}  Install a package",
         style("  nex install htop").cyan()
