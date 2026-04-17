@@ -1,10 +1,13 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # nex installer — https://nex.styrene.io
 # Usage: curl -fsSL https://nex.styrene.io/install.sh | sh
-set -euo pipefail
+#
+# POSIX-compatible — no bashisms. Safe under dash, bash, zsh, sh.
+set -eu
 
 NEX_REPO="https://github.com/styrene-lab/nex"
 NEX_VERSION="${NEX_VERSION:-latest}"
+_TMPDIR=""
 
 # ─── Colors ─────────────────────────────────────────────────────────────────
 if [ -t 1 ]; then
@@ -13,10 +16,10 @@ else
   C='' G='' Y='' R='' B='' N=''
 fi
 
-info()  { printf "${C}>>>${N} %s\n" "$*"; }
-ok()    { printf " ${G}✓${N} %s\n" "$*"; }
-warn()  { printf " ${Y}!${N} %s\n" "$*"; }
-fail()  { printf " ${R}✗${N} %s\n" "$*" >&2; exit 1; }
+info()  { printf "%b>>>%b %s\n" "$C" "$N" "$*"; }
+ok()    { printf " %b✓%b %s\n" "$G" "$N" "$*"; }
+warn()  { printf " %b!%b %s\n" "$Y" "$N" "$*"; }
+fail()  { printf " %b✗%b %s\n" "$R" "$N" "$*" >&2; exit 1; }
 
 # ─── Platform ───────────────────────────────────────────────────────────────
 OS=$(uname -s)
@@ -41,13 +44,21 @@ case "${ARCH}-${OS}" in
   *) fail "Unsupported platform: ${ARCH}-${OS}" ;;
 esac
 
+# ─── Cleanup ────────────────────────────────────────────────────────────────
+cleanup() {
+  if [ -n "$_TMPDIR" ] && [ -d "$_TMPDIR" ]; then
+    rm -rf "$_TMPDIR"
+  fi
+}
+trap cleanup EXIT
+
 # ─── Install Methods ────────────────────────────────────────────────────────
 
 try_prebuilt() {
   if [ "$NEX_VERSION" = "latest" ]; then
-    local url="${NEX_REPO}/releases/latest/download/nex-${TARGET}.tar.gz"
+    url="${NEX_REPO}/releases/latest/download/nex-${TARGET}.tar.gz"
   else
-    local url="${NEX_REPO}/releases/download/v${NEX_VERSION}/nex-${TARGET}.tar.gz"
+    url="${NEX_REPO}/releases/download/v${NEX_VERSION}/nex-${TARGET}.tar.gz"
   fi
 
   # Quick HEAD check — don't download if the release doesn't exist
@@ -57,20 +68,31 @@ try_prebuilt() {
 
   info "Downloading prebuilt binary for ${TARGET}..."
   _TMPDIR=$(mktemp -d)
-  trap 'rm -rf "$_TMPDIR"' EXIT
 
-  curl -fsSL "$url" -o "$_TMPDIR/nex.tar.gz"
-  tar -xzf "$_TMPDIR/nex.tar.gz" -C "$_TMPDIR"
+  if ! curl -fsSL "$url" -o "$_TMPDIR/nex.tar.gz"; then
+    warn "download failed"
+    return 1
+  fi
 
-  local install_dir="${NEX_INSTALL_DIR:-$HOME/.local/bin}"
+  if ! tar -xzf "$_TMPDIR/nex.tar.gz" -C "$_TMPDIR"; then
+    warn "archive extraction failed"
+    return 1
+  fi
+
+  if [ ! -f "$_TMPDIR/nex" ]; then
+    warn "binary not found in archive"
+    return 1
+  fi
+
+  install_dir="${NEX_INSTALL_DIR:-$HOME/.local/bin}"
   mkdir -p "$install_dir"
   mv "$_TMPDIR/nex" "$install_dir/nex"
   chmod +x "$install_dir/nex"
 
   rm -rf "$_TMPDIR"
-  trap - EXIT
+  _TMPDIR=""
 
-  printf "  installed to %s\n" "$install_dir/nex"
+  printf "  installed to %s\n" "$install_dir"
   ensure_path "$install_dir"
   return 0
 }
@@ -78,29 +100,28 @@ try_prebuilt() {
 try_nix() {
   command -v nix >/dev/null 2>&1 || return 1
 
-  local flake="github:styrene-lab/nex"
+  flake="github:styrene-lab/nex"
 
   # Check if nex is already in the nix profile
   if nix profile list 2>/dev/null | grep -q 'styrene-lab/nex'; then
-    local installed_ver
     installed_ver=$(nex --version 2>/dev/null | awk '{print $2}') || installed_ver="unknown"
 
     # Query the latest version from the flake
-    local latest_ver
     latest_ver=$(nix eval "${flake}#default.version" --raw --refresh 2>/dev/null) || latest_ver=""
 
     if [ -n "$latest_ver" ] && [ "$installed_ver" != "$latest_ver" ]; then
-      printf "  nex ${Y}${installed_ver}${N} installed, ${G}${latest_ver}${N} available\n\n"
+      printf "  nex %b%s%b installed, %b%s%b available\n\n" \
+        "$Y" "$installed_ver" "$N" "$G" "$latest_ver" "$N"
       printf "  Upgrade? [Y/n] "
-      # Default to yes; non-interactive (piped) stdin also defaults yes
-      local answer="y"
+      answer="y"
       if [ -t 0 ]; then
         read -r answer </dev/tty || answer="y"
         answer="${answer:-y}"
       fi
       case "$answer" in
         [Yy]*)
-          info "Upgrading nex ${installed_ver} → ${latest_ver}..."
+          printf "  "
+          info "Upgrading nex ${installed_ver} -> ${latest_ver}..."
           nix profile remove '.*nex.*' 2>/dev/null || true
           nix profile add "$flake" --refresh 2>/dev/null \
             || nix profile install "$flake" --refresh
@@ -138,30 +159,30 @@ try_cargo() {
 }
 
 ensure_path() {
-  local dir="$1"
+  dir="$1"
   case ":$PATH:" in
     *":$dir:"*) ;;
     *)
       warn "$dir is not in your PATH"
       printf "\n  Add to your shell profile:\n"
-      printf "  ${C}export PATH=\"\$PATH:%s\"${N}\n" "$dir"
+      printf "  %bexport PATH=\"\$PATH:%s\"%b\n" "$C" "$dir" "$N"
       ;;
   esac
 }
 
 # ─── Main ────────────────────────────────────────────────────────────────────
 
-printf "\n  ${B}nex${N} — ${C}nix the brew${N}\n\n"
+printf "\n  %bnex%b — %bnex the briw%b\n\n" "$B" "$N" "$C" "$N"
 
 # Detect what's available
 has_nix=false; has_cargo=false
 command -v nix   >/dev/null 2>&1 && has_nix=true
 command -v cargo >/dev/null 2>&1 && has_cargo=true
 
-# Try in order: prebuilt binary → nix → cargo
+# Try in order: prebuilt binary -> nix -> cargo
 installed=false
 
-if try_prebuilt 2>/dev/null; then
+if try_prebuilt; then
   installed=true
 elif $has_nix && try_nix; then
   installed=true
@@ -169,19 +190,19 @@ elif $has_cargo && try_cargo; then
   installed=true
 fi
 
-if ! $installed; then
+if [ "$installed" = "false" ]; then
   printf "\n"
-  printf " ${R}✗${N} Could not install nex.\n\n"
-  printf "  No prebuilt binary available for ${B}${TARGET}${N}.\n"
-  if ! $has_nix; then
-    printf "  ${Y}!${N} nix not found\n"
+  printf " %b✗%b Could not install nex.\n\n" "$R" "$N"
+  printf "  No prebuilt binary available for %b%s%b.\n" "$B" "$TARGET" "$N"
+  if [ "$has_nix" = "false" ]; then
+    printf "  %b!%b nix not found\n" "$Y" "$N"
   fi
-  if ! $has_cargo; then
-    printf "  ${Y}!${N} cargo not found\n"
+  if [ "$has_cargo" = "false" ]; then
+    printf "  %b!%b cargo not found\n" "$Y" "$N"
   fi
   printf "\n  Install one of these, then re-run:\n"
-  printf "  • ${C}nix${N}   — curl --proto '=https' -sSf -L https://install.determinate.systems/nix | sh\n"
-  printf "  • ${C}cargo${N} — curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh\n\n"
+  printf "  * %bnix%b   — curl --proto '=https' -sSf -L https://install.determinate.systems/nix | sh\n" "$C" "$N"
+  printf "  * %bcargo%b — curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh\n\n" "$C" "$N"
   exit 1
 fi
 
@@ -194,7 +215,7 @@ else
 fi
 
 printf "\n  Get started:\n"
-printf "  ${C}nex install htop${N}        Install a package\n"
-printf "  ${C}nex list${N}               Show all packages\n"
-printf "  ${C}nex --help${N}             Full usage\n"
-printf "  ${C}https://nex.styrene.io${N}  Documentation\n\n"
+printf "  %bnex install htop%b        Install a package\n" "$C" "$N"
+printf "  %bnex list%b               Show all packages\n" "$C" "$N"
+printf "  %bnex --help%b             Full usage\n" "$C" "$N"
+printf "  %bhttps://nex.styrene.io%b  Documentation\n\n" "$C" "$N"
