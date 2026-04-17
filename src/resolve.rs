@@ -54,8 +54,14 @@ pub fn resolve(pkg: &str) -> Result<ResolveResult> {
     let mut candidates = Vec::new();
     let brew_checked = exec::brew_available();
 
-    // Check nixpkgs
-    if let Some(version) = exec::nix_eval_version(pkg)? {
+    // Check nixpkgs — try the canonical alias first, then the raw name
+    let nix_attr = crate::aliases::nixpkgs_attr(pkg);
+    let nix_version = exec::nix_eval_version(nix_attr)?.or(if nix_attr != pkg {
+        exec::nix_eval_version(pkg)?
+    } else {
+        None
+    });
+    if let Some(version) = nix_version {
         candidates.push(Candidate {
             source: Source::Nix,
             version,

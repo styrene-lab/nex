@@ -55,9 +55,12 @@ pub fn run(config: &Config, mode: InstallMode, packages: &[String], dry_run: boo
         }
 
         // For explicit modes, validate the package exists in that source
-        if matches!(mode, InstallMode::Nix) && !exec::nix_eval_exists(pkg)? {
-            output::not_found(pkg, "not in nixpkgs — try: nex install --cask");
-            continue;
+        if matches!(mode, InstallMode::Nix) {
+            let attr = crate::aliases::nixpkgs_attr(pkg);
+            if !exec::nix_eval_exists(attr)? && (attr == pkg || !exec::nix_eval_exists(pkg)?) {
+                output::not_found(pkg, "not in nixpkgs — try: nex install --cask");
+                continue;
+            }
         }
 
         // Perform the edit
@@ -90,11 +93,19 @@ pub fn run(config: &Config, mode: InstallMode, packages: &[String], dry_run: boo
 }
 
 /// Check if a package is already declared in any config file.
+/// Also checks known aliases (e.g. "rg" matches "ripgrep").
 fn is_already_declared(config: &Config, pkg: &str) -> Result<bool> {
-    // Check nix package lists
+    let names_to_check = crate::aliases::all_names_for(pkg);
+
+    // Check nix package lists against all known aliases
     for nix_file in config.all_nix_package_files() {
         if edit::contains(nix_file, &nixfile::NIX_PACKAGES, pkg)? {
             return Ok(true);
+        }
+        for alias in &names_to_check {
+            if *alias != pkg && edit::contains(nix_file, &nixfile::NIX_PACKAGES, alias)? {
+                return Ok(true);
+            }
         }
     }
     // Check homebrew lists
@@ -103,6 +114,16 @@ fn is_already_declared(config: &Config, pkg: &str) -> Result<bool> {
     }
     if edit::contains(&config.homebrew_file, &nixfile::HOMEBREW_BREWS, pkg)? {
         return Ok(true);
+    }
+    for alias in &names_to_check {
+        if *alias != pkg {
+            if edit::contains(&config.homebrew_file, &nixfile::HOMEBREW_CASKS, alias)? {
+                return Ok(true);
+            }
+            if edit::contains(&config.homebrew_file, &nixfile::HOMEBREW_BREWS, alias)? {
+                return Ok(true);
+            }
+        }
     }
     Ok(false)
 }
@@ -162,8 +183,10 @@ fn install_as(
 ) -> Result<bool> {
     match source {
         Source::Nix => {
+            // Use the canonical nixpkgs attr (e.g. "zed" -> "zed-editor")
+            let attr = crate::aliases::nixpkgs_attr(pkg);
             session.backup(&config.nix_packages_file)?;
-            edit::insert(&config.nix_packages_file, &nixfile::NIX_PACKAGES, pkg)
+            edit::insert(&config.nix_packages_file, &nixfile::NIX_PACKAGES, attr)
         }
         Source::BrewCask => {
             session.backup(&config.homebrew_file)?;
