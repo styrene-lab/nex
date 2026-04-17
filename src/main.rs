@@ -55,7 +55,7 @@ fn main() -> Result<()> {
             } else if brew {
                 ops::remove::RemoveMode::Brew
             } else {
-                ops::remove::RemoveMode::Nix
+                ops::remove::RemoveMode::Auto
             };
             ops::remove::run(&config, mode, &packages, cli.dry_run)
         }

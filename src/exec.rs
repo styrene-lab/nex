@@ -115,30 +115,57 @@ pub fn nix_search(query: &str) -> Result<()> {
     run(Command::new("nix").args(["search", "nixpkgs", query]))
 }
 
+/// Resolve the absolute path to darwin-rebuild so sudo can find it.
+fn find_darwin_rebuild() -> Result<String> {
+    // Check user's PATH first
+    if let Ok(output) = Command::new("which").arg("darwin-rebuild").output() {
+        if output.status.success() {
+            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !path.is_empty() {
+                return Ok(path);
+            }
+        }
+    }
+
+    // Known locations after nix-darwin activation
+    let candidates = [
+        "/run/current-system/sw/bin/darwin-rebuild",
+        "/nix/var/nix/profiles/system/sw/bin/darwin-rebuild",
+    ];
+    for path in &candidates {
+        if std::path::Path::new(path).exists() {
+            return Ok(path.to_string());
+        }
+    }
+
+    bail!(
+        "darwin-rebuild not found — is nix-darwin activated?\n\
+         hint: run `nex init` first, or see nex.styrene.io"
+    )
+}
+
 /// Run darwin-rebuild switch (requires sudo for system activation).
 pub fn darwin_rebuild_switch(repo: &Path, hostname: &str) -> Result<()> {
+    let dr = find_darwin_rebuild()?;
     run(Command::new("sudo")
-        .args([
-            "darwin-rebuild",
-            "switch",
-            "--flake",
-            &format!(".#{hostname}"),
-        ])
+        .args([&dr, "switch", "--flake", &format!(".#{hostname}")])
         .current_dir(repo))
 }
 
 /// Run darwin-rebuild build (for diff). No sudo needed — build only.
 pub fn darwin_rebuild_build(repo: &Path, hostname: &str) -> Result<()> {
-    run(Command::new("darwin-rebuild")
+    let dr = find_darwin_rebuild()?;
+    run(Command::new(&dr)
         .args(["build", "--flake", &format!(".#{hostname}")])
         .current_dir(repo))
 }
 
 /// Run darwin-rebuild --rollback (requires sudo for system activation).
 pub fn darwin_rebuild_rollback(repo: &Path, hostname: &str) -> Result<()> {
+    let dr = find_darwin_rebuild()?;
     run(Command::new("sudo")
         .args([
-            "darwin-rebuild",
+            &dr,
             "switch",
             "--rollback",
             "--flake",

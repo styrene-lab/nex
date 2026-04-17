@@ -70,24 +70,38 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
         return Ok(());
     }
 
-    // Ensure git tree is clean so nix doesn't warn about dirty tree
+    // Ensure git tree is clean so nix doesn't refuse to build
     let _ = Command::new("git")
         .args(["add", "-A"])
         .current_dir(&repo_path)
         .output();
-    let _ = Command::new("git")
-        .args(["diff", "--cached", "--quiet"])
+    // Set fallback git identity if not configured (fresh systems)
+    let has_name = Command::new("git")
+        .args(["config", "user.name"])
         .current_dir(&repo_path)
-        .status()
-        .and_then(|s| {
-            if !s.success() {
-                Command::new("git")
-                    .args(["commit", "-m", "nex init"])
-                    .current_dir(&repo_path)
-                    .output()?;
-            }
-            Ok(s)
-        });
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    if !has_name {
+        let user = std::env::var("USER").unwrap_or_else(|_| "nex".to_string());
+        let _ = Command::new("git")
+            .args(["config", "user.name", &user])
+            .current_dir(&repo_path)
+            .output();
+        let _ = Command::new("git")
+            .args(["config", "user.email", &format!("{user}@localhost")])
+            .current_dir(&repo_path)
+            .output();
+    }
+    let commit_status = Command::new("git")
+        .args(["commit", "-m", "nex init"])
+        .current_dir(&repo_path)
+        .output();
+    if let Err(e) = commit_status {
+        output::error(&format!(
+            "git commit failed: {e} — nix build may warn about dirty tree"
+        ));
+    }
 
     println!();
     output::status("building (this takes a few minutes on first run)...");
