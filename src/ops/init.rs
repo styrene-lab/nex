@@ -387,26 +387,37 @@ nix-darwin.lib.darwinSystem {
     )?;
 
     // darwin/base.nix
+    // Detect Determinate Nix — if present, disable nix-darwin's nix management
+    let has_determinate =
+        check_cmd("determinate-nixd") || Path::new("/nix/var/determinate").exists();
+
+    let nix_block = if has_determinate {
+        "  # Determinate Nix manages the daemon — disable nix-darwin's nix management\n  \
+         nix.enable = false;\n"
+    } else {
+        "  nix.settings.experimental-features = [ \"nix-command\" \"flakes\" ];\n  \
+         nix.package = pkgs.nix;\n"
+    };
+
     std::fs::write(
         darwin_dir.join("base.nix"),
-        r#"{ pkgs, username, ... }:
+        format!(
+            r#"{{ pkgs, username, ... }}:
 
-{
-  nix.settings.experimental-features = [ "nix-command" "flakes" ];
-  nix.package = pkgs.nix;
-
+{{
+{nix_block}
   system.primaryUser = username;
-  nix.settings.trusted-users = [ username ];
 
   environment.shells = [ pkgs.bash ];
-  users.users.${username} = {
+  users.users.${{username}} = {{
     shell = pkgs.bash;
-    home = "/Users/${username}";
-  };
+    home = "/Users/${{username}}";
+  }};
 
   security.pam.services.sudo_local.touchIdAuth = true;
-}
-"#,
+}}
+"#
+        ),
     )?;
 
     // darwin/homebrew.nix
