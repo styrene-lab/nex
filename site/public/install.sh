@@ -76,14 +76,50 @@ try_prebuilt() {
 try_nix() {
   command -v nix >/dev/null 2>&1 || return 1
 
-  info "Installing via nix flake..."
-  # Use 'add' if available (Determinate Nix), fall back to 'install'.
-  # --refresh ensures we don't get a stale cached revision.
-  if nix profile add --help >/dev/null 2>&1; then
-    nix profile add "github:styrene-lab/nex" --refresh
-  else
-    nix profile install "github:styrene-lab/nex" --refresh
+  local flake="github:styrene-lab/nex"
+
+  # Check if nex is already in the nix profile
+  if nix profile list 2>/dev/null | grep -q 'styrene-lab/nex'; then
+    local installed_ver
+    installed_ver=$(nex --version 2>/dev/null | awk '{print $2}') || installed_ver="unknown"
+
+    # Query the latest version from the flake
+    local latest_ver
+    latest_ver=$(nix eval "${flake}#default.version" --raw --refresh 2>/dev/null) || latest_ver=""
+
+    if [ -n "$latest_ver" ] && [ "$installed_ver" != "$latest_ver" ]; then
+      printf "  nex ${Y}${installed_ver}${N} installed, ${G}${latest_ver}${N} available\n\n"
+      printf "  Upgrade? [Y/n] "
+      # Default to yes; non-interactive (piped) stdin also defaults yes
+      local answer="y"
+      if [ -t 0 ]; then
+        read -r answer </dev/tty || answer="y"
+        answer="${answer:-y}"
+      fi
+      case "$answer" in
+        [Yy]*)
+          info "Upgrading nex ${installed_ver} → ${latest_ver}..."
+          nix profile remove '.*nex.*' 2>/dev/null || true
+          nix profile add "$flake" --refresh 2>/dev/null \
+            || nix profile install "$flake" --refresh
+          return 0
+          ;;
+        *)
+          info "Keeping nex ${installed_ver}"
+          return 0
+          ;;
+      esac
+    fi
+
+    ok "nex ${installed_ver} is already the latest"
+    return 0
   fi
+
+  info "Installing via nix flake..."
+  if nix profile add "$flake" --refresh 2>/dev/null; then
+    return 0
+  fi
+  nix profile install "$flake" --refresh
   return 0
 }
 
