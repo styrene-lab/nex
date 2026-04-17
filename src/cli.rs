@@ -73,6 +73,8 @@ pub enum Command {
         /// Package to try
         package: String,
     },
+    /// Identify brew packages that can migrate to nix
+    Migrate,
     /// Preview what would change
     Diff,
     /// Garbage collect nix store

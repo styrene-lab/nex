@@ -60,6 +60,7 @@ fn main() -> Result<()> {
             ops::remove::run(&config, mode, &packages, cli.dry_run)
         }
         Command::List => ops::list::run(&config),
+        Command::Migrate => ops::migrate::run(&config),
         Command::Switch => ops::switch::run(&config),
         Command::Update => ops::update::run(&config),
         Command::Rollback => ops::rollback::run(&config),
