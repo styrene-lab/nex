@@ -3,6 +3,33 @@ use std::process::Command;
 
 use anyhow::{bail, Context, Result};
 
+/// Resolve the path to the `nix` binary.
+/// Checks PATH first, then well-known locations for freshly installed nix.
+fn find_nix() -> String {
+    if let Ok(output) = Command::new("which").arg("nix").output() {
+        if output.status.success() {
+            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !path.is_empty() {
+                return path;
+            }
+        }
+    }
+
+    let candidates = [
+        "/nix/var/nix/profiles/default/bin/nix",
+        "/run/current-system/sw/bin/nix",
+        "/etc/profiles/per-user/default/bin/nix",
+    ];
+    for path in &candidates {
+        if Path::new(path).exists() {
+            return path.to_string();
+        }
+    }
+
+    // Fall back to bare name — will produce a clear "not found" error
+    "nix".to_string()
+}
+
 /// Run a command, inheriting stdout/stderr. Returns Ok if exit code 0.
 fn run(cmd: &mut Command) -> Result<()> {
     let program = cmd.get_program().to_string_lossy().to_string();
@@ -24,7 +51,7 @@ fn run(cmd: &mut Command) -> Result<()> {
 
 /// Validate that a nix package attribute exists in nixpkgs.
 pub fn nix_eval_exists(pkg: &str) -> Result<bool> {
-    let output = Command::new("nix")
+    let output = Command::new(&find_nix())
         .args(["eval", &format!("nixpkgs#{pkg}.name"), "--raw"])
         .stderr(std::process::Stdio::null())
         .output()
@@ -34,7 +61,7 @@ pub fn nix_eval_exists(pkg: &str) -> Result<bool> {
 
 /// Get the version of a nix package from nixpkgs. Returns None if not found.
 pub fn nix_eval_version(pkg: &str) -> Result<Option<String>> {
-    let output = Command::new("nix")
+    let output = Command::new(&find_nix())
         .args(["eval", &format!("nixpkgs#{pkg}.version"), "--raw"])
         .stderr(std::process::Stdio::null())
         .output()
@@ -161,7 +188,7 @@ pub fn brew_list_casks() -> Result<Vec<String>> {
 
 /// Search nixpkgs for packages matching a query.
 pub fn nix_search(query: &str) -> Result<()> {
-    run(Command::new("nix").args(["search", "nixpkgs", query]))
+    run(Command::new(&find_nix()).args(["search", "nixpkgs", query]))
 }
 
 /// Resolve the absolute path to darwin-rebuild so sudo can find it.
@@ -225,19 +252,19 @@ pub fn darwin_rebuild_rollback(repo: &Path, hostname: &str) -> Result<()> {
 
 /// Run nix flake update.
 pub fn nix_flake_update(repo: &Path) -> Result<()> {
-    run(Command::new("nix")
+    run(Command::new(&find_nix())
         .args(["flake", "update"])
         .current_dir(repo))
 }
 
 /// Run nix shell for an ephemeral package.
 pub fn nix_shell(pkg: &str) -> Result<()> {
-    run(Command::new("nix").args(["shell", &format!("nixpkgs#{pkg}")]))
+    run(Command::new(&find_nix()).args(["shell", &format!("nixpkgs#{pkg}")]))
 }
 
 /// Show diff between current system and new build.
 pub fn nix_diff_closures(repo: &Path) -> Result<()> {
-    run(Command::new("nix")
+    run(Command::new(&find_nix())
         .args([
             "store",
             "diff-closures",
@@ -249,6 +276,9 @@ pub fn nix_diff_closures(repo: &Path) -> Result<()> {
 
 /// Garbage collect.
 pub fn nix_gc() -> Result<()> {
-    run(Command::new("nix").args(["store", "gc"]))?;
-    run(Command::new("nix-collect-garbage").args(["-d"]))
+    run(Command::new(&find_nix()).args(["store", "gc"]))?;
+    let nix = find_nix();
+    let nix_dir = Path::new(&nix).parent().unwrap_or(Path::new("/usr/bin"));
+    let gc = nix_dir.join("nix-collect-garbage");
+    run(Command::new(gc).args(["-d"]))
 }
