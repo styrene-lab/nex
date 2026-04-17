@@ -17,12 +17,7 @@ use config::Config;
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    match &cli.command {
-        // Commands that don't need config resolution
-        Command::Init { .. } | Command::Search { .. } | Command::Gc => {}
-        _ => {}
-    }
-
+    // Commands that don't need config resolution
     match cli.command {
         Command::Init { from } => return ops::init::run(from, cli.dry_run),
         Command::Search { query } => return ops::search::run(&query),

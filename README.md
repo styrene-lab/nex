@@ -1,17 +1,30 @@
 # nex
 
-Package manager UX for nix-darwin + homebrew.
+Package manager for nix-darwin + homebrew. [nex.styrene.io](https://nex.styrene.io)
 
-## Overview
+## Quick Start
 
-`nex` wraps the declarative nix-darwin workflow with imperative commands. Instead of editing `.nix` files and running `darwin-rebuild switch` manually, you run `nex install htop` and it handles the file edit, validation, rebuild, and rollback on failure.
+```bash
+# Install nex
+curl -fsSL https://nex.styrene.io/install.sh | sh
+
+# Bootstrap nix-darwin + homebrew on a fresh Mac
+nex init
+
+# Start using it
+nex install htop
+```
+
+Or clone an existing config: `nex init --from https://github.com/your-org/macos-nix`
 
 ## Usage
 
 ```
-nex install htop              # Nix package (default)
-nex install --cask slack      # Homebrew cask (GUI app)
-nex install --brew rustup     # Homebrew formula
+nex init                      # Bootstrap nix + homebrew + nix-darwin config
+nex install htop              # Install (auto-resolves nix vs cask vs brew)
+nex install --cask slack      # Force Homebrew cask (GUI app)
+nex install --brew rustup     # Force Homebrew formula
+nex install --nix htop        # Force Nix (skip resolution)
 nex remove htop               # Remove from wherever it's declared
 nex search "http"             # Search nixpkgs
 nex list                      # Show all declared packages
@@ -25,12 +38,29 @@ nex gc                        # Garbage collect nix store
 
 Global flags: `--dry-run`, `--repo <path>`, `--hostname <name>`
 
+## How It Works
+
+`nex install slack` checks nixpkgs and Homebrew, compares versions, detects GUI apps vs CLI tools, and recommends the right source:
+
+```
+  slack found in multiple sources:
+
+     nixpkgs         4.41.97
+  *  brew cask       4.42.3
+
+  recommended: GUI app — cask is 4.42.3 (nix has 4.41.97), with native .app bundle
+```
+
+For CLI tools found only in nixpkgs, it just installs — no prompt needed.
+
+Every edit is backed up before `darwin-rebuild switch`. If the build fails, your config is restored automatically.
+
 ## Installation
 
 ```bash
-cargo install nex-pkg       # from crates.io
-# or
-cargo install --path .      # from source
+curl -fsSL https://nex.styrene.io/install.sh | sh   # auto-detects best method
+cargo install nex-pkg                                # from crates.io
+nix profile install github:styrene-lab/nex           # from flake
 ```
 
 ## Configuration

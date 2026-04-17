@@ -74,9 +74,12 @@ pub fn resolve(pkg: &str) -> Result<Resolution> {
 
     match candidates.len() {
         0 => Ok(Resolution::NotFound),
-        1 => Ok(Resolution::Single(
-            candidates.into_iter().next().expect("checked len"),
-        )),
+        1 => {
+            // Safe: len checked above
+            #[allow(clippy::unwrap_used)]
+            let candidate = candidates.into_iter().next().unwrap();
+            Ok(Resolution::Single(candidate))
+        }
         _ => {
             let (recommended, reason) = recommend(&candidates);
             Ok(Resolution::Conflict {
