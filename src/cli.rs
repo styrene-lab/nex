@@ -75,6 +75,8 @@ pub enum Command {
     },
     /// Identify brew packages that can migrate to nix
     Migrate,
+    /// Check and fix common configuration issues
+    Doctor,
     /// Update nex itself to the latest release
     SelfUpdate,
     /// Preview what would change

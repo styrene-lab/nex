@@ -63,6 +63,7 @@ fn main() -> Result<()> {
         }
         Command::List => ops::list::run(&config),
         Command::Migrate => ops::migrate::run(&config),
+        Command::Doctor => ops::doctor::run(&config),
         Command::Switch => ops::switch::run(&config),
         Command::Update => ops::update::run(&config),
         Command::Rollback => ops::rollback::run(&config),

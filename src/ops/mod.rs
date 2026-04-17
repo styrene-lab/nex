@@ -1,4 +1,5 @@
 pub mod diff;
+pub mod doctor;
 pub mod gc;
 pub mod init;
 pub mod install;
