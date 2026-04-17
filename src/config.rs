@@ -95,9 +95,13 @@ pub fn set_preference(key: &str, value: &str) -> Result<()> {
     let updated: Vec<String> = content
         .lines()
         .map(|l| {
-            if l.trim_start().starts_with(&format!("{key} "))
-                || l.trim_start().starts_with(&format!("{key}="))
-            {
+            let trimmed = l.trim_start();
+            let is_match = trimmed
+                .split('=')
+                .next()
+                .map(|k| k.trim() == key)
+                .unwrap_or(false);
+            if is_match {
                 found = true;
                 line.clone()
             } else {
@@ -132,7 +136,8 @@ fn load_file_config() -> Result<FileConfig> {
     if primary.exists() {
         let content = std::fs::read_to_string(&primary)
             .with_context(|| format!("reading {}", primary.display()))?;
-        return Ok(toml::from_str(&content)?);
+        return toml::from_str(&content)
+            .with_context(|| format!("invalid config in {}", primary.display()));
     }
 
     // Fallback: platform config dir (~/Library/Application Support/nex/ on macOS)
@@ -142,7 +147,8 @@ fn load_file_config() -> Result<FileConfig> {
         if legacy.exists() {
             let content = std::fs::read_to_string(&legacy)
                 .with_context(|| format!("reading {}", legacy.display()))?;
-            return Ok(toml::from_str(&content)?);
+            return toml::from_str(&content)
+                .with_context(|| format!("invalid config in {}", legacy.display()));
         }
     }
 

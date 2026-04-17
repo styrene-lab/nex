@@ -98,7 +98,19 @@ fn check_mac_app_util(config: &Config, fixed: &mut usize) -> Result<bool> {
         return Ok(false);
     }
 
-    std::fs::write(&flake_path, patched_flake)
+    // Validate the patched flake has all required elements before writing
+    let has_input = patched_flake.contains("mac-app-util.url");
+    let has_output = patched_flake.contains("mac-app-util }");
+    let has_inherit = patched_flake.contains("mac-app-util;");
+    if !has_input || !has_output || !has_inherit {
+        output::warn(
+            "could not fully patch flake.nix — partial changes would break the flake.\n\
+             Add mac-app-util manually: https://github.com/hraban/mac-app-util",
+        );
+        return Ok(false);
+    }
+
+    std::fs::write(&flake_path, &patched_flake)
         .with_context(|| format!("writing {}", flake_path.display()))?;
     info("patched", &flake_path.display().to_string());
 

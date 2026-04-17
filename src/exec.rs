@@ -6,12 +6,10 @@ use anyhow::{bail, Context, Result};
 /// Resolve the path to the `nix` binary.
 /// Checks PATH first, then well-known locations for freshly installed nix.
 fn find_nix() -> String {
-    if let Ok(output) = Command::new("which").arg("nix").output() {
+    // Test if nix is directly available in PATH
+    if let Ok(output) = Command::new("nix").arg("--version").output() {
         if output.status.success() {
-            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !path.is_empty() {
-                return path;
-            }
+            return "nix".to_string();
         }
     }
 
@@ -193,13 +191,10 @@ pub fn nix_search(query: &str) -> Result<()> {
 
 /// Resolve the absolute path to darwin-rebuild so sudo can find it.
 fn find_darwin_rebuild() -> Result<String> {
-    // Check user's PATH first
-    if let Ok(output) = Command::new("which").arg("darwin-rebuild").output() {
+    // Check if darwin-rebuild is directly available in PATH
+    if let Ok(output) = Command::new("darwin-rebuild").arg("--help").output() {
         if output.status.success() {
-            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !path.is_empty() {
-                return Ok(path);
-            }
+            return Ok("darwin-rebuild".to_string());
         }
     }
 
@@ -314,11 +309,17 @@ pub fn nix_diff_closures(repo: &Path) -> Result<()> {
         .current_dir(repo))
 }
 
-/// Garbage collect.
+/// Garbage collect nix store and remove old generations.
 pub fn nix_gc() -> Result<()> {
-    run(Command::new(&find_nix()).args(["store", "gc"]))?;
     let nix = find_nix();
-    let nix_dir = Path::new(&nix).parent().unwrap_or(Path::new("/usr/bin"));
-    let gc = nix_dir.join("nix-collect-garbage");
-    run(Command::new(gc).args(["-d"]))
+    run(Command::new(&nix).args(["store", "gc"]))?;
+    // Remove old generations — nix-collect-garbage -d, using the same bin dir as nix
+    let nix_path = std::path::PathBuf::from(&nix);
+    if let Some(bin_dir) = nix_path.parent() {
+        let gc_bin = bin_dir.join("nix-collect-garbage");
+        if gc_bin.exists() {
+            run(Command::new(&gc_bin).args(["-d"]))?;
+        }
+    }
+    Ok(())
 }

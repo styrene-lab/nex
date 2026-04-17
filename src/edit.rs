@@ -127,8 +127,8 @@ fn atomic_write(path: &Path, lines: &[String]) -> Result<()> {
     let dir = path.parent().context("file has no parent directory")?;
     let content = lines.join("\n") + "\n";
 
-    let tmp = NamedTempFile::new_in(dir)?;
-    fs::write(tmp.path(), &content)?;
+    let mut tmp = NamedTempFile::new_in(dir)?;
+    std::io::Write::write_all(&mut tmp, content.as_bytes())?;
     tmp.persist(path)?;
     Ok(())
 }
@@ -136,7 +136,12 @@ fn atomic_write(path: &Path, lines: &[String]) -> Result<()> {
 /// Back up a file before editing. Returns the backup path.
 pub fn backup(path: &Path) -> Result<std::path::PathBuf> {
     let backup_path = path.with_extension("nix.nex-backup");
-    fs::copy(path, &backup_path).with_context(|| format!("backing up {}", path.display()))?;
+    let dir = path.parent().context("file has no parent directory")?;
+    let content = fs::read(path).with_context(|| format!("reading {}", path.display()))?;
+    let mut tmp = NamedTempFile::new_in(dir)?;
+    std::io::Write::write_all(&mut tmp, &content)?;
+    tmp.persist(&backup_path)
+        .with_context(|| format!("backing up {}", path.display()))?;
     Ok(backup_path)
 }
 
@@ -180,10 +185,17 @@ impl EditSession {
 
     /// Revert all edits by restoring backups.
     pub fn revert_all(&self) -> Result<()> {
+        let mut errors = Vec::new();
         for (original, bp) in &self.backups {
-            restore(original, bp)?;
+            if let Err(e) = restore(original, bp) {
+                errors.push(format!("{}: {e}", original.display()));
+            }
         }
-        Ok(())
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            anyhow::bail!("failed to revert some files:\n  {}", errors.join("\n  "))
+        }
     }
 
     /// Commit all edits by deleting backups.

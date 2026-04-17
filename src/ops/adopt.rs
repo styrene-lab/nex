@@ -5,10 +5,21 @@ use anyhow::Result;
 use console::style;
 
 use crate::config::Config;
-use crate::edit;
+use crate::edit::{self, EditSession};
 use crate::exec;
 use crate::nixfile;
 use crate::output;
+
+/// Check if stdin is interactive. When non-interactive, return the default.
+fn confirm_or_default(prompt: &str, default: bool) -> Result<bool> {
+    if !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+        return Ok(default);
+    }
+    Ok(dialoguer::Confirm::new()
+        .with_prompt(prompt)
+        .default(default)
+        .interact()?)
+}
 
 /// Capture all installed brew packages into the nex config so the first
 /// `nex switch` doesn't zap anything. This is the safe onboarding path for
@@ -92,18 +103,22 @@ pub fn run(config: &Config, dry_run: bool) -> Result<()> {
 
     // Confirm
     let total = new_formulae.len() + new_casks.len();
-    let confirm = dialoguer::Confirm::new()
-        .with_prompt(format!(
+    let confirm = confirm_or_default(
+        &format!(
             "  Add {total} packages to {}?",
             config.homebrew_file.display()
-        ))
-        .default(true)
-        .interact()?;
+        ),
+        true,
+    )?;
 
     if !confirm {
         println!("  cancelled");
         return Ok(());
     }
+
+    // Back up before bulk edit so we can revert on failure
+    let mut session = EditSession::new();
+    session.backup(&config.homebrew_file)?;
 
     // Insert formulae
     let mut added_formulae = 0;
@@ -120,6 +135,9 @@ pub fn run(config: &Config, dry_run: bool) -> Result<()> {
             added_casks += 1;
         }
     }
+
+    // Edits succeeded — commit the session (delete backup)
+    session.commit_all()?;
 
     // Commit so nix doesn't complain about dirty tree
     let _ = std::process::Command::new("git")
@@ -173,12 +191,10 @@ pub fn run(config: &Config, dry_run: bool) -> Result<()> {
                 style(existing_path.display()).dim()
             );
 
-            let pin = dialoguer::Confirm::new()
-                .with_prompt(format!(
-                    "    Keep existing {binary}? (removes from nix config)"
-                ))
-                .default(false)
-                .interact()?;
+            let pin = confirm_or_default(
+                &format!("    Keep existing {binary}? (removes from nix config)"),
+                false,
+            )?;
 
             if pin {
                 if edit::remove(&config.nix_packages_file, &nixfile::NIX_PACKAGES, binary)? {

@@ -77,7 +77,7 @@ pub fn run() -> Result<()> {
         // May need elevated permissions
         bail!(
             "could not replace {} — {e}\n\
-             hint: try `sudo nex self-update`",
+             hint: run `curl -fsSL https://nex.styrene.io/install.sh | sh` to reinstall",
             real_path.display()
         );
     }
@@ -94,8 +94,20 @@ pub fn run() -> Result<()> {
         let _ = fs::set_permissions(&real_path, fs::Permissions::from_mode(0o755));
     }
 
-    // Clean up backup
-    let _ = fs::remove_file(&backup);
+    // Verify the new binary works before deleting backup
+    let verify = std::process::Command::new(&real_path)
+        .arg("--version")
+        .output();
+    match verify {
+        Ok(o) if o.status.success() => {
+            let _ = fs::remove_file(&backup);
+        }
+        _ => {
+            output::warn("new binary failed verification — restoring previous version");
+            let _ = fs::rename(&backup, &real_path);
+            anyhow::bail!("downloaded binary is corrupt or incompatible");
+        }
+    }
 
     println!(
         "\n  {} nex updated {} -> {}",

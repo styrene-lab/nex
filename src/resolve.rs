@@ -219,6 +219,14 @@ pub fn prompt_resolution(
         .position(|c| c.source == *recommended)
         .unwrap_or(0);
 
+    // When not interactive, use the recommended default
+    if !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+        return Ok(Some(PromptResult {
+            source: recommended.clone(),
+            remember_nix: false,
+        }));
+    }
+
     let selection = dialoguer::Select::new()
         .with_prompt("Install as")
         .items(&items)

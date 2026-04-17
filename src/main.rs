@@ -23,7 +23,7 @@ fn main() -> Result<()> {
         Command::Init { from } => return ops::init::run(from, cli.dry_run),
         Command::Search { query } => return ops::search::run(&query),
         Command::SelfUpdate => return ops::self_update::run(),
-        Command::Gc => return ops::gc::run(),
+        Command::Gc => return ops::gc::run(cli.dry_run),
         _ => {}
     }
 
@@ -65,10 +65,10 @@ fn main() -> Result<()> {
         Command::List => ops::list::run(&config),
         Command::Migrate => ops::migrate::run(&config),
         Command::Doctor => ops::doctor::run(&config),
-        Command::Switch => ops::switch::run(&config),
-        Command::Update => ops::update::run(&config),
-        Command::Rollback => ops::rollback::run(&config),
-        Command::Try { package } => ops::try_pkg::run(&package),
+        Command::Switch => ops::switch::run(&config, cli.dry_run),
+        Command::Update => ops::update::run(&config, cli.dry_run),
+        Command::Rollback => ops::rollback::run(&config, cli.dry_run),
+        Command::Try { package } => ops::try_pkg::run(&package, cli.dry_run),
         Command::Diff => ops::diff::run(&config),
         // Already handled above
         Command::Init { .. } | Command::Search { .. } | Command::SelfUpdate | Command::Gc => {

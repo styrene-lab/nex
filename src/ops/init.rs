@@ -215,6 +215,14 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
     };
 
     if !switch_ok {
+        // Restore /etc files that were moved
+        for path in &etc_files {
+            let backup = format!("{path}.before-nix-darwin");
+            if Path::new(&backup).exists() {
+                let _ = Command::new("sudo").args(["mv", &backup, path]).status();
+                info("restored", path);
+            }
+        }
         println!();
         output::error("automatic activation failed — run manually:");
         println!(
