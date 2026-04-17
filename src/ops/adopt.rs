@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::path::PathBuf;
 
 use anyhow::Result;
 use console::style;
@@ -137,12 +138,79 @@ pub fn run(config: &Config, dry_run: bool) -> Result<()> {
         added_formulae,
         added_casks
     );
+
+    // Check for PATH collisions — binaries that exist outside nix/brew
+    // that nix packages would shadow after switch
+    let nix_packages = edit::list_packages(&config.nix_packages_file, &nixfile::NIX_PACKAGES)?;
+    let collisions = find_path_collisions(&nix_packages);
+    if !collisions.is_empty() {
+        println!();
+        println!("{}", style("PATH collisions detected").yellow().bold());
+        println!();
+        println!("  The following binaries exist outside nix/brew. After switch,");
+        println!("  nix versions will take priority. You can pin each one to");
+        println!("  keep your existing version.");
+        println!();
+
+        let mut pinned = 0;
+        for (binary, existing_path, existing_ver) in &collisions {
+            let nix_ver = exec::nix_eval_version(binary)
+                .ok()
+                .flatten()
+                .unwrap_or_else(|| "?".into());
+
+            let ver_info = if let Some(v) = existing_ver {
+                format!("{} -> nix {}", v, nix_ver)
+            } else {
+                format!("-> nix {}", nix_ver)
+            };
+
+            println!(
+                "    {} {} {}  ({})",
+                style("!").yellow(),
+                style(binary).bold(),
+                style(&ver_info).dim(),
+                style(existing_path.display()).dim()
+            );
+
+            let pin = dialoguer::Confirm::new()
+                .with_prompt(format!(
+                    "    Keep existing {binary}? (removes from nix config)"
+                ))
+                .default(false)
+                .interact()?;
+
+            if pin {
+                if edit::remove(&config.nix_packages_file, &nixfile::NIX_PACKAGES, binary)? {
+                    println!(
+                        "    {} pinned — {} removed from nix config",
+                        style("✓").green(),
+                        binary
+                    );
+                    pinned += 1;
+                }
+            }
+        }
+
+        if pinned > 0 {
+            // Re-commit after pins
+            let _ = std::process::Command::new("git")
+                .args(["add", "-A"])
+                .current_dir(&config.repo)
+                .output();
+            let _ = std::process::Command::new("git")
+                .args(["commit", "-m", "nex adopt: pin existing binaries"])
+                .current_dir(&config.repo)
+                .output();
+        }
+    }
+
     println!();
     println!(
-        "  It's now safe to run {}. Your existing brew packages",
+        "  It's now safe to run {}. Your existing packages",
         style("nex switch").bold()
     );
-    println!("  won't be removed.");
+    println!("  won't be removed or shadowed unexpectedly.");
     println!();
     println!(
         "  Later, run {} to see which formulae can move to nix.",
@@ -151,4 +219,42 @@ pub fn run(config: &Config, dry_run: bool) -> Result<()> {
     println!();
 
     Ok(())
+}
+
+/// Check if any nix package names correspond to binaries that already exist
+/// on PATH at non-nix, non-brew locations (manual installs the user may care about).
+/// Returns (package_name, existing_binary_path, version_if_available).
+fn find_path_collisions(nix_packages: &[String]) -> Vec<(String, PathBuf, Option<String>)> {
+    let path_var = std::env::var("PATH").unwrap_or_default();
+    let skip_prefixes = ["/nix/", "/opt/homebrew/"];
+
+    let mut collisions = Vec::new();
+
+    for pkg in nix_packages {
+        for dir in path_var.split(':') {
+            if skip_prefixes.iter().any(|p| dir.starts_with(p)) {
+                continue;
+            }
+            let bin = PathBuf::from(dir).join(pkg);
+            if bin.exists() {
+                // Try to get the version of the existing binary
+                let version = std::process::Command::new(&bin)
+                    .arg("--version")
+                    .output()
+                    .ok()
+                    .filter(|o| o.status.success())
+                    .and_then(|o| {
+                        let out = String::from_utf8_lossy(&o.stdout).to_string();
+                        // Extract first line, trim
+                        out.lines().next().map(|l| l.trim().to_string())
+                    })
+                    .filter(|v| !v.is_empty());
+
+                collisions.push((pkg.clone(), bin, version));
+                break;
+            }
+        }
+    }
+
+    collisions
 }
