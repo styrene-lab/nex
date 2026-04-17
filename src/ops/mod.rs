@@ -7,6 +7,7 @@ pub mod migrate;
 pub mod remove;
 pub mod rollback;
 pub mod search;
+pub mod self_update;
 pub mod switch;
 pub mod try_pkg;
 pub mod update;
