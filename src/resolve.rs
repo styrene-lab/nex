@@ -37,6 +37,8 @@ pub enum Resolution {
         candidates: Vec<Candidate>,
         recommended: Source,
         reason: String,
+        /// True when nix and brew have the same version (eligible for auto-preference).
+        versions_equal: bool,
     },
     /// Not found anywhere.
     NotFound,
@@ -97,11 +99,12 @@ pub fn resolve(pkg: &str) -> Result<ResolveResult> {
             Resolution::Single(candidate)
         }
         _ => {
-            let (recommended, reason) = recommend(&candidates);
+            let (recommended, reason, versions_equal) = recommend(&candidates);
             Resolution::Conflict {
                 candidates,
                 recommended,
                 reason,
+                versions_equal,
             }
         }
     };
@@ -113,54 +116,63 @@ pub fn resolve(pkg: &str) -> Result<ResolveResult> {
 }
 
 /// Decide which source to recommend when there's a conflict.
-fn recommend(candidates: &[Candidate]) -> (Source, String) {
-    let has_cask = candidates.iter().any(|c| c.source == Source::BrewCask);
-    let has_nix = candidates.iter().any(|c| c.source == Source::Nix);
+/// Returns (recommended_source, reason, versions_equal).
+fn recommend(candidates: &[Candidate]) -> (Source, String, bool) {
+    let nix = candidates.iter().find(|c| c.source == Source::Nix);
+    let brew = candidates
+        .iter()
+        .find(|c| c.source == Source::BrewCask || c.source == Source::BrewFormula);
 
-    if has_cask && has_nix {
-        let nix_ver = candidates
-            .iter()
-            .find(|c| c.source == Source::Nix)
-            .map(|c| c.version.as_str())
-            .unwrap_or("");
-        let cask_ver = candidates
-            .iter()
-            .find(|c| c.source == Source::BrewCask)
-            .map(|c| c.version.as_str())
-            .unwrap_or("");
+    if let (Some(n), Some(b)) = (nix, brew) {
+        let eq = n.version == b.version;
 
-        // If it exists as a cask, it's a GUI app — cask is almost always better on macOS
-        // (proper .app bundle, code signing, Spotlight, auto-update)
-        if nix_ver == cask_ver {
+        if eq {
+            // Same version — recommend nix (declarative, reproducible)
             return (
-                Source::BrewCask,
-                "GUI app — cask provides native .app bundle with code signing".into(),
+                Source::Nix,
+                "same version in both — nix provides declarative management".into(),
+                true,
             );
         }
+
+        // Brew has a different (likely newer) version — recommend brew
+        let brew_label = if b.source == Source::BrewCask {
+            "cask"
+        } else {
+            "formula"
+        };
         return (
-            Source::BrewCask,
-            format!(
-                "GUI app — cask is {} (nix has {}), with native .app bundle",
-                cask_ver, nix_ver
-            ),
+            b.source.clone(),
+            format!("brew {brew_label} is {} (nix has {})", b.version, n.version),
+            false,
         );
     }
 
-    // Default: prefer nix for CLI tools
+    // Fallback: prefer nix
     (
         Source::Nix,
-        "CLI tool — nix provides declarative management".into(),
+        "nix provides declarative management".into(),
+        false,
     )
+}
+
+/// Result of an interactive resolution prompt.
+pub struct PromptResult {
+    pub source: Source,
+    /// If true, the user wants to always pick nix for equal-version conflicts.
+    pub remember_nix: bool,
 }
 
 /// Display the resolution to the user and return the chosen source.
 /// Returns None if the user cancels.
+/// When `versions_equal` is true, offers an "always use nix" option.
 pub fn prompt_resolution(
     pkg: &str,
     candidates: &[Candidate],
     recommended: &Source,
     reason: &str,
-) -> Result<Option<Source>> {
+    versions_equal: bool,
+) -> Result<Option<PromptResult>> {
     eprintln!();
     eprintln!("  {} found in multiple sources:", style(pkg).bold());
     eprintln!();
@@ -181,11 +193,11 @@ pub fn prompt_resolution(
     }
 
     eprintln!();
-    eprintln!("  {} {}", style("recommended:").dim(), reason,);
+    eprintln!("  {} {}", style("recommended:").dim(), reason);
     eprintln!();
 
     // Build selection items
-    let items: Vec<String> = candidates
+    let mut items: Vec<String> = candidates
         .iter()
         .map(|c| {
             let rec = if c.source == *recommended {
@@ -196,6 +208,11 @@ pub fn prompt_resolution(
             format!("{} {}{}", c.source, c.version, rec)
         })
         .collect();
+
+    // When versions match, offer an "always nix" option
+    if versions_equal {
+        items.push("Always use nix when versions match".into());
+    }
 
     let default_idx = candidates
         .iter()
@@ -209,7 +226,17 @@ pub fn prompt_resolution(
         .interact_opt()?;
 
     match selection {
-        Some(idx) => Ok(Some(candidates[idx].source.clone())),
+        Some(idx) if idx < candidates.len() => Ok(Some(PromptResult {
+            source: candidates[idx].source.clone(),
+            remember_nix: false,
+        })),
+        Some(_) => {
+            // "Always use nix" option selected
+            Ok(Some(PromptResult {
+                source: Source::Nix,
+                remember_nix: true,
+            }))
+        }
         None => Ok(None),
     }
 }

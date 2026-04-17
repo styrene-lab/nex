@@ -38,14 +38,7 @@ pub fn run(config: &Config, mode: InstallMode, packages: &[String], dry_run: boo
             InstallMode::Nix => Source::Nix,
             InstallMode::Cask => Source::BrewCask,
             InstallMode::Brew => Source::BrewFormula,
-            InstallMode::Auto => {
-                if dry_run {
-                    // In dry-run, still resolve to show what would happen
-                    resolve_source(pkg, dry_run)?
-                } else {
-                    resolve_source(pkg, dry_run)?
-                }
-            }
+            InstallMode::Auto => resolve_source(pkg, dry_run, config.prefer_nix_on_equal)?,
         };
 
         if dry_run {
@@ -129,7 +122,7 @@ fn is_already_declared(config: &Config, pkg: &str) -> Result<bool> {
 }
 
 /// Resolve which source to use for a package (auto mode).
-fn resolve_source(pkg: &str, dry_run: bool) -> Result<Source> {
+fn resolve_source(pkg: &str, dry_run: bool, prefer_nix_on_equal: bool) -> Result<Source> {
     let result = resolve::resolve(pkg)?;
 
     // Warn if brew wasn't available — the user might be getting nix-only
@@ -151,14 +144,39 @@ fn resolve_source(pkg: &str, dry_run: bool) -> Result<Source> {
             candidates,
             recommended,
             reason,
+            versions_equal,
         } => {
+            // If user previously chose "always nix" and versions match, skip prompt
+            if versions_equal && prefer_nix_on_equal {
+                return Ok(Source::Nix);
+            }
+
             if dry_run {
-                // In dry-run, just use the recommendation
                 return Ok(recommended);
             }
+
             // Interactive prompt
-            match resolve::prompt_resolution(pkg, &candidates, &recommended, &reason)? {
-                Some(source) => Ok(source),
+            match resolve::prompt_resolution(
+                pkg,
+                &candidates,
+                &recommended,
+                &reason,
+                versions_equal,
+            )? {
+                Some(result) => {
+                    if result.remember_nix {
+                        if let Err(e) = crate::config::set_preference("prefer_nix_on_equal", "true")
+                        {
+                            output::warn(&format!("could not save preference: {e}"));
+                        } else {
+                            eprintln!(
+                                "  {} saved — won't ask again for equal versions",
+                                console::style("✓").green()
+                            );
+                        }
+                    }
+                    Ok(result.source)
+                }
                 None => anyhow::bail!("cancelled"),
             }
         }

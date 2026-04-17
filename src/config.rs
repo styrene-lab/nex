@@ -17,6 +17,8 @@ pub struct Config {
     pub homebrew_file: PathBuf,
     /// Additional nix module files with home.packages lists.
     pub module_files: Vec<(String, PathBuf)>,
+    /// When true, auto-pick nix for equal-version conflicts without prompting.
+    pub prefer_nix_on_equal: bool,
 }
 
 /// Optional config file at ~/.config/nex/config.toml.
@@ -24,6 +26,7 @@ pub struct Config {
 struct FileConfig {
     repo_path: Option<String>,
     hostname: Option<String>,
+    prefer_nix_on_equal: Option<bool>,
 }
 
 impl Config {
@@ -55,12 +58,15 @@ impl Config {
             module_files.push(("kubernetes".to_string(), k8s_path));
         }
 
+        let prefer_nix_on_equal = file_config.prefer_nix_on_equal.unwrap_or(false);
+
         Ok(Config {
             repo,
             hostname,
             nix_packages_file,
             homebrew_file,
             module_files,
+            prefer_nix_on_equal,
         })
     }
 
@@ -72,6 +78,46 @@ impl Config {
         }
         files
     }
+}
+
+/// Persist a key=value into the config file, preserving existing content.
+pub fn set_preference(key: &str, value: &str) -> Result<()> {
+    let path = config_dir()?.join("config.toml");
+    let mut content = if path.exists() {
+        std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?
+    } else {
+        String::new()
+    };
+
+    // Replace existing key or append
+    let line = format!("{key} = {value}");
+    let mut found = false;
+    let updated: Vec<String> = content
+        .lines()
+        .map(|l| {
+            if l.trim_start().starts_with(&format!("{key} "))
+                || l.trim_start().starts_with(&format!("{key}="))
+            {
+                found = true;
+                line.clone()
+            } else {
+                l.to_string()
+            }
+        })
+        .collect();
+
+    content = updated.join("\n");
+    if !found {
+        if !content.ends_with('\n') && !content.is_empty() {
+            content.push('\n');
+        }
+        content.push_str(&line);
+        content.push('\n');
+    }
+
+    std::fs::create_dir_all(config_dir()?)?;
+    std::fs::write(&path, content)?;
+    Ok(())
 }
 
 /// Canonical config directory: ~/.config/nex/
