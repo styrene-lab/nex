@@ -407,11 +407,12 @@ fn scaffold_repo(hostname: &str, dry_run: bool) -> Result<PathBuf> {
       url = "github:nix-community/home-manager";
       inputs.nixpkgs.follows = "nixpkgs";
     }};
+    mac-app-util.url = "github:hraban/mac-app-util";
   }};
 
-  outputs = {{ self, nixpkgs, nix-darwin, home-manager }}:
+  outputs = {{ self, nixpkgs, nix-darwin, home-manager, mac-app-util }}:
     let
-      mkHost = import ./nix/lib/mkHost.nix {{ inherit nixpkgs nix-darwin home-manager; }};
+      mkHost = import ./nix/lib/mkHost.nix {{ inherit nixpkgs nix-darwin home-manager mac-app-util; }};
     in
     {{
       darwinConfigurations."{hostname}" = mkHost {{
@@ -429,7 +430,7 @@ fn scaffold_repo(hostname: &str, dry_run: bool) -> Result<PathBuf> {
     // mkHost.nix
     std::fs::write(
         lib_dir.join("mkHost.nix"),
-        r#"{ nixpkgs, nix-darwin, home-manager }:
+        r#"{ nixpkgs, nix-darwin, home-manager, mac-app-util }:
 
 { hostname, system, username, hostModule }:
 
@@ -438,6 +439,7 @@ nix-darwin.lib.darwinSystem {
   specialArgs = { inherit hostname username; };
   modules = [
     hostModule
+    mac-app-util.darwinModules.default
     home-manager.darwinModules.home-manager
     {
       home-manager = {
@@ -445,6 +447,9 @@ nix-darwin.lib.darwinSystem {
         useUserPackages = true;
         backupFileExtension = "backup";
         extraSpecialArgs = { inherit hostname username; };
+        sharedModules = [
+          mac-app-util.homeManagerModules.default
+        ];
       };
     }
   ];
