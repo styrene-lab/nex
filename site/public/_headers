@@ -1,3 +1,7 @@
+/install.sh
+  Cache-Control: no-cache, no-store, must-revalidate
+  CDN-Cache-Control: no-store
+
 /*
   X-Content-Type-Options: nosniff
   X-Frame-Options: SAMEORIGIN
