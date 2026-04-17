@@ -77,7 +77,13 @@ try_nix() {
   command -v nix >/dev/null 2>&1 || return 1
 
   info "Installing via nix flake..."
-  nix profile install "github:styrene-lab/nex"
+  # Use 'add' if available (Determinate Nix), fall back to 'install'.
+  # --refresh ensures we don't get a stale cached revision.
+  if nix profile add --help >/dev/null 2>&1; then
+    nix profile add "github:styrene-lab/nex" --refresh
+  else
+    nix profile install "github:styrene-lab/nex" --refresh
+  fi
   return 0
 }
 
