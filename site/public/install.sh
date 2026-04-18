@@ -181,7 +181,8 @@ patch_profile() {
   dir="$2"
   marker='# Added by nex installer'
 
-  [ -f "$profile" ] || return 1
+  # File must exist AND be writable (not a read-only symlink to nix store)
+  [ -f "$profile" ] && [ -w "$profile" ] || return 1
   # Already patched
   grep -qF "$marker" "$profile" 2>/dev/null && return 0
 
@@ -195,7 +196,7 @@ ensure_path() {
     *":$dir:"*) return ;;  # already in PATH
   esac
 
-  # Auto-patch shell profiles so it persists
+  # Auto-patch writable shell profiles so it persists
   patched=false
   for profile in "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.profile"; do
     if patch_profile "$profile" "$dir"; then
@@ -203,14 +204,18 @@ ensure_path() {
     fi
   done
 
-  # If no profile existed at all, create .zshrc (macOS default) or .bashrc
+  # If nothing was writable, create a new profile file
   if [ "$patched" = "false" ]; then
     if [ "$OS" = "Darwin" ]; then
-      target="$HOME/.zshrc"
+      # macOS default shell is zsh — use .zprofile (not managed by home-manager)
+      target="$HOME/.zprofile"
     else
-      target="$HOME/.bashrc"
+      target="$HOME/.profile"
     fi
-    printf '# Added by nex installer\nexport PATH="%s:$PATH"\n' "$dir" > "$target"
+    # Only create/append if not already patched
+    if ! grep -qF '# Added by nex installer' "$target" 2>/dev/null; then
+      printf '\n# Added by nex installer\nexport PATH="%s:$PATH"\n' "$dir" >> "$target"
+    fi
     patched=true
   fi
 

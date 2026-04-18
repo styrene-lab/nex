@@ -134,7 +134,7 @@ pub fn run(config: &Config, repo_ref: &str, dry_run: bool) -> Result<()> {
 
     // Apply kitty config and files
     if profile.kitty.is_some() {
-        apply_kitty(repo_ref, &profile.kitty, dry_run)?;
+        apply_kitty(config, repo_ref, &profile.kitty, dry_run)?;
     }
 
     // Apply shell config
@@ -392,38 +392,45 @@ fn apply_taps(config: &Config, pkgs: &ProfilePackages, dry_run: bool) -> Result<
     Ok(())
 }
 
-/// Apply kitty terminal config and copy supporting files from the profile repo.
-fn apply_kitty(repo_ref: &str, kitty: &Option<ProfileKitty>, dry_run: bool) -> Result<()> {
-    let kitty_dir = dirs::home_dir()
-        .context("no home directory")?
-        .join(".config/kitty");
-
+/// Apply kitty terminal config by downloading files into the nix-darwin repo's
+/// kitty-files directory (so home-manager picks them up on switch) AND into
+/// ~/.config/kitty/ for immediate use.
+fn apply_kitty(
+    config: &Config,
+    repo_ref: &str,
+    kitty: &Option<ProfileKitty>,
+    dry_run: bool,
+) -> Result<()> {
     if dry_run {
         output::dry_run("would apply kitty configuration");
         return Ok(());
     }
 
-    std::fs::create_dir_all(&kitty_dir)?;
-
-    // Download kitty files from the repo (themes, tab_bar.py, sessions, etc.)
     let repo = repo_ref
         .trim_start_matches("github.com/")
         .trim_start_matches("https://github.com/");
 
-    // Download kitty directory tree via gh (handles private repos) or curl
+    // Download kitty directory tree
     let json_str = fetch_dir_listing(repo, "kitty").unwrap_or_default();
     let entries: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap_or_default();
-    if !entries.is_empty() {
-        download_tree(repo, "kitty", &entries, &kitty_dir)?;
+    if entries.is_empty() {
+        return Ok(());
     }
 
-    // If there's a [kitty] section with settings, note it
+    // Place into the nix-darwin repo so home-manager uses them on switch
+    let repo_kitty_dir = config.repo.join("nix/modules/home/kitty-files");
+    std::fs::create_dir_all(&repo_kitty_dir)?;
+    download_tree(repo, "kitty", &entries, &repo_kitty_dir)?;
+
+    // Also place directly into ~/.config/kitty/ for immediate use
+    let user_kitty_dir = dirs::home_dir()
+        .context("no home directory")?
+        .join(".config/kitty");
+    std::fs::create_dir_all(&user_kitty_dir)?;
+    download_tree(repo, "kitty", &entries, &user_kitty_dir)?;
+
     if kitty.is_some() {
-        println!(
-            "  {} kitty config applied to {}",
-            style("✓").green(),
-            style(kitty_dir.display()).dim()
-        );
+        println!("  {} kitty config applied", style("✓").green(),);
     }
 
     Ok(())
