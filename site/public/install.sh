@@ -86,9 +86,16 @@ try_prebuilt() {
 
   install_dir="$(pick_install_dir)"
 
-  mkdir -p "$install_dir"
-  mv "$_TMPDIR/nex" "$install_dir/nex"
-  chmod +x "$install_dir/nex"
+  if [ -w "$install_dir" ] 2>/dev/null; then
+    mkdir -p "$install_dir"
+    mv "$_TMPDIR/nex" "$install_dir/nex"
+    chmod +x "$install_dir/nex"
+  else
+    info "installing to ${install_dir} (sudo required)..."
+    sudo mkdir -p "$install_dir" </dev/tty 2>/dev/null || mkdir -p "$install_dir"
+    sudo mv "$_TMPDIR/nex" "$install_dir/nex" </dev/tty
+    sudo chmod +x "$install_dir/nex" </dev/tty
+  fi
 
   rm -rf "$_TMPDIR"
   _TMPDIR=""

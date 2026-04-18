@@ -66,47 +66,50 @@ pub fn run() -> Result<()> {
 
     // Find where the current binary lives and replace it
     let current_exe = std::env::current_exe().context("could not determine current binary path")?;
-    // Resolve symlinks to get the real path
     let real_path = fs::canonicalize(&current_exe).unwrap_or_else(|_| current_exe.clone());
+    let needs_sudo = !is_writable(&real_path);
 
     output::status(&format!("replacing {}...", real_path.display()));
 
-    // Atomic-ish replace: rename old, move new, delete old
-    let backup = real_path.with_extension("old");
-    if let Err(e) = fs::rename(&real_path, &backup) {
-        // May need elevated permissions
-        bail!(
-            "could not replace {} — {e}\n\
-             hint: run `curl -fsSL https://nex.styrene.io/install.sh | sh` to reinstall",
-            real_path.display()
-        );
-    }
-
-    if let Err(e) = fs::copy(&new_binary, &real_path) {
-        // Restore backup on failure
-        let _ = fs::rename(&backup, &real_path);
-        bail!("failed to install new binary: {e}");
-    }
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = fs::set_permissions(&real_path, fs::Permissions::from_mode(0o755));
-    }
-
-    // Verify the new binary works before deleting backup
-    let verify = std::process::Command::new(&real_path)
-        .arg("--version")
-        .output();
-    match verify {
-        Ok(o) if o.status.success() => {
-            let _ = fs::remove_file(&backup);
+    if needs_sudo {
+        // Use sudo to replace in-place (e.g. /usr/local/bin owned by root)
+        let status = Command::new("sudo")
+            .args(["cp", "-f"])
+            .arg(&new_binary)
+            .arg(&real_path)
+            .status()
+            .context("failed to run sudo")?;
+        if !status.success() {
+            bail!("sudo cp failed — could not replace {}", real_path.display());
         }
-        _ => {
-            output::warn("new binary failed verification — restoring previous version");
+        let _ = Command::new("sudo")
+            .args(["chmod", "+x"])
+            .arg(&real_path)
+            .status();
+    } else {
+        let backup = real_path.with_extension("old");
+        if let Err(e) = fs::rename(&real_path, &backup) {
+            bail!("could not replace {} — {e}", real_path.display());
+        }
+
+        if let Err(e) = fs::copy(&new_binary, &real_path) {
             let _ = fs::rename(&backup, &real_path);
-            anyhow::bail!("downloaded binary is corrupt or incompatible");
+            bail!("failed to install new binary: {e}");
         }
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(&real_path, fs::Permissions::from_mode(0o755));
+        }
+
+        let _ = fs::remove_file(&backup);
+    }
+
+    // Verify the new binary works
+    let verify = Command::new(&real_path).arg("--version").output();
+    if !verify.map(|o| o.status.success()).unwrap_or(false) {
+        output::warn("new binary may not be working — verify with `nex --version`");
     }
 
     println!(
@@ -117,6 +120,25 @@ pub fn run() -> Result<()> {
     );
 
     Ok(())
+}
+
+/// Check if a path (or its parent directory) is writable by the current user.
+fn is_writable(path: &std::path::Path) -> bool {
+    if path.exists() {
+        // Can we write to the file itself?
+        std::fs::OpenOptions::new().write(true).open(path).is_ok()
+    } else if let Some(parent) = path.parent() {
+        // Can we create files in the parent?
+        let test = parent.join(".nex-write-test");
+        if std::fs::write(&test, b"").is_ok() {
+            let _ = std::fs::remove_file(&test);
+            true
+        } else {
+            false
+        }
+    } else {
+        false
+    }
 }
 
 fn detect_target() -> Result<String> {
