@@ -6,6 +6,7 @@ pub mod init;
 pub mod install;
 pub mod list;
 pub mod migrate;
+pub mod profile;
 pub mod remove;
 pub mod rollback;
 pub mod search;

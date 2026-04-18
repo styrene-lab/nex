@@ -64,6 +64,7 @@ fn main() -> Result<()> {
         Command::Adopt => ops::adopt::run(&config, cli.dry_run),
         Command::List => ops::list::run(&config),
         Command::Migrate => ops::migrate::run(&config),
+        Command::Profile { source } => ops::profile::run(&config, &source, cli.dry_run),
         Command::Doctor => ops::doctor::run(&config),
         Command::Switch => ops::switch::run(&config, cli.dry_run),
         Command::Update => ops::update::run(&config, cli.dry_run),

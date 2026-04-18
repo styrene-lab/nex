@@ -77,6 +77,12 @@ pub enum Command {
     },
     /// Identify brew packages that can migrate to nix
     Migrate,
+    /// Apply a profile from a GitHub repo
+    Profile {
+        /// GitHub repo (user/repo) or URL
+        #[arg(value_name = "SOURCE")]
+        source: String,
+    },
     /// Check and fix common configuration issues
     Doctor,
     /// Update nex itself to the latest release
