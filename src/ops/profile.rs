@@ -230,7 +230,17 @@ fn fetch_via_gh(repo: &str) -> Result<String> {
         .context("gh not available")?;
 
     if !output.status.success() {
-        bail!("gh api failed");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let hint = if stderr.contains("404") {
+            format!("repo {repo} not found (check the name, or run `gh auth refresh -s repo`)")
+        } else if stderr.contains("401") || stderr.contains("403") {
+            format!(
+                "access denied to {repo} — run `gh auth refresh -s repo` to grant private repo access"
+            )
+        } else {
+            format!("gh api failed: {}", stderr.trim())
+        };
+        bail!("{hint}");
     }
 
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
@@ -244,7 +254,7 @@ fn fetch_via_curl(repo: &str) -> Result<String> {
         .context("curl failed")?;
 
     if !output.status.success() {
-        bail!("could not download {url}");
+        bail!("not available at {url} (private repo? use `gh auth login` first)");
     }
 
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
