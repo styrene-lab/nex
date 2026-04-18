@@ -235,6 +235,10 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
         return Ok(());
     }
 
+    // Ensure nex is on PATH for all shells via /etc/paths.d/
+    // (sudo is already cached from darwin-rebuild switch above)
+    ensure_paths_d();
+
     // Check if brew has existing packages that need adopting
     let has_brew_packages = crate::exec::brew_available()
         && (!crate::exec::brew_leaves().unwrap_or_default().is_empty()
@@ -613,4 +617,59 @@ nix-darwin.lib.darwinSystem {
         .output();
 
     Ok(repo_path)
+}
+
+/// Register nex's bin directory system-wide so it's on PATH for all shells.
+/// macOS: /etc/paths.d/nex (read by path_helper at login)
+/// Linux: /etc/profile.d/nex.sh (sourced by login shells)
+fn ensure_paths_d() {
+    let exe = match std::env::current_exe() {
+        Ok(p) => p,
+        Err(_) => return,
+    };
+    let bin_dir = match exe.parent() {
+        Some(d) => d.to_string_lossy().to_string(),
+        None => return,
+    };
+
+    // Skip if already in a standard location
+    let standard = ["/usr/local/bin", "/usr/bin", "/bin", "/opt/homebrew/bin"];
+    if standard.iter().any(|s| *s == bin_dir) || bin_dir.contains("/nix/") {
+        return;
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let paths_file = std::path::Path::new("/etc/paths.d/nex");
+        if let Ok(content) = std::fs::read_to_string(paths_file) {
+            if content.trim() == bin_dir {
+                return;
+            }
+        }
+        let _ = Command::new("sudo")
+            .args([
+                "sh",
+                "-c",
+                &format!("echo '{}' > /etc/paths.d/nex", bin_dir),
+            ])
+            .status();
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let profile_file = std::path::Path::new("/etc/profile.d/nex.sh");
+        let expected = format!("export PATH=\"{}:$PATH\"", bin_dir);
+        if let Ok(content) = std::fs::read_to_string(profile_file) {
+            if content.contains(&bin_dir) {
+                return;
+            }
+        }
+        let _ = Command::new("sudo")
+            .args([
+                "sh",
+                "-c",
+                &format!("echo '{}' > /etc/profile.d/nex.sh", expected),
+            ])
+            .status();
+    }
 }

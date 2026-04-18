@@ -196,27 +196,44 @@ ensure_path() {
     *":$dir:"*) return ;;  # already in PATH
   esac
 
-  # Auto-patch writable shell profiles so it persists
+  # System-level PATH registration — works for ALL shells, survives
+  # home-manager managing shell profiles as read-only nix store symlinks
+  if [ "$OS" = "Darwin" ]; then
+    # macOS: /etc/paths.d/ is read by path_helper(8) at login
+    pathsd="/etc/paths.d/nex"
+    if [ ! -f "$pathsd" ] || ! grep -qF "$dir" "$pathsd" 2>/dev/null; then
+      printf '%s\n' "$dir" | sudo tee "$pathsd" >/dev/null 2>&1 || true
+    fi
+    if [ -f "$pathsd" ] && grep -qF "$dir" "$pathsd" 2>/dev/null; then
+      export PATH="$dir:$PATH"
+      return
+    fi
+  elif [ "$OS" = "Linux" ]; then
+    # Linux: /etc/profile.d/*.sh is sourced by login shells
+    profiled="/etc/profile.d/nex.sh"
+    if [ ! -f "$profiled" ] || ! grep -qF "$dir" "$profiled" 2>/dev/null; then
+      printf 'export PATH="%s:$PATH"\n' "$dir" | sudo tee "$profiled" >/dev/null 2>&1 || true
+    fi
+    if [ -f "$profiled" ] && grep -qF "$dir" "$profiled" 2>/dev/null; then
+      export PATH="$dir:$PATH"
+      return
+    fi
+  fi
+
+  # Fallback: patch writable shell profiles
   patched=false
-  for profile in "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.profile"; do
+  for profile in "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.profile" "$HOME/.zprofile"; do
     if patch_profile "$profile" "$dir"; then
       patched=true
     fi
   done
 
-  # If nothing was writable, create a new profile file
+  # Last resort: create a profile file
   if [ "$patched" = "false" ]; then
-    if [ "$OS" = "Darwin" ]; then
-      # macOS default shell is zsh — use .zprofile (not managed by home-manager)
-      target="$HOME/.zprofile"
-    else
-      target="$HOME/.profile"
-    fi
-    # Only create/append if not already patched
+    target="$HOME/.profile"
     if ! grep -qF '# Added by nex installer' "$target" 2>/dev/null; then
       printf '\n# Added by nex installer\nexport PATH="%s:$PATH"\n' "$dir" >> "$target"
     fi
-    patched=true
   fi
 
   # Add to current session too
