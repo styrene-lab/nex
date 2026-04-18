@@ -16,6 +16,7 @@ struct Profile {
     packages: Option<ProfilePackages>,
     shell: Option<ProfileShell>,
     git: Option<ProfileGit>,
+    kitty: Option<ProfileKitty>,
     macos: Option<ProfileMacos>,
     security: Option<ProfileSecurity>,
 }
@@ -24,6 +25,18 @@ struct Profile {
 struct ProfileMeta {
     name: Option<String>,
     description: Option<String>,
+    extends: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct ProfileKitty {
+    font: Option<String>,
+    font_size: Option<f64>,
+    theme: Option<String>,
+    window_padding: Option<u32>,
+    scrollback_lines: Option<u32>,
+    macos_option_as_alt: Option<bool>,
+    macos_quit_when_last_window_closed: Option<bool>,
 }
 
 #[derive(serde::Deserialize)]
@@ -78,7 +91,25 @@ struct ProfileSecurity {
 pub fn run(config: &Config, repo_ref: &str, dry_run: bool) -> Result<()> {
     let profile = fetch_profile(repo_ref)?;
 
-    if let Some(meta) = &profile.meta {
+    // Handle extends — apply the base profile first
+    if let Some(base_ref) = profile.meta.as_ref().and_then(|m| m.extends.as_deref()) {
+        println!("  {} extends {}", style("i").cyan(), style(base_ref).bold());
+        run(config, base_ref, dry_run)?;
+        println!();
+        println!(
+            "  {} applying overlay {}",
+            style("nex profile").bold(),
+            style(
+                profile
+                    .meta
+                    .as_ref()
+                    .and_then(|m| m.name.as_deref())
+                    .unwrap_or(repo_ref)
+            )
+            .cyan()
+        );
+        println!();
+    } else if let Some(meta) = &profile.meta {
         println!();
         println!(
             "  {} applying profile {}",
@@ -99,6 +130,11 @@ pub fn run(config: &Config, repo_ref: &str, dry_run: bool) -> Result<()> {
         changes += apply_nix_packages(config, &mut session, pkgs, dry_run)?;
         changes += apply_brew_packages(config, &mut session, pkgs, dry_run)?;
         apply_taps(config, pkgs, dry_run)?;
+    }
+
+    // Apply kitty config and files
+    if profile.kitty.is_some() {
+        apply_kitty(repo_ref, &profile.kitty, dry_run)?;
     }
 
     // Apply shell config
@@ -158,38 +194,60 @@ pub fn run(config: &Config, repo_ref: &str, dry_run: bool) -> Result<()> {
 }
 
 /// Fetch profile.toml from a GitHub repo.
+/// Tries `gh api` first (handles private repos), falls back to raw.githubusercontent.
 fn fetch_profile(repo_ref: &str) -> Result<Profile> {
-    // Accept: user/repo, github.com/user/repo, or full URL
-    let raw_url = if repo_ref.starts_with("http") {
-        // Full URL — assume it points to profile.toml
+    let repo = if repo_ref.starts_with("http") {
         repo_ref.to_string()
     } else {
-        // user/repo shorthand — fetch from GitHub raw
-        let repo = repo_ref
+        repo_ref
             .trim_start_matches("github.com/")
-            .trim_start_matches("https://github.com/");
-        format!("https://raw.githubusercontent.com/{repo}/main/profile.toml")
+            .trim_start_matches("https://github.com/")
+            .to_string()
     };
 
-    output::status(&format!("fetching profile from {repo_ref}..."));
+    output::status(&format!("fetching profile from {repo}..."));
 
-    let output = Command::new("curl")
-        .args(["-fsSL", &raw_url])
-        .output()
-        .context("failed to fetch profile")?;
+    // Try gh CLI first (handles auth for private repos)
+    let content = fetch_via_gh(&repo)
+        .or_else(|_| fetch_via_curl(&repo))
+        .with_context(|| format!("could not fetch profile.toml from {repo}"))?;
 
-    if !output.status.success() {
-        bail!(
-            "could not fetch profile from {repo_ref}\n\
-             tried: {raw_url}"
-        );
-    }
-
-    let content = String::from_utf8_lossy(&output.stdout);
-    let profile: Profile = toml::from_str(&content)
-        .with_context(|| format!("invalid profile.toml from {repo_ref}"))?;
+    let profile: Profile =
+        toml::from_str(&content).with_context(|| format!("invalid profile.toml from {repo}"))?;
 
     Ok(profile)
+}
+
+fn fetch_via_gh(repo: &str) -> Result<String> {
+    let output = Command::new("gh")
+        .args([
+            "api",
+            &format!("repos/{repo}/contents/profile.toml"),
+            "-H",
+            "Accept: application/vnd.github.raw+json",
+        ])
+        .output()
+        .context("gh not available")?;
+
+    if !output.status.success() {
+        bail!("gh api failed");
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+fn fetch_via_curl(repo: &str) -> Result<String> {
+    let url = format!("https://raw.githubusercontent.com/{repo}/main/profile.toml");
+    let output = Command::new("curl")
+        .args(["-fsSL", &url])
+        .output()
+        .context("curl failed")?;
+
+    if !output.status.success() {
+        bail!("could not download {url}");
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
 /// Add nix packages from the profile that aren't already declared.
@@ -321,6 +379,135 @@ fn apply_taps(config: &Config, pkgs: &ProfilePackages, dry_run: bool) -> Result<
         std::fs::write(&config.homebrew_file, patched)?;
     }
 
+    Ok(())
+}
+
+/// Apply kitty terminal config and copy supporting files from the profile repo.
+fn apply_kitty(repo_ref: &str, kitty: &Option<ProfileKitty>, dry_run: bool) -> Result<()> {
+    let kitty_dir = dirs::home_dir()
+        .context("no home directory")?
+        .join(".config/kitty");
+
+    if dry_run {
+        output::dry_run("would apply kitty configuration");
+        return Ok(());
+    }
+
+    std::fs::create_dir_all(&kitty_dir)?;
+
+    // Download kitty files from the repo (themes, tab_bar.py, sessions, etc.)
+    let repo = repo_ref
+        .trim_start_matches("github.com/")
+        .trim_start_matches("https://github.com/");
+
+    // Download kitty directory tree via gh (handles private repos) or curl
+    let json_str = fetch_dir_listing(repo, "kitty").unwrap_or_default();
+    let entries: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap_or_default();
+    if !entries.is_empty() {
+        download_tree(repo, "kitty", &entries, &kitty_dir)?;
+    }
+
+    // If there's a [kitty] section with settings, note it
+    if kitty.is_some() {
+        println!(
+            "  {} kitty config applied to {}",
+            style("✓").green(),
+            style(kitty_dir.display()).dim()
+        );
+    }
+
+    Ok(())
+}
+
+/// Fetch a GitHub directory listing via gh or curl.
+fn fetch_dir_listing(repo: &str, path: &str) -> Result<String> {
+    // Try gh first
+    if let Ok(output) = Command::new("gh")
+        .args(["api", &format!("repos/{repo}/contents/{path}?ref=main")])
+        .output()
+    {
+        if output.status.success() {
+            return Ok(String::from_utf8_lossy(&output.stdout).to_string());
+        }
+    }
+
+    // Fall back to curl
+    let url = format!("https://api.github.com/repos/{repo}/contents/{path}?ref=main");
+    let output = Command::new("curl")
+        .args(["-fsSL", "-H", "Accept: application/vnd.github+json", &url])
+        .output()
+        .context("failed to list directory")?;
+
+    if !output.status.success() {
+        bail!("could not list {path} in {repo}");
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+/// Download a file from a GitHub repo via gh (private) or raw.githubusercontent (public).
+fn fetch_file(repo: &str, path: &str) -> Result<Vec<u8>> {
+    // Try gh first
+    if let Ok(output) = Command::new("gh")
+        .args([
+            "api",
+            &format!("repos/{repo}/contents/{path}"),
+            "-H",
+            "Accept: application/vnd.github.raw+json",
+        ])
+        .output()
+    {
+        if output.status.success() {
+            return Ok(output.stdout);
+        }
+    }
+
+    // Fall back to raw URL
+    let url = format!("https://raw.githubusercontent.com/{repo}/main/{path}");
+    let output = Command::new("curl")
+        .args(["-fsSL", &url])
+        .output()
+        .context("failed to download file")?;
+
+    if !output.status.success() {
+        bail!("could not download {path}");
+    }
+
+    Ok(output.stdout)
+}
+
+/// Recursively download files from a GitHub repo directory.
+fn download_tree(
+    repo: &str,
+    path: &str,
+    entries: &[serde_json::Value],
+    local_dir: &std::path::Path,
+) -> Result<()> {
+    for entry in entries {
+        let name = entry.get("name").and_then(|v| v.as_str()).unwrap_or("");
+        let entry_type = entry.get("type").and_then(|v| v.as_str()).unwrap_or("");
+        let entry_path = format!("{path}/{name}");
+
+        if entry_type == "file" {
+            let local_path = local_dir.join(name);
+            if let Ok(data) = fetch_file(repo, &entry_path) {
+                std::fs::write(&local_path, &data)?;
+                println!(
+                    "    {} {}",
+                    style("+").green(),
+                    style(local_path.display()).dim()
+                );
+            }
+        } else if entry_type == "dir" {
+            let subdir = local_dir.join(name);
+            std::fs::create_dir_all(&subdir)?;
+            if let Ok(listing) = fetch_dir_listing(repo, &entry_path) {
+                let sub_entries: Vec<serde_json::Value> =
+                    serde_json::from_str(&listing).unwrap_or_default();
+                download_tree(repo, &entry_path, &sub_entries, &subdir)?;
+            }
+        }
+    }
     Ok(())
 }
 
