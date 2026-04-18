@@ -85,6 +85,7 @@ try_prebuilt() {
   fi
 
   install_dir="$(pick_install_dir)"
+
   mkdir -p "$install_dir"
   mv "$_TMPDIR/nex" "$install_dir/nex"
   chmod +x "$install_dir/nex"
@@ -93,7 +94,6 @@ try_prebuilt() {
   _TMPDIR=""
 
   printf "  installed to %s\n" "$install_dir"
-  ensure_path "$install_dir"
   return 0
 }
 
@@ -159,14 +159,13 @@ try_cargo() {
 }
 
 # Choose the best install directory.
-# Explicit override > /usr/local/bin (if writable) > ~/.local/bin
 pick_install_dir() {
   if [ -n "${NEX_INSTALL_DIR:-}" ]; then
     printf '%s' "$NEX_INSTALL_DIR"
     return
   fi
 
-  # /usr/local/bin is in PATH everywhere — prefer it if writable
+  # /usr/local/bin if writable (no sudo needed)
   if [ -d /usr/local/bin ] && [ -w /usr/local/bin ]; then
     printf '%s' "/usr/local/bin"
     return
@@ -196,31 +195,7 @@ ensure_path() {
     *":$dir:"*) return ;;  # already in PATH
   esac
 
-  # System-level PATH registration — works for ALL shells, survives
-  # home-manager managing shell profiles as read-only nix store symlinks
-  if [ "$OS" = "Darwin" ]; then
-    # macOS: /etc/paths.d/ is read by path_helper(8) at login
-    pathsd="/etc/paths.d/nex"
-    if [ ! -f "$pathsd" ] || ! grep -qF "$dir" "$pathsd" 2>/dev/null; then
-      printf '%s\n' "$dir" | sudo tee "$pathsd" >/dev/null 2>&1 || true
-    fi
-    if [ -f "$pathsd" ] && grep -qF "$dir" "$pathsd" 2>/dev/null; then
-      export PATH="$dir:$PATH"
-      return
-    fi
-  elif [ "$OS" = "Linux" ]; then
-    # Linux: /etc/profile.d/*.sh is sourced by login shells
-    profiled="/etc/profile.d/nex.sh"
-    if [ ! -f "$profiled" ] || ! grep -qF "$dir" "$profiled" 2>/dev/null; then
-      printf 'export PATH="%s:$PATH"\n' "$dir" | sudo tee "$profiled" >/dev/null 2>&1 || true
-    fi
-    if [ -f "$profiled" ] && grep -qF "$dir" "$profiled" 2>/dev/null; then
-      export PATH="$dir:$PATH"
-      return
-    fi
-  fi
-
-  # Fallback: patch writable shell profiles
+  # Patch writable shell profiles
   patched=false
   for profile in "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.profile" "$HOME/.zprofile"; do
     if patch_profile "$profile" "$dir"; then

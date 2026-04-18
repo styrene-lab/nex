@@ -20,6 +20,9 @@ pub fn run(config: &Config) -> Result<()> {
     // Check unfree packages allowed
     check_allow_unfree(config, &mut fixed)?;
 
+    // Check ~/.local/bin is on PATH via home.sessionPath
+    check_session_path(config, &mut fixed)?;
+
     if fixed > 0 {
         // Commit the changes so nix doesn't complain about dirty tree
         let repo = &config.repo;
@@ -189,6 +192,47 @@ fn check_allow_unfree(config: &Config, fixed: &mut usize) -> Result<bool> {
     };
 
     std::fs::write(&base_path, patched)
+        .with_context(|| format!("writing {}", base_path.display()))?;
+    info("patched", &base_path.display().to_string());
+
+    *fixed += 1;
+    Ok(true)
+}
+
+/// Check that ~/.local/bin is in home.sessionPath so nex is always on PATH.
+fn check_session_path(config: &Config, fixed: &mut usize) -> Result<bool> {
+    let base_path = &config.nix_packages_file;
+    if !base_path.exists() {
+        return Ok(false);
+    }
+
+    let content = std::fs::read_to_string(base_path)
+        .with_context(|| format!("reading {}", base_path.display()))?;
+
+    if content.contains("sessionPath") {
+        ok("sessionPath", "~/.local/bin is on PATH");
+        return Ok(false);
+    }
+
+    warn(
+        "sessionPath",
+        "~/.local/bin not in PATH — nex may not be found after install",
+    );
+
+    // Insert after the home block
+    let patched = if content.contains("stateVersion =") {
+        content.replace(
+            "stateVersion =",
+            "sessionPath = [ \"$HOME/.local/bin\" ];\n    stateVersion =",
+        )
+    } else {
+        output::warn(
+            "could not auto-patch — add `home.sessionPath = [ \"$HOME/.local/bin\" ];` manually",
+        );
+        return Ok(false);
+    };
+
+    std::fs::write(base_path, patched)
         .with_context(|| format!("writing {}", base_path.display()))?;
     info("patched", &base_path.display().to_string());
 
