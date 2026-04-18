@@ -18,7 +18,7 @@
         {
           default = pkgs.rustPlatform.buildRustPackage {
             pname = "nex";
-            version = "0.8.1";
+            version = "0.8.2";
             src = ./.;
             cargoLock.lockFile = ./Cargo.lock;
             meta = with pkgs.lib; {
