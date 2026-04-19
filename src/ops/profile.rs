@@ -29,6 +29,7 @@ struct ProfileMeta {
 }
 
 #[derive(serde::Deserialize)]
+#[allow(dead_code)]
 struct ProfileKitty {
     font: Option<String>,
     font_size: Option<f64>,
@@ -64,6 +65,7 @@ struct ProfileGit {
 }
 
 #[derive(serde::Deserialize)]
+#[allow(dead_code)]
 struct ProfileMacos {
     show_all_extensions: Option<bool>,
     show_hidden_files: Option<bool>,
@@ -78,12 +80,14 @@ struct ProfileMacos {
 }
 
 #[derive(serde::Deserialize)]
+#[allow(dead_code)]
 struct ProfileFonts {
     nerd: Option<Vec<String>>,
     families: Option<Vec<String>>,
 }
 
 #[derive(serde::Deserialize)]
+#[allow(dead_code)]
 struct ProfileSecurity {
     touchid_sudo: Option<bool>,
 }

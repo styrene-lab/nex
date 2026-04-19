@@ -10,6 +10,7 @@ pub enum RemoveMode {
     /// Search everywhere for the package
     Auto,
     /// Only remove from nix packages
+    #[allow(dead_code)]
     Nix,
     /// Only remove from casks
     Cask,
@@ -200,6 +201,7 @@ fn try_remove_nix(
 }
 
 /// Remove from a specific homebrew list (casks or brews).
+#[allow(clippy::too_many_arguments)]
 fn try_remove_list(
     _config: &Config,
     session: &mut EditSession,

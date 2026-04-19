@@ -196,15 +196,13 @@ pub fn run(config: &Config, dry_run: bool) -> Result<()> {
                 false,
             )?;
 
-            if pin {
-                if edit::remove(&config.nix_packages_file, &nixfile::NIX_PACKAGES, binary)? {
-                    println!(
-                        "    {} pinned — {} removed from nix config",
-                        style("✓").green(),
-                        binary
-                    );
-                    pinned += 1;
-                }
+            if pin && edit::remove(&config.nix_packages_file, &nixfile::NIX_PACKAGES, binary)? {
+                println!(
+                    "    {} pinned — {} removed from nix config",
+                    style("✓").green(),
+                    binary
+                );
+                pinned += 1;
             }
         }
 

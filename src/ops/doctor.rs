@@ -209,11 +209,23 @@ fn check_session_path(config: &Config, fixed: &mut usize) -> Result<bool> {
     let content = std::fs::read_to_string(base_path)
         .with_context(|| format!("reading {}", base_path.display()))?;
 
-    if content.contains("sessionPath") {
+    let in_nix_config = content.contains("sessionPath");
+    let on_path = is_local_bin_on_path();
+
+    if in_nix_config && on_path {
         ok("sessionPath", "~/.local/bin is on PATH");
         return Ok(false);
     }
 
+    if in_nix_config && !on_path {
+        warn(
+            "sessionPath",
+            "configured in nix but ~/.local/bin is not on PATH — run `nex switch` then open a new shell",
+        );
+        return Ok(false);
+    }
+
+    // Not in nix config at all
     warn(
         "sessionPath",
         "~/.local/bin not in PATH — nex may not be found after install",
@@ -238,6 +250,17 @@ fn check_session_path(config: &Config, fixed: &mut usize) -> Result<bool> {
 
     *fixed += 1;
     Ok(true)
+}
+
+/// Check if ~/.local/bin (or its expanded form) is on the current $PATH.
+fn is_local_bin_on_path() -> bool {
+    let path_var = std::env::var("PATH").unwrap_or_default();
+    let home = std::env::var("HOME").unwrap_or_default();
+    let expanded = format!("{home}/.local/bin");
+
+    path_var
+        .split(':')
+        .any(|entry| entry == "~/.local/bin" || entry == "$HOME/.local/bin" || entry == expanded)
 }
 
 fn ok(label: &str, detail: &str) {

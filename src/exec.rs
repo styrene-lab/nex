@@ -49,7 +49,7 @@ fn run(cmd: &mut Command) -> Result<()> {
 
 /// Validate that a nix package attribute exists in nixpkgs.
 pub fn nix_eval_exists(pkg: &str) -> Result<bool> {
-    let output = Command::new(&find_nix())
+    let output = Command::new(find_nix())
         .args(["eval", &format!("nixpkgs#{pkg}.name"), "--raw"])
         .stderr(std::process::Stdio::null())
         .output()
@@ -59,7 +59,7 @@ pub fn nix_eval_exists(pkg: &str) -> Result<bool> {
 
 /// Get the version of a nix package from nixpkgs. Returns None if not found.
 pub fn nix_eval_version(pkg: &str) -> Result<Option<String>> {
-    let output = Command::new(&find_nix())
+    let output = Command::new(find_nix())
         .args(["eval", &format!("nixpkgs#{pkg}.version"), "--raw"])
         .stderr(std::process::Stdio::null())
         .output()
@@ -186,7 +186,7 @@ pub fn brew_list_casks() -> Result<Vec<String>> {
 
 /// Search nixpkgs for packages matching a query.
 pub fn nix_search(query: &str) -> Result<()> {
-    run(Command::new(&find_nix()).args(["search", "nixpkgs", query]))
+    run(Command::new(find_nix()).args(["search", "nixpkgs", query]))
 }
 
 /// Resolve the absolute path to darwin-rebuild so sudo can find it.
@@ -287,19 +287,19 @@ pub fn darwin_rebuild_rollback(repo: &Path, hostname: &str) -> Result<()> {
 
 /// Run nix flake update.
 pub fn nix_flake_update(repo: &Path) -> Result<()> {
-    run(Command::new(&find_nix())
+    run(Command::new(find_nix())
         .args(["flake", "update"])
         .current_dir(repo))
 }
 
 /// Run nix shell for an ephemeral package.
 pub fn nix_shell(pkg: &str) -> Result<()> {
-    run(Command::new(&find_nix()).args(["shell", &format!("nixpkgs#{pkg}")]))
+    run(Command::new(find_nix()).args(["shell", &format!("nixpkgs#{pkg}")]))
 }
 
 /// Show diff between current system and new build.
 pub fn nix_diff_closures(repo: &Path) -> Result<()> {
-    run(Command::new(&find_nix())
+    run(Command::new(find_nix())
         .args([
             "store",
             "diff-closures",

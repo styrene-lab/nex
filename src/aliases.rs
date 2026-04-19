@@ -3,7 +3,6 @@
 /// Each entry maps from a common name (binary name, brew name, shorthand)
 /// to the canonical nixpkgs attribute. The resolve and duplicate-detection
 /// paths both consult this table.
-
 /// (input_name, nixpkgs_attr)
 const ALIASES: &[(&str, &str)] = &[
     // Binary name -> nixpkgs attr
@@ -83,7 +82,7 @@ pub fn nixpkgs_attr_static(name: &str) -> Option<&'static str> {
 
 /// Look up the nixpkgs attribute for a given name.
 /// Returns the canonical attr if found, or the original name.
-pub fn nixpkgs_attr<'a>(name: &'a str) -> &'a str {
+pub fn nixpkgs_attr(name: &str) -> &str {
     nixpkgs_attr_static(name).unwrap_or(name)
 }
 

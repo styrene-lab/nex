@@ -163,7 +163,7 @@ fn fetch_latest_version() -> Result<String> {
             "-fsSL",
             "-H",
             "Accept: application/vnd.github+json",
-            &format!("https://api.github.com/repos/styrene-lab/nex/releases/latest"),
+            "https://api.github.com/repos/styrene-lab/nex/releases/latest",
         ])
         .output()
         .context("failed to query GitHub releases")?;
