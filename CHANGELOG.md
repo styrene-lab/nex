@@ -2,6 +2,12 @@
 
 All notable changes to nex are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.9.3] - 2026-04-19
+
+### Fixed
+- `nex doctor` falsely reporting `~/.local/bin` on PATH when it was only configured in nix but not yet active
+- All clippy warnings (needless lifetimes, needless borrows, collapsible if, useless format, dead code, too many arguments)
+
 ## [0.2.0] - 2026-04-17
 
 ### Added
