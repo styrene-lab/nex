@@ -219,12 +219,55 @@ fn find_darwin_rebuild() -> Result<String> {
 /// After a successful switch, re-registers nix .app bundles with LaunchServices
 /// so Spotlight displays correct icons.
 pub fn darwin_rebuild_switch(repo: &Path, hostname: &str) -> Result<()> {
+    ensure_profile_dirs();
     let dr = find_darwin_rebuild()?;
     run(Command::new("sudo")
         .args([&dr, "switch", "--flake", &format!(".#{hostname}")])
         .current_dir(repo))?;
     refresh_app_icons();
     Ok(())
+}
+
+/// Ensure home-manager profile directories exist.
+/// Determinate Nix on fresh macOS doesn't create per-user profile dirs,
+/// which causes home-manager to fail with "Could not find suitable profile directory".
+fn ensure_profile_dirs() {
+    let user = std::env::var("USER").unwrap_or_default();
+    if user.is_empty() {
+        return;
+    }
+
+    let dirs = [
+        format!("/nix/var/nix/profiles/per-user/{user}"),
+        dirs::home_dir()
+            .map(|h| {
+                h.join(".local/state/nix/profiles")
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .unwrap_or_default(),
+    ];
+
+    for dir in &dirs {
+        if dir.is_empty() {
+            continue;
+        }
+        let path = Path::new(dir);
+        if path.exists() {
+            continue;
+        }
+        // /nix/var/nix/profiles/per-user needs sudo
+        if dir.starts_with("/nix/") {
+            let _ = Command::new("sudo")
+                .args(["mkdir", "-p", dir])
+                .status();
+            let _ = Command::new("sudo")
+                .args(["chown", &user, dir])
+                .status();
+        } else {
+            let _ = std::fs::create_dir_all(path);
+        }
+    }
 }
 
 /// Re-register nix .app bundles with LaunchServices so Spotlight shows correct icons.
