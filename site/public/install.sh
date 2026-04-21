@@ -100,6 +100,7 @@ try_prebuilt() {
   rm -rf "$_TMPDIR"
   _TMPDIR=""
 
+  ensure_path "$install_dir"
   printf "  installed to %s\n" "$install_dir"
   return 0
 }
@@ -212,7 +213,10 @@ ensure_path() {
 
   # Last resort: create a profile file
   if [ "$patched" = "false" ]; then
-    target="$HOME/.profile"
+    case "$OS" in
+      Darwin) target="$HOME/.zprofile" ;;  # macOS default shell is zsh
+      *)      target="$HOME/.profile" ;;
+    esac
     if ! grep -qF '# Added by nex installer' "$target" 2>/dev/null; then
       printf '\n# Added by nex installer\nexport PATH="%s:$PATH"\n' "$dir" >> "$target"
     fi
