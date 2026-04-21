@@ -258,12 +258,8 @@ fn ensure_profile_dirs() {
         }
         // /nix/var/nix/profiles/per-user needs sudo
         if dir.starts_with("/nix/") {
-            let _ = Command::new("sudo")
-                .args(["mkdir", "-p", dir])
-                .status();
-            let _ = Command::new("sudo")
-                .args(["chown", &user, dir])
-                .status();
+            let _ = Command::new("sudo").args(["mkdir", "-p", dir]).status();
+            let _ = Command::new("sudo").args(["chown", &user, dir]).status();
         } else {
             let _ = std::fs::create_dir_all(path);
         }
