@@ -320,9 +320,64 @@ fn install_nix() -> Result<()> {
         .context("failed to run nix installer")?;
 
     if !status.success() {
-        bail!("nix installation failed");
+        output::error("shell installer failed — trying macOS .pkg installer...");
+        install_nix_pkg()?;
     }
 
+    source_nix_env();
+    Ok(())
+}
+
+fn install_nix_pkg() -> Result<()> {
+    let tmp_dir = std::env::temp_dir();
+    let pkg_path = tmp_dir.join("determinate-nix.pkg");
+
+    output::status("downloading Determinate Nix .pkg...");
+    let dl = Command::new("curl")
+        .args([
+            "-fsSL",
+            "https://install.determinate.systems/determinate-pkg/stable/Universal",
+            "-o",
+            &pkg_path.display().to_string(),
+        ])
+        .status()
+        .context("failed to download .pkg installer")?;
+
+    if !dl.success() {
+        bail!(
+            "failed to download Determinate Nix .pkg\n\
+             Install Nix manually: https://determinate.systems/nix-installer\n\
+             Then re-run: nex init"
+        );
+    }
+
+    output::status("installing .pkg (sudo required)...");
+    let install = Command::new("sudo")
+        .args([
+            "installer",
+            "-pkg",
+            &pkg_path.display().to_string(),
+            "-target",
+            "/",
+        ])
+        .status()
+        .context("failed to run .pkg installer")?;
+
+    // Clean up
+    let _ = std::fs::remove_file(&pkg_path);
+
+    if !install.success() {
+        bail!(
+            "Determinate Nix .pkg installation failed\n\
+             Install Nix manually: https://determinate.systems/nix-installer\n\
+             Then re-run: nex init"
+        );
+    }
+
+    Ok(())
+}
+
+fn source_nix_env() {
     // Source nix in current process env
     if let Ok(profile) =
         std::fs::read_to_string("/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh")
@@ -345,8 +400,6 @@ fn install_nix() -> Result<()> {
         "PATH",
         format!("/nix/var/nix/profiles/default/bin:{current_path}"),
     );
-
-    Ok(())
 }
 
 fn install_homebrew() -> Result<()> {
