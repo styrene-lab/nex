@@ -86,8 +86,8 @@ try_prebuilt() {
 
   install_dir="$(pick_install_dir)"
 
-  if [ -w "$install_dir" ] 2>/dev/null; then
-    mkdir -p "$install_dir"
+  # Try creating as the user first — avoids root-owning ~/.local
+  if mkdir -p "$install_dir" 2>/dev/null && [ -w "$install_dir" ]; then
     mv "$_TMPDIR/nex" "$install_dir/nex"
     chmod +x "$install_dir/nex"
   else

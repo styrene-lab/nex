@@ -231,10 +231,26 @@ pub fn darwin_rebuild_switch(repo: &Path, hostname: &str) -> Result<()> {
 /// Ensure home-manager profile directories exist.
 /// Determinate Nix on fresh macOS doesn't create per-user profile dirs,
 /// which causes home-manager to fail with "Could not find suitable profile directory".
+/// Also fixes ~/.local ownership if the install script created it as root.
 fn ensure_profile_dirs() {
     let user = std::env::var("USER").unwrap_or_default();
     if user.is_empty() {
         return;
+    }
+
+    // Fix ~/.local ownership — the install script may have created it via sudo
+    if let Some(home) = dirs::home_dir() {
+        let dot_local = home.join(".local");
+        if dot_local.exists() {
+            if let Ok(meta) = std::fs::metadata(&dot_local) {
+                use std::os::unix::fs::MetadataExt;
+                if meta.uid() == 0 {
+                    let _ = Command::new("sudo")
+                        .args(["chown", "-R", &user, &dot_local.to_string_lossy()])
+                        .status();
+                }
+            }
+        }
     }
 
     let dirs = [
