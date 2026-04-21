@@ -185,6 +185,9 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
         }
     }
 
+    // Ensure home-manager profile dirs exist before first switch
+    crate::exec::ensure_profile_dirs();
+
     // Use the darwin-rebuild from the build result, via sudo
     let result_path = repo_path.join("result/sw/bin/darwin-rebuild");
     let switch_ok = if result_path.exists() {
