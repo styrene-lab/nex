@@ -39,10 +39,16 @@ esac
 case "${ARCH}-${OS}" in
   arm64-Darwin|aarch64-Darwin) TARGET="aarch64-apple-darwin" ;;
   x86_64-Darwin)               TARGET="x86_64-apple-darwin" ;;
-  aarch64-Linux)               TARGET="aarch64-unknown-linux-gnu" ;;
-  x86_64-Linux)                TARGET="x86_64-unknown-linux-gnu" ;;
+  aarch64-Linux)               TARGET="aarch64-unknown-linux-musl" ;;
+  x86_64-Linux)                TARGET="x86_64-unknown-linux-musl" ;;
   *) fail "Unsupported platform: ${ARCH}-${OS}" ;;
 esac
+
+# Detect NixOS — dynamically linked binaries won't work
+IS_NIXOS=false
+if [ -f /etc/NIXOS ]; then
+  IS_NIXOS=true
+fi
 
 # ─── Cleanup ────────────────────────────────────────────────────────────────
 cleanup() {
@@ -63,7 +69,20 @@ try_prebuilt() {
 
   # Quick HEAD check — don't download if the release doesn't exist
   if ! curl -fsSL --head "$url" >/dev/null 2>&1; then
-    return 1
+    # Fallback: try gnu target if musl isn't available (and vice versa)
+    case "$TARGET" in
+      *-musl) fallback_target=$(echo "$TARGET" | sed 's/-musl$/-gnu/'); ;;
+      *-gnu)  fallback_target=$(echo "$TARGET" | sed 's/-gnu$/-musl/'); ;;
+      *)      return 1 ;;
+    esac
+    url="${NEX_REPO}/releases/latest/download/nex-${fallback_target}.tar.gz"
+    if ! curl -fsSL --head "$url" >/dev/null 2>&1; then
+      return 1
+    fi
+    if [ "$IS_NIXOS" = "true" ] && echo "$fallback_target" | grep -q "gnu"; then
+      warn "Only glibc binary available — won't work on NixOS"
+      return 1
+    fi
   fi
 
   info "Downloading prebuilt binary for ${TARGET}..."
@@ -240,15 +259,28 @@ has_nix=false; has_cargo=false
 command -v nix   >/dev/null 2>&1 && has_nix=true
 command -v cargo >/dev/null 2>&1 && has_cargo=true
 
-# Try in order: prebuilt binary -> nix -> cargo
+# Install order depends on platform:
+# NixOS: nix -> prebuilt (static musl) -> cargo
+# Other: prebuilt -> nix -> cargo
 installed=false
 
-if try_prebuilt; then
-  installed=true
-elif $has_nix && try_nix; then
-  installed=true
-elif $has_cargo && try_cargo; then
-  installed=true
+if [ "$IS_NIXOS" = "true" ]; then
+  # NixOS: prefer nix profile install (guaranteed to work)
+  if $has_nix && try_nix; then
+    installed=true
+  elif try_prebuilt; then
+    installed=true
+  elif $has_cargo && try_cargo; then
+    installed=true
+  fi
+else
+  if try_prebuilt; then
+    installed=true
+  elif $has_nix && try_nix; then
+    installed=true
+  elif $has_cargo && try_cargo; then
+    installed=true
+  fi
 fi
 
 if [ "$installed" = "false" ]; then
