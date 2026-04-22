@@ -107,6 +107,12 @@ pub enum Command {
         #[arg(long)]
         bundle: Option<PathBuf>,
     },
+    /// Enter a dev shell from a flake (wraps nix develop)
+    Develop {
+        /// Flake reference (e.g. github:styrene-lab/nex, ., ./path/to/flake)
+        #[arg(value_name = "FLAKE")]
+        flake: String,
+    },
     /// Check and fix common configuration issues
     Doctor,
     /// Update nex itself to the latest release

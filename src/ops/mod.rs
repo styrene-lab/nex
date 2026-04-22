@@ -1,4 +1,5 @@
 pub mod adopt;
+pub mod develop;
 pub mod diff;
 pub mod doctor;
 pub mod forge;

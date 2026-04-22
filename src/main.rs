@@ -35,6 +35,9 @@ fn main() -> Result<()> {
         Command::Polymerize { ref bundle } => {
             return ops::polymerize::run(bundle.as_deref())
         }
+        Command::Develop { ref flake } => {
+            return ops::develop::run(flake)
+        }
         _ => {}
     }
 
@@ -83,7 +86,7 @@ fn main() -> Result<()> {
         Command::Try { package } => ops::try_pkg::run(&package, cli.dry_run),
         Command::Diff => ops::diff::run(&config),
         // Already handled above
-        Command::Init { .. } | Command::Search { .. } | Command::SelfUpdate | Command::Gc | Command::Forge { .. } | Command::Polymerize { .. } => {
+        Command::Init { .. } | Command::Search { .. } | Command::SelfUpdate | Command::Gc | Command::Forge { .. } | Command::Polymerize { .. } | Command::Develop { .. } => {
             unreachable!()
         }
     }
