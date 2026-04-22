@@ -1541,6 +1541,162 @@ mod tests {
         // Should NOT have unescaped quotes that break Nix
         assert!(!output.contains("= \"[\"com"));
     }
+
+    #[test]
+    fn test_generate_linux_config_kde() {
+        let profile: toml::Value = toml::from_str(r#"desktop = "kde""#).unwrap();
+        let mut lines = Vec::new();
+        generate_linux_config(&mut lines, &profile);
+        let output = lines.join("\n");
+        assert!(output.contains("plasma6.enable = true"));
+        assert!(output.contains("sddm.enable = true"));
+    }
+
+    #[test]
+    fn test_generate_linux_config_plasma_alias() {
+        let profile: toml::Value = toml::from_str(r#"desktop = "plasma""#).unwrap();
+        let mut lines = Vec::new();
+        generate_linux_config(&mut lines, &profile);
+        let output = lines.join("\n");
+        assert!(output.contains("plasma6.enable = true"));
+    }
+
+    #[test]
+    fn test_generate_linux_config_nouveau() {
+        let profile: toml::Value = toml::from_str(r#"
+            [gpu]
+            driver = "nouveau"
+        "#).unwrap();
+        let mut lines = Vec::new();
+        generate_linux_config(&mut lines, &profile);
+        let output = lines.join("\n");
+        assert!(output.contains("\"nouveau\""));
+        assert!(!output.contains("nvidia.modesetting"));
+    }
+
+    #[test]
+    fn test_generate_linux_config_intel_vaapi() {
+        let profile: toml::Value = toml::from_str(r#"
+            [gpu]
+            driver = "intel"
+            vaapi = true
+        "#).unwrap();
+        let mut lines = Vec::new();
+        generate_linux_config(&mut lines, &profile);
+        let output = lines.join("\n");
+        assert!(output.contains("intel-media-driver"));
+        assert!(output.contains("hardware.graphics.enable = true"));
+    }
+
+    #[test]
+    fn test_generate_linux_config_empty_driver() {
+        let profile: toml::Value = toml::from_str(r#"
+            [gpu]
+            driver = ""
+        "#).unwrap();
+        let mut lines = Vec::new();
+        generate_linux_config(&mut lines, &profile);
+        let output = lines.join("\n");
+        assert!(output.contains("hardware.graphics.enable = true"));
+        // Should not crash or generate broken config
+        assert!(!output.contains("services.xserver.videoDrivers"));
+    }
+
+    #[test]
+    fn test_generate_linux_config_audio_bluetooth_only() {
+        let profile: toml::Value = toml::from_str(r#"
+            [audio]
+            bluetooth = true
+        "#).unwrap();
+        let mut lines = Vec::new();
+        generate_linux_config(&mut lines, &profile);
+        let output = lines.join("\n");
+        assert!(output.contains("hardware.bluetooth.enable = true"));
+        assert!(output.contains("pipewire")); // default backend
+    }
+
+    #[test]
+    fn test_generate_linux_config_empty_gaming() {
+        let profile: toml::Value = toml::from_str(r#"
+            [gaming]
+        "#).unwrap();
+        let mut lines = Vec::new();
+        generate_linux_config(&mut lines, &profile);
+        let output = lines.join("\n");
+        // Should not contain Steam or gamemode if none are true
+        assert!(!output.contains("programs.steam"));
+        assert!(!output.contains("programs.gamemode"));
+    }
+
+    #[test]
+    fn test_generate_linux_config_no_sections() {
+        let profile: toml::Value = toml::from_str("").unwrap();
+        let mut lines = Vec::new();
+        generate_linux_config(&mut lines, &profile);
+        // Empty profile should generate nothing
+        assert!(lines.is_empty());
+    }
+
+    #[test]
+    fn test_merge_toml_base_arrays_preserved() {
+        // Overlay has no packages — base packages should remain
+        let mut base: toml::Value = toml::from_str(r#"
+            [packages]
+            nix = ["git", "vim", "eza"]
+        "#).unwrap();
+        let overlay: toml::Value = toml::from_str(r#"
+            [meta]
+            name = "overlay"
+        "#).unwrap();
+        merge_toml(&mut base, overlay);
+        let nix = base["packages"]["nix"].as_array().unwrap();
+        assert_eq!(nix.len(), 3);
+    }
+
+    #[test]
+    fn test_merge_toml_circular_protection() {
+        // resolve_profile_chain handles circular refs via the chain.contains check.
+        // We can test the merge function itself handles the same value merged twice.
+        let mut base: toml::Value = toml::from_str(r#"
+            [shell.aliases]
+            ls = "eza"
+        "#).unwrap();
+        let overlay = base.clone();
+        merge_toml(&mut base, overlay);
+        // Should not duplicate — same value
+        assert_eq!(base["shell"]["aliases"]["ls"].as_str().unwrap(), "eza");
+    }
+
+    #[test]
+    fn test_generate_linux_config_gnome_dark_and_favorites() {
+        let profile: toml::Value = toml::from_str(r#"
+            [gnome]
+            dark_mode = true
+            favorite_apps = ["firefox.desktop", "kitty.desktop"]
+        "#).unwrap();
+        let mut lines = Vec::new();
+        generate_linux_config(&mut lines, &profile);
+        let output = lines.join("\n");
+        assert!(output.contains("Adwaita:dark"));
+        assert!(output.contains("'firefox.desktop'"));
+        assert!(output.contains("color-scheme='prefer-dark'"));
+        assert!(output.contains("dconf update"));
+    }
+
+    #[test]
+    fn test_generate_linux_config_gnome_no_dark() {
+        let profile: toml::Value = toml::from_str(r#"
+            [gnome]
+            dark_mode = false
+            favorite_apps = ["kitty.desktop"]
+        "#).unwrap();
+        let mut lines = Vec::new();
+        generate_linux_config(&mut lines, &profile);
+        let output = lines.join("\n");
+        assert!(!output.contains("Adwaita:dark"));
+        assert!(!output.contains("color-scheme"));
+        assert!(output.contains("'kitty.desktop'"));
+    }
 }
 
 fn chrono_now() -> String {

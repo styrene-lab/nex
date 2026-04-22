@@ -968,13 +968,16 @@ fn exec_write_config(
             home.push("    enable = true;".to_string());
             home.push("    settings = {".to_string());
             if let Some(name) = git.get("name").and_then(|v| v.as_str()) {
-                home.push(format!("      user.name = \"{name}\";"));
+                let escaped = name.replace('\\', "\\\\").replace('"', "\\\"").replace("${", "\\${");
+                home.push(format!("      user.name = \"{escaped}\";"));
             }
             if let Some(email) = git.get("email").and_then(|v| v.as_str()) {
-                home.push(format!("      user.email = \"{email}\";"));
+                let escaped = email.replace('\\', "\\\\").replace('"', "\\\"").replace("${", "\\${");
+                home.push(format!("      user.email = \"{escaped}\";"));
             }
             if let Some(branch) = git.get("default_branch").and_then(|v| v.as_str()) {
-                home.push(format!("      init.defaultBranch = \"{branch}\";"));
+                let escaped = branch.replace('\\', "\\\\").replace('"', "\\\"").replace("${", "\\${");
+                home.push(format!("      init.defaultBranch = \"{escaped}\";"));
             }
             if git.get("pull_rebase").and_then(|v| v.as_bool()) == Some(true) {
                 home.push("      pull.rebase = true;".to_string());
@@ -1297,5 +1300,53 @@ mod tests {
     fn test_strip_partition_suffix_no_aggressive_strip() {
         // Should NOT strip trailing letters from non-NVMe/eMMC devices
         assert_eq!(strip_partition_suffix("sdp1"), Some("sdp".to_string()));
+    }
+
+    #[test]
+    fn test_validate_hostname_max_length() {
+        // Exactly 63 chars should be ok
+        assert!(validate_hostname(&"a".repeat(63)).is_ok());
+        assert!(validate_hostname(&"a".repeat(64)).is_err());
+    }
+
+    #[test]
+    fn test_validate_username_hyphen_middle() {
+        // Hyphens allowed in middle, not start
+        assert!(validate_username("my-user").is_ok());
+        assert!(validate_username("-user").is_err());
+    }
+
+    #[test]
+    fn test_nix_pkg_name_with_nix_interpolation() {
+        // ${} would be Nix string interpolation — must not be allowed
+        assert!(!is_valid_nix_pkg_name("pkg${evil}"));
+        assert!(!is_valid_nix_pkg_name("$(cmd)"));
+    }
+
+    #[test]
+    fn test_strip_partition_suffix_nvme_multiple_partitions() {
+        assert_eq!(strip_partition_suffix("nvme0n1p10"), Some("nvme0n1".to_string()));
+        assert_eq!(strip_partition_suffix("nvme1n1p3"), Some("nvme1n1".to_string()));
+    }
+
+    #[test]
+    fn test_strip_partition_suffix_bare_device() {
+        // No partition suffix at all
+        assert_eq!(strip_partition_suffix("sda"), Some("sda".to_string()));
+        assert_eq!(strip_partition_suffix("nvme0n1"), Some("nvme0n1".to_string()));
+    }
+
+    #[test]
+    fn test_validate_hostname_unicode() {
+        assert!(validate_hostname("héllo").is_err());
+        assert!(validate_hostname("host🔥").is_err());
+    }
+
+    #[test]
+    fn test_validate_username_numeric_only() {
+        // Can't start with digit
+        assert!(validate_username("123").is_err());
+        // But digits after first char are fine
+        assert!(validate_username("a123").is_ok());
     }
 }
