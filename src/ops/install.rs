@@ -71,7 +71,7 @@ pub fn run(config: &Config, mode: InstallMode, packages: &[String], dry_run: boo
     }
 
     output::status("switching...");
-    match exec::darwin_rebuild_switch(&config.repo, &config.hostname) {
+    match exec::system_rebuild_switch(&config.repo, &config.hostname, config.platform) {
         Ok(()) => {
             session.commit_all()?;
             output::status("done");
