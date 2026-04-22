@@ -30,5 +30,22 @@
           };
         }
       );
+
+      devShells = forAllSystems (system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+        in
+        {
+          default = pkgs.mkShell {
+            buildInputs = with pkgs; [
+              rustc
+              cargo
+              clippy
+              rustfmt
+              rust-analyzer
+            ];
+          };
+        }
+      );
     };
 }
