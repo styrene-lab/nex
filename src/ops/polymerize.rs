@@ -703,34 +703,6 @@ fn step_profile(defaults: &Defaults) -> Result<(Option<String>, Option<String>)>
     }
 }
 
-fn fetch_profile(repo_ref: &str) -> Result<String> {
-    // gh first
-    if let Ok(output) = Command::new("gh")
-        .args([
-            "api",
-            &format!("repos/{repo_ref}/contents/profile.toml"),
-            "-H",
-            "Accept: application/vnd.github.raw+json",
-        ])
-        .output()
-    {
-        if output.status.success() {
-            return Ok(String::from_utf8_lossy(&output.stdout).to_string());
-        }
-    }
-
-    let url = format!("https://raw.githubusercontent.com/{repo_ref}/main/profile.toml");
-    let output = Command::new("curl")
-        .args(["-fsSL", &url])
-        .output()
-        .context("curl failed")?;
-
-    if !output.status.success() {
-        bail!("could not fetch from {repo_ref}");
-    }
-    Ok(String::from_utf8_lossy(&output.stdout).to_string())
-}
-
 // ── Execution steps ──────────────────────────────────────────────────────
 
 fn exec_partition(disk: &str) -> Result<()> {
@@ -1239,5 +1211,91 @@ fn check_disk_for_special_layouts(disk: &str) {
             "    {}",
             style("For LVM installs, partition manually before running polymerize.").dim()
         );
+    }
+}
+
+// ── Tests ────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validate_hostname_valid() {
+        assert!(validate_hostname("gamingpc").is_ok());
+        assert!(validate_hostname("nixos").is_ok());
+        assert!(validate_hostname("my-host").is_ok());
+        assert!(validate_hostname("a").is_ok());
+        assert!(validate_hostname("host-123").is_ok());
+    }
+
+    #[test]
+    fn test_validate_hostname_invalid() {
+        assert!(validate_hostname("").is_err());
+        assert!(validate_hostname("-starts-bad").is_err());
+        assert!(validate_hostname("ends-bad-").is_err());
+        assert!(validate_hostname("has spaces").is_err());
+        assert!(validate_hostname("has.dots").is_err());
+        assert!(validate_hostname("has_under").is_err());
+        assert!(validate_hostname(&"a".repeat(64)).is_err());
+    }
+
+    #[test]
+    fn test_validate_username_valid() {
+        assert!(validate_username("wilson").is_ok());
+        assert!(validate_username("chris").is_ok());
+        assert!(validate_username("user-name").is_ok());
+        assert!(validate_username("user_name").is_ok());
+        assert!(validate_username("_private").is_ok());
+        assert!(validate_username("a1b2").is_ok());
+    }
+
+    #[test]
+    fn test_validate_username_invalid() {
+        assert!(validate_username("").is_err());
+        assert!(validate_username("root").is_err());
+        assert!(validate_username("Root").is_err());
+        assert!(validate_username("1user").is_err());
+        assert!(validate_username("user name").is_err());
+        assert!(validate_username("user.name").is_err());
+        assert!(validate_username(&"a".repeat(33)).is_err());
+    }
+
+    #[test]
+    fn test_is_valid_nix_pkg_name() {
+        assert!(is_valid_nix_pkg_name("git"));
+        assert!(is_valid_nix_pkg_name("proton-ge-bin"));
+        assert!(is_valid_nix_pkg_name("python3.11"));
+        assert!(is_valid_nix_pkg_name("obs-studio"));
+        assert!(!is_valid_nix_pkg_name(""));
+        assert!(!is_valid_nix_pkg_name("git; rm -rf /"));
+        assert!(!is_valid_nix_pkg_name("pkg with spaces"));
+        assert!(!is_valid_nix_pkg_name("pkg\"injection"));
+    }
+
+    #[test]
+    fn test_strip_partition_suffix_sata() {
+        assert_eq!(strip_partition_suffix("sda1"), Some("sda".to_string()));
+        assert_eq!(strip_partition_suffix("sdb2"), Some("sdb".to_string()));
+        assert_eq!(strip_partition_suffix("sda"), Some("sda".to_string()));
+    }
+
+    #[test]
+    fn test_strip_partition_suffix_nvme() {
+        assert_eq!(strip_partition_suffix("nvme0n1p1"), Some("nvme0n1".to_string()));
+        assert_eq!(strip_partition_suffix("nvme0n1p2"), Some("nvme0n1".to_string()));
+        assert_eq!(strip_partition_suffix("nvme0n1"), Some("nvme0n1".to_string()));
+    }
+
+    #[test]
+    fn test_strip_partition_suffix_emmc() {
+        assert_eq!(strip_partition_suffix("mmcblk0p1"), Some("mmcblk0".to_string()));
+        assert_eq!(strip_partition_suffix("mmcblk0"), Some("mmcblk0".to_string()));
+    }
+
+    #[test]
+    fn test_strip_partition_suffix_no_aggressive_strip() {
+        // Should NOT strip trailing letters from non-NVMe/eMMC devices
+        assert_eq!(strip_partition_suffix("sdp1"), Some("sdp".to_string()));
     }
 }

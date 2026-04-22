@@ -699,7 +699,7 @@ pub fn generate_linux_config(lines: &mut Vec<String>, linux: &toml::Value) {
     if let Some(gpu) = linux.get("gpu") {
         let driver = gpu.get("driver").and_then(|v| v.as_str()).unwrap_or("");
         let lib32 = gpu.get("32bit").and_then(|v| v.as_bool()).unwrap_or(false);
-        let vulkan = gpu.get("vulkan").and_then(|v| v.as_bool()).unwrap_or(true);
+        let _vulkan = gpu.get("vulkan").and_then(|v| v.as_bool()).unwrap_or(true);
         let vaapi = gpu.get("vaapi").and_then(|v| v.as_bool()).unwrap_or(false);
         let opencl = gpu.get("opencl").and_then(|v| v.as_bool()).unwrap_or(false);
 
@@ -808,7 +808,7 @@ pub fn generate_linux_config(lines: &mut Vec<String>, linux: &toml::Value) {
         let gamescope = gaming.get("gamescope").and_then(|v| v.as_bool()).unwrap_or(false);
         let controllers = gaming.get("controllers").and_then(|v| v.as_bool()).unwrap_or(false);
         let mangohud = gaming.get("mangohud").and_then(|v| v.as_bool()).unwrap_or(false);
-        let proton_ge = gaming.get("proton_ge").and_then(|v| v.as_bool()).unwrap_or(false);
+        let _proton_ge = gaming.get("proton_ge").and_then(|v| v.as_bool()).unwrap_or(false);
 
         lines.push("  # Gaming".to_string());
         if steam {
@@ -1331,20 +1331,216 @@ fn flash_to_usb(bundle_dir: &Path, iso_path: &Path, device: &str) -> Result<()> 
     Ok(())
 }
 
-/// Recursively copy a directory.
-fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
-    std::fs::create_dir_all(dst)?;
-    for entry in std::fs::read_dir(src)? {
-        let entry = entry?;
-        let src_path = entry.path();
-        let dst_path = dst.join(entry.file_name());
-        if src_path.is_dir() {
-            copy_dir_recursive(&src_path, &dst_path)?;
-        } else {
-            std::fs::copy(&src_path, &dst_path)?;
-        }
+// ── Tests ────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_merge_toml_tables_deep() {
+        let mut base: toml::Value = toml::from_str(r#"
+            [meta]
+            name = "base"
+            [packages]
+            nix = ["git", "vim"]
+            [shell.aliases]
+            ls = "ls -la"
+        "#).unwrap();
+
+        let overlay: toml::Value = toml::from_str(r#"
+            [meta]
+            name = "overlay"
+            description = "added"
+            [packages]
+            nix = ["vim", "htop"]
+            [shell.aliases]
+            ll = "ls -l"
+        "#).unwrap();
+
+        merge_toml(&mut base, overlay);
+
+        // Overlay scalar wins
+        assert_eq!(base["meta"]["name"].as_str().unwrap(), "overlay");
+        // Overlay adds new keys
+        assert_eq!(base["meta"]["description"].as_str().unwrap(), "added");
+        // Arrays concatenate and deduplicate
+        let nix = base["packages"]["nix"].as_array().unwrap();
+        let names: Vec<&str> = nix.iter().map(|v| v.as_str().unwrap()).collect();
+        assert!(names.contains(&"git"));
+        assert!(names.contains(&"vim"));
+        assert!(names.contains(&"htop"));
+        assert_eq!(names.iter().filter(|&&n| n == "vim").count(), 1); // no duplicates
+        // Tables merge recursively — base alias preserved, overlay added
+        assert_eq!(base["shell"]["aliases"]["ls"].as_str().unwrap(), "ls -la");
+        assert_eq!(base["shell"]["aliases"]["ll"].as_str().unwrap(), "ls -l");
     }
-    Ok(())
+
+    #[test]
+    fn test_merge_toml_overlay_alias_wins() {
+        let mut base: toml::Value = toml::from_str(r#"
+            [shell.aliases]
+            clod = "old-command"
+        "#).unwrap();
+
+        let overlay: toml::Value = toml::from_str(r#"
+            [shell.aliases]
+            clod = "new-command"
+        "#).unwrap();
+
+        merge_toml(&mut base, overlay);
+        assert_eq!(base["shell"]["aliases"]["clod"].as_str().unwrap(), "new-command");
+    }
+
+    #[test]
+    fn test_merge_toml_empty_overlay() {
+        let mut base: toml::Value = toml::from_str(r#"
+            [packages]
+            nix = ["git"]
+        "#).unwrap();
+
+        let overlay: toml::Value = toml::from_str("").unwrap();
+        merge_toml(&mut base, overlay);
+
+        let nix = base["packages"]["nix"].as_array().unwrap();
+        assert_eq!(nix.len(), 1);
+    }
+
+    #[test]
+    fn test_generate_linux_config_amd() {
+        let profile: toml::Value = toml::from_str(r#"
+            [gpu]
+            driver = "amdgpu"
+            vulkan = true
+            vaapi = true
+            opencl = true
+            32bit = true
+        "#).unwrap();
+
+        let mut lines = Vec::new();
+        generate_linux_config(&mut lines, &profile);
+        let output = lines.join("\n");
+
+        assert!(output.contains("hardware.graphics.enable = true"));
+        assert!(output.contains("hardware.graphics.enable32Bit = true"));
+        assert!(output.contains("hardware.amdgpu.initrd.enable = true"));
+        assert!(output.contains("hardware.amdgpu.opencl.enable = true"));
+        assert!(output.contains("libva-vdpau-driver"));
+        assert!(!output.contains("amdvlk"));
+    }
+
+    #[test]
+    fn test_generate_linux_config_nvidia() {
+        let profile: toml::Value = toml::from_str(r#"
+            [gpu]
+            driver = "nvidia"
+        "#).unwrap();
+
+        let mut lines = Vec::new();
+        generate_linux_config(&mut lines, &profile);
+        let output = lines.join("\n");
+
+        assert!(output.contains("hardware.nvidia.modesetting.enable = true"));
+        assert!(output.contains("hardware.nvidia.open = true")); // default
+        assert!(output.contains("services.xserver.videoDrivers = [ \"nvidia\" ]"));
+    }
+
+    #[test]
+    fn test_generate_linux_config_nvidia_old_gpu() {
+        let profile: toml::Value = toml::from_str(r#"
+            [gpu]
+            driver = "nvidia"
+            nvidia_open = false
+        "#).unwrap();
+
+        let mut lines = Vec::new();
+        generate_linux_config(&mut lines, &profile);
+        let output = lines.join("\n");
+
+        assert!(output.contains("hardware.nvidia.open = false"));
+    }
+
+    #[test]
+    fn test_generate_linux_config_multi_gpu() {
+        let profile: toml::Value = toml::from_str(r#"
+            [gpu]
+            driver = "nvidia,intel"
+            vaapi = true
+        "#).unwrap();
+
+        let mut lines = Vec::new();
+        generate_linux_config(&mut lines, &profile);
+        let output = lines.join("\n");
+
+        assert!(output.contains("\"nvidia\""));
+        assert!(output.contains("intel-media-driver"));
+    }
+
+    #[test]
+    fn test_generate_linux_config_cosmic() {
+        let profile: toml::Value = toml::from_str(r#"
+            desktop = "cosmic"
+        "#).unwrap();
+
+        let mut lines = Vec::new();
+        generate_linux_config(&mut lines, &profile);
+        let output = lines.join("\n");
+
+        assert!(output.contains("services.desktopManager.cosmic.enable = true"));
+        assert!(output.contains("services.displayManager.cosmic-greeter.enable = true"));
+    }
+
+    #[test]
+    fn test_generate_linux_config_gnome() {
+        let profile: toml::Value = toml::from_str(r#"
+            desktop = "gnome"
+        "#).unwrap();
+
+        let mut lines = Vec::new();
+        generate_linux_config(&mut lines, &profile);
+        let output = lines.join("\n");
+
+        assert!(output.contains("services.xserver.desktopManager.gnome.enable = true"));
+    }
+
+    #[test]
+    fn test_generate_linux_config_gaming() {
+        let profile: toml::Value = toml::from_str(r#"
+            [gaming]
+            steam = true
+            gamemode = true
+            mangohud = true
+            controllers = true
+        "#).unwrap();
+
+        let mut lines = Vec::new();
+        generate_linux_config(&mut lines, &profile);
+        let output = lines.join("\n");
+
+        assert!(output.contains("programs.steam"));
+        assert!(output.contains("programs.gamemode.enable = true"));
+        assert!(output.contains("mangohud"));
+        assert!(!output.contains("proton-ge-bin"));
+    }
+
+    #[test]
+    fn test_generate_linux_config_cosmic_dock_quoting() {
+        let profile: toml::Value = toml::from_str(r#"
+            [cosmic]
+            dark_mode = true
+            dock_favorites = ["com.system76.CosmicFiles", "kitty"]
+        "#).unwrap();
+
+        let mut lines = Vec::new();
+        generate_linux_config(&mut lines, &profile);
+        let output = lines.join("\n");
+
+        // Inner quotes must be escaped for Nix
+        assert!(output.contains("\\\"com.system76.CosmicFiles.desktop\\\""));
+        assert!(output.contains("\\\"kitty.desktop\\\""));
+        // Should NOT have unescaped quotes that break Nix
+        assert!(!output.contains("= \"[\"com"));
+    }
 }
 
 fn chrono_now() -> String {

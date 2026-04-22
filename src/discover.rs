@@ -278,3 +278,48 @@ pub fn default_repo_name() -> &'static str {
         Platform::Linux => "nix-config",
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_detect_system_returns_valid_string() {
+        let sys = detect_system();
+        assert!(
+            ["x86_64-darwin", "aarch64-darwin", "x86_64-linux", "aarch64-linux"].contains(&sys),
+            "detect_system returned unexpected: {sys}"
+        );
+    }
+
+    #[test]
+    fn test_detect_platform_consistent_with_system() {
+        let platform = detect_platform();
+        let system = detect_system();
+        match platform {
+            Platform::Darwin => assert!(system.ends_with("-darwin")),
+            Platform::Linux => assert!(system.ends_with("-linux")),
+        }
+    }
+
+    #[test]
+    fn test_runtime_arch_returns_known() {
+        let arch = runtime_arch();
+        assert!(
+            ["x86_64", "aarch64"].contains(&arch),
+            "runtime_arch returned unexpected: {arch}"
+        );
+    }
+
+    #[test]
+    fn test_platform_display() {
+        assert_eq!(format!("{}", Platform::Darwin), "macOS");
+        assert_eq!(format!("{}", Platform::Linux), "Linux");
+    }
+
+    #[test]
+    fn test_default_repo_name() {
+        let name = default_repo_name();
+        assert!(name == "macos-nix" || name == "nix-config");
+    }
+}
