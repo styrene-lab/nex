@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "nex", about = "Package manager for nix-darwin + homebrew")]
+#[command(name = "nex", about = "Package manager for nix-darwin, NixOS, and homebrew")]
 #[command(version)]
 pub struct Cli {
     #[command(subcommand)]
@@ -13,7 +13,7 @@ pub struct Cli {
     #[arg(long, global = true, env = "NEX_REPO")]
     pub repo: Option<PathBuf>,
 
-    /// Hostname for darwin-rebuild (overrides auto-detect)
+    /// Hostname for system rebuild (overrides auto-detect)
     #[arg(long, global = true, env = "NEX_HOSTNAME")]
     pub hostname: Option<String>,
 
@@ -24,7 +24,7 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
-    /// Set up nix-darwin + homebrew on this Mac
+    /// Set up nix-darwin + homebrew (macOS) or NixOS (Linux) on this machine
     Init {
         /// Clone an existing nix-darwin repo instead of scaffolding
         #[arg(long)]
@@ -82,6 +82,30 @@ pub enum Command {
         /// GitHub repo (user/repo) or URL
         #[arg(value_name = "SOURCE")]
         source: String,
+    },
+    /// Build a bootable NixOS installer USB, optionally with a baked-in profile
+    Forge {
+        /// Nex profile (GitHub user/repo) to bake in. Omit for generic styx installer.
+        #[arg(value_name = "PROFILE")]
+        profile: Option<String>,
+
+        /// Hostname default for the target system (user can override at install time)
+        #[arg(long)]
+        hostname: Option<String>,
+
+        /// Target USB device to flash (e.g. /dev/sdb, /dev/disk4). If omitted, builds bundle only.
+        #[arg(long)]
+        disk: Option<String>,
+
+        /// Output directory for the bundle (default: /tmp/nex-forge)
+        #[arg(long, short)]
+        output: Option<PathBuf>,
+    },
+    /// Interactive NixOS installer (runs on target machine after booting from USB)
+    Polymerize {
+        /// Path to the bundled defaults (written by nex forge). Auto-detected from USB.
+        #[arg(long)]
+        bundle: Option<PathBuf>,
     },
     /// Check and fix common configuration issues
     Doctor,

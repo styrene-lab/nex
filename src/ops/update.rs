@@ -12,7 +12,7 @@ pub fn run(config: &Config, dry_run: bool) -> Result<()> {
     output::status("updating flake inputs...");
     exec::nix_flake_update(&config.repo)?;
     output::status("switching...");
-    exec::darwin_rebuild_switch(&config.repo, &config.hostname)?;
+    exec::system_rebuild_switch(&config.repo, &config.hostname, config.platform)?;
     output::status("done");
     Ok(())
 }

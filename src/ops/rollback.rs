@@ -10,7 +10,7 @@ pub fn run(config: &Config, dry_run: bool) -> Result<()> {
         return Ok(());
     }
     output::status("rolling back...");
-    exec::darwin_rebuild_rollback(&config.repo, &config.hostname)?;
+    exec::system_rebuild_rollback(&config.repo, &config.hostname, config.platform)?;
     output::status("done");
     Ok(())
 }

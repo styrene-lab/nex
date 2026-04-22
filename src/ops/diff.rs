@@ -6,7 +6,7 @@ use crate::output;
 
 pub fn run(config: &Config) -> Result<()> {
     output::status("building...");
-    exec::darwin_rebuild_build(&config.repo, &config.hostname)?;
+    exec::system_rebuild_build(&config.repo, &config.hostname, config.platform)?;
     output::status("diff vs current system:");
     exec::nix_diff_closures(&config.repo)
 }

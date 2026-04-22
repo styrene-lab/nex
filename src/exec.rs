@@ -215,6 +215,30 @@ fn find_darwin_rebuild() -> Result<String> {
     )
 }
 
+/// Resolve the absolute path to nixos-rebuild.
+fn find_nixos_rebuild() -> Result<String> {
+    if let Ok(output) = Command::new("nixos-rebuild").arg("--help").output() {
+        if output.status.success() {
+            return Ok("nixos-rebuild".to_string());
+        }
+    }
+
+    let candidates = [
+        "/run/current-system/sw/bin/nixos-rebuild",
+        "/nix/var/nix/profiles/system/sw/bin/nixos-rebuild",
+    ];
+    for path in &candidates {
+        if std::path::Path::new(path).exists() {
+            return Ok(path.to_string());
+        }
+    }
+
+    bail!(
+        "nixos-rebuild not found — is NixOS installed?\n\
+         hint: run `nex init` first, or see nex.styrene.io"
+    )
+}
+
 /// Run darwin-rebuild switch (requires sudo for system activation).
 /// After a successful switch, re-registers nix .app bundles with LaunchServices
 /// so Spotlight displays correct icons.
@@ -226,6 +250,27 @@ pub fn darwin_rebuild_switch(repo: &Path, hostname: &str) -> Result<()> {
         .current_dir(repo))?;
     refresh_app_icons();
     Ok(())
+}
+
+/// Run nixos-rebuild switch (requires sudo for system activation).
+pub fn nixos_rebuild_switch(repo: &Path, hostname: &str) -> Result<()> {
+    ensure_profile_dirs();
+    let nr = find_nixos_rebuild()?;
+    run(Command::new("sudo")
+        .args([&nr, "switch", "--flake", &format!(".#{hostname}")])
+        .current_dir(repo))
+}
+
+/// Platform-aware system rebuild switch. Dispatches to darwin-rebuild or nixos-rebuild.
+pub fn system_rebuild_switch(
+    repo: &Path,
+    hostname: &str,
+    platform: crate::discover::Platform,
+) -> Result<()> {
+    match platform {
+        crate::discover::Platform::Darwin => darwin_rebuild_switch(repo, hostname),
+        crate::discover::Platform::Linux => nixos_rebuild_switch(repo, hostname),
+    }
 }
 
 /// Ensure home-manager profile directories exist.
@@ -347,6 +392,26 @@ pub fn darwin_rebuild_build(repo: &Path, hostname: &str) -> Result<()> {
         .current_dir(repo))
 }
 
+/// Run nixos-rebuild build (for diff). No sudo needed — build only.
+pub fn nixos_rebuild_build(repo: &Path, hostname: &str) -> Result<()> {
+    let nr = find_nixos_rebuild()?;
+    run(Command::new(&nr)
+        .args(["build", "--flake", &format!(".#{hostname}")])
+        .current_dir(repo))
+}
+
+/// Platform-aware system rebuild build.
+pub fn system_rebuild_build(
+    repo: &Path,
+    hostname: &str,
+    platform: crate::discover::Platform,
+) -> Result<()> {
+    match platform {
+        crate::discover::Platform::Darwin => darwin_rebuild_build(repo, hostname),
+        crate::discover::Platform::Linux => nixos_rebuild_build(repo, hostname),
+    }
+}
+
 /// Run darwin-rebuild --rollback (requires sudo for system activation).
 pub fn darwin_rebuild_rollback(repo: &Path, hostname: &str) -> Result<()> {
     let dr = find_darwin_rebuild()?;
@@ -359,6 +424,32 @@ pub fn darwin_rebuild_rollback(repo: &Path, hostname: &str) -> Result<()> {
             &format!(".#{hostname}"),
         ])
         .current_dir(repo))
+}
+
+/// Run nixos-rebuild --rollback (requires sudo for system activation).
+pub fn nixos_rebuild_rollback(repo: &Path, hostname: &str) -> Result<()> {
+    let nr = find_nixos_rebuild()?;
+    run(Command::new("sudo")
+        .args([
+            &nr,
+            "switch",
+            "--rollback",
+            "--flake",
+            &format!(".#{hostname}"),
+        ])
+        .current_dir(repo))
+}
+
+/// Platform-aware system rebuild rollback.
+pub fn system_rebuild_rollback(
+    repo: &Path,
+    hostname: &str,
+    platform: crate::discover::Platform,
+) -> Result<()> {
+    match platform {
+        crate::discover::Platform::Darwin => darwin_rebuild_rollback(repo, hostname),
+        crate::discover::Platform::Linux => nixos_rebuild_rollback(repo, hostname),
+    }
 }
 
 /// Run nix flake update.

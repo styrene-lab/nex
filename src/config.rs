@@ -3,22 +3,24 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use serde::Deserialize;
 
-use crate::discover;
+use crate::discover::{self, Platform};
 
 /// Resolved configuration for a nex session.
 pub struct Config {
-    /// Path to the nix-darwin repo root.
+    /// Path to the nix config repo root (nix-darwin or NixOS).
     pub repo: PathBuf,
-    /// Hostname for darwin-rebuild.
+    /// Hostname for system rebuild.
     pub hostname: String,
     /// Path to the primary nix packages file (relative to repo).
     pub nix_packages_file: PathBuf,
-    /// Path to the homebrew nix file (relative to repo).
+    /// Path to the homebrew nix file (relative to repo). None on Linux.
     pub homebrew_file: PathBuf,
     /// Additional nix module files with home.packages lists.
     pub module_files: Vec<(String, PathBuf)>,
     /// When true, auto-pick nix for equal-version conflicts without prompting.
     pub prefer_nix_on_equal: bool,
+    /// The detected platform (Darwin or Linux).
+    pub platform: Platform,
 }
 
 /// Optional config file at ~/.config/nex/config.toml.
@@ -33,23 +35,50 @@ impl Config {
     /// Resolve configuration from CLI args, env vars, config file, and auto-discovery.
     pub fn resolve(cli_repo: Option<PathBuf>, cli_hostname: Option<String>) -> Result<Self> {
         let file_config = load_file_config().unwrap_or_default();
+        let platform = discover::detect_platform();
+
+        let not_found_msg = match platform {
+            Platform::Darwin => {
+                "Could not find nix-darwin repo. Run `nex init`, set NEX_REPO, \
+                 or create ~/.config/nex/config.toml with repo_path."
+            }
+            Platform::Linux => {
+                "Could not find NixOS config repo. Run `nex init`, set NEX_REPO, \
+                 or create ~/.config/nex/config.toml with repo_path."
+            }
+        };
 
         let repo = cli_repo
             .or_else(|| file_config.repo_path.map(PathBuf::from))
             .or_else(|| discover::find_repo().ok())
-            .context(
-                "Could not find nix-darwin repo. Run `nex init`, set NEX_REPO, \
-                 or create ~/.config/nex/config.toml with repo_path.",
-            )?;
+            .context(not_found_msg)?;
 
         let hostname = cli_hostname
             .or(file_config.hostname)
             .or_else(|| discover::hostname().ok())
             .context("Could not detect hostname. Set NEX_HOSTNAME.")?;
 
-        // Standard file locations within the repo
-        let nix_packages_file = repo.join("nix/modules/home/base.nix");
-        let homebrew_file = repo.join("nix/modules/darwin/homebrew.nix");
+        // Standard file locations — detect scaffolded vs flat layout
+        let scaffolded = repo.join("nix/modules/home").exists();
+
+        let nix_packages_file = if scaffolded {
+            repo.join("nix/modules/home/base.nix")
+        } else if repo.join("home.nix").exists() {
+            repo.join("home.nix")
+        } else {
+            repo.join("nix/modules/home/base.nix") // fallback
+        };
+
+        let homebrew_file = match platform {
+            Platform::Darwin => repo.join("nix/modules/darwin/homebrew.nix"),
+            Platform::Linux => {
+                if scaffolded {
+                    repo.join("nix/modules/nixos/packages.nix")
+                } else {
+                    repo.join("configuration.nix")
+                }
+            }
+        };
 
         // Discover additional module files with home.packages
         let mut module_files = Vec::new();
@@ -67,6 +96,7 @@ impl Config {
             homebrew_file,
             module_files,
             prefer_nix_on_equal,
+            platform,
         })
     }
 

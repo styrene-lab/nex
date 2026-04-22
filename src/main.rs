@@ -24,6 +24,17 @@ fn main() -> Result<()> {
         Command::Search { query } => return ops::search::run(&query),
         Command::SelfUpdate => return ops::self_update::run(),
         Command::Gc => return ops::gc::run(cli.dry_run),
+        Command::Forge {
+            ref profile,
+            ref hostname,
+            ref disk,
+            ref output,
+        } => {
+            return ops::forge::run(profile.as_deref(), hostname.as_deref(), disk.as_deref(), output.as_deref(), cli.dry_run)
+        }
+        Command::Polymerize { ref bundle } => {
+            return ops::polymerize::run(bundle.as_deref())
+        }
         _ => {}
     }
 
@@ -72,7 +83,7 @@ fn main() -> Result<()> {
         Command::Try { package } => ops::try_pkg::run(&package, cli.dry_run),
         Command::Diff => ops::diff::run(&config),
         // Already handled above
-        Command::Init { .. } | Command::Search { .. } | Command::SelfUpdate | Command::Gc => {
+        Command::Init { .. } | Command::Search { .. } | Command::SelfUpdate | Command::Gc | Command::Forge { .. } | Command::Polymerize { .. } => {
             unreachable!()
         }
     }

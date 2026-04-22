@@ -5,6 +5,7 @@ use anyhow::{bail, Context, Result};
 use console::style;
 
 use crate::config::Config;
+use crate::discover::Platform;
 use crate::edit::{self, EditSession};
 use crate::nixfile;
 use crate::output;
@@ -18,6 +19,7 @@ struct Profile {
     git: Option<ProfileGit>,
     kitty: Option<ProfileKitty>,
     macos: Option<ProfileMacos>,
+    linux: Option<ProfileLinux>,
     security: Option<ProfileSecurity>,
 }
 
@@ -77,6 +79,13 @@ struct ProfileMacos {
     dock_autohide: Option<bool>,
     dock_show_recents: Option<bool>,
     fonts: Option<ProfileFonts>,
+    // Extended settings
+    dock: Option<ProfileDock>,
+    appearance: Option<ProfileAppearance>,
+    input: Option<ProfileInput>,
+    finder: Option<ProfileFinder>,
+    screenshots: Option<ProfileScreenshots>,
+    default_apps: Option<ProfileDefaultApps>,
 }
 
 #[derive(serde::Deserialize)]
@@ -84,6 +93,145 @@ struct ProfileMacos {
 struct ProfileFonts {
     nerd: Option<Vec<String>>,
     families: Option<Vec<String>>,
+}
+
+#[derive(serde::Deserialize)]
+#[allow(dead_code)]
+struct ProfileDock {
+    persistent_apps: Option<Vec<String>>,
+    tile_size: Option<u32>,
+    position: Option<String>,        // "bottom", "left", "right"
+    minimize_effect: Option<String>,  // "genie", "scale"
+    magnification: Option<bool>,
+    magnification_size: Option<u32>,
+    launchanim: Option<bool>,
+    mineffect: Option<String>,
+    show_process_indicators: Option<bool>,
+}
+
+#[derive(serde::Deserialize)]
+#[allow(dead_code)]
+struct ProfileAppearance {
+    dark_mode: Option<bool>,
+    accent_color: Option<String>,
+    highlight_color: Option<String>,
+    reduce_transparency: Option<bool>,
+    sidebar_icon_size: Option<u32>,   // 1=small, 2=medium, 3=large
+}
+
+#[derive(serde::Deserialize)]
+#[allow(dead_code)]
+struct ProfileInput {
+    key_repeat: Option<u32>,          // lower = faster (1-15, default 6)
+    initial_key_repeat: Option<u32>,  // lower = shorter delay (10-120, default 25)
+    fn_as_standard: Option<bool>,     // true = F1..F12 are standard function keys
+    press_and_hold: Option<bool>,     // false = enable key repeat instead of character picker
+}
+
+#[derive(serde::Deserialize)]
+#[allow(dead_code)]
+struct ProfileFinder {
+    default_view: Option<String>,     // "list", "icon", "column", "gallery"
+    show_path_bar: Option<bool>,
+    show_status_bar: Option<bool>,
+    show_tab_bar: Option<bool>,
+    new_window_path: Option<String>,
+    search_scope: Option<String>,     // "current", "previous", "computer"
+    show_extensions: Option<bool>,
+    warn_on_extension_change: Option<bool>,
+}
+
+#[derive(serde::Deserialize)]
+#[allow(dead_code)]
+struct ProfileScreenshots {
+    location: Option<String>,
+    format: Option<String>,           // "png", "jpg", "pdf", "tiff"
+    disable_shadow: Option<bool>,
+}
+
+#[derive(serde::Deserialize)]
+#[allow(dead_code)]
+struct ProfileDefaultApps {
+    browser: Option<String>,          // bundle id, e.g. "com.apple.Safari"
+}
+
+// ── Linux / NixOS profile structs ────────────────────────────────────────
+
+#[derive(serde::Deserialize)]
+#[allow(dead_code)]
+struct ProfileLinux {
+    desktop: Option<String>,          // "gnome", "kde", "cosmic"
+    display_manager: Option<String>,  // "gdm", "sddm", "greetd"
+    gpu: Option<ProfileGpu>,
+    audio: Option<ProfileAudio>,
+    gaming: Option<ProfileGaming>,
+    services: Option<Vec<String>>,    // extra NixOS services to enable
+    kernel_params: Option<Vec<String>>,
+    gnome: Option<ProfileGnome>,
+    kde: Option<ProfileKde>,
+    cosmic: Option<ProfileCosmic>,
+}
+
+#[derive(serde::Deserialize)]
+#[allow(dead_code)]
+struct ProfileGpu {
+    driver: Option<String>,           // "amdgpu", "nvidia", "intel", "nouveau" (comma-separated for multi-GPU)
+    vulkan: Option<bool>,
+    opencl: Option<bool>,
+    vaapi: Option<bool>,              // hardware video acceleration
+    #[serde(rename = "32bit")]
+    lib32: Option<bool>,              // 32-bit driver support (for Steam)
+    nvidia_open: Option<bool>,        // true for Turing+ (RTX 2000+), false for older (Kepler/Maxwell/Pascal)
+}
+
+#[derive(serde::Deserialize)]
+#[allow(dead_code)]
+struct ProfileAudio {
+    backend: Option<String>,          // "pipewire", "pulseaudio"
+    low_latency: Option<bool>,
+    bluetooth: Option<bool>,
+}
+
+#[derive(serde::Deserialize)]
+#[allow(dead_code)]
+struct ProfileGaming {
+    steam: Option<bool>,
+    gamemode: Option<bool>,
+    mangohud: Option<bool>,
+    gamescope: Option<bool>,
+    controllers: Option<bool>,        // enable game controller support
+    proton_ge: Option<bool>,
+}
+
+#[derive(serde::Deserialize)]
+#[allow(dead_code)]
+struct ProfileGnome {
+    dark_mode: Option<bool>,
+    font_name: Option<String>,
+    monospace_font: Option<String>,
+    icon_theme: Option<String>,
+    cursor_theme: Option<String>,
+    button_layout: Option<String>,
+    favorite_apps: Option<Vec<String>>,
+    extensions: Option<Vec<String>>,
+}
+
+#[derive(serde::Deserialize)]
+#[allow(dead_code)]
+struct ProfileKde {
+    color_scheme: Option<String>,
+    icon_theme: Option<String>,
+    cursor_theme: Option<String>,
+    num_desktops: Option<u32>,
+}
+
+#[derive(serde::Deserialize)]
+#[allow(dead_code)]
+struct ProfileCosmic {
+    dark_mode: Option<bool>,
+    accent_color: Option<Vec<f64>>,   // [r, g, b, a]
+    dock_autohide: Option<bool>,
+    dock_favorites: Option<Vec<String>>,
 }
 
 #[derive(serde::Deserialize)]
@@ -129,11 +277,13 @@ pub fn run(config: &Config, repo_ref: &str, dry_run: bool) -> Result<()> {
     let mut session = EditSession::new();
     let mut changes = 0;
 
-    // Apply packages
+    // Apply packages — nix packages are cross-platform, brew/casks are macOS-only
     if let Some(pkgs) = &profile.packages {
         changes += apply_nix_packages(config, &mut session, pkgs, dry_run)?;
-        changes += apply_brew_packages(config, &mut session, pkgs, dry_run)?;
-        apply_taps(config, pkgs, dry_run)?;
+        if config.platform == Platform::Darwin {
+            changes += apply_brew_packages(config, &mut session, pkgs, dry_run)?;
+            apply_taps(config, pkgs, dry_run)?;
+        }
     }
 
     // Apply kitty config and files
@@ -151,9 +301,16 @@ pub fn run(config: &Config, repo_ref: &str, dry_run: bool) -> Result<()> {
         apply_git(config, git, dry_run)?;
     }
 
-    // Apply macOS preferences
-    if let Some(macos) = &profile.macos {
-        apply_macos(config, macos, dry_run)?;
+    // Apply platform-specific preferences
+    if config.platform == Platform::Darwin {
+        if let Some(macos) = &profile.macos {
+            apply_macos(config, macos, dry_run)?;
+        }
+    }
+    if config.platform == Platform::Linux {
+        if let Some(linux) = &profile.linux {
+            apply_linux(config, linux, dry_run)?;
+        }
     }
 
     // Apply security
@@ -541,19 +698,54 @@ fn apply_shell(config: &Config, shell: &ProfileShell, dry_run: bool) -> Result<(
         return Ok(());
     }
 
-    // Shell config is baked into the scaffold's shell.nix — the profile.toml
-    // is the portable record. The actual nix module is generated by nex init.
-    // For now, we just note that shell prefs are in the profile for reference.
-    if shell.aliases.is_some() || shell.env.is_some() {
-        println!(
-            "  {} shell aliases and env vars are in the profile",
-            style("i").cyan()
-        );
-        println!(
-            "    edit {} to customize",
-            style(config.repo.join("nix/modules/home/shell.nix").display()).dim()
-        );
+    // Write shell config to a nix module that home-manager can import
+    let shell_nix = if config.repo.join("nix/modules/home").exists() {
+        config.repo.join("nix/modules/home/shell.nix")
+    } else {
+        config.repo.join("shell.nix")
+    };
+
+    let mut lines = Vec::new();
+    lines.push("{ pkgs, ... }:".to_string());
+    lines.push(String::new());
+    lines.push("{".to_string());
+
+    // Shell aliases → programs.bash.shellAliases
+    if let Some(ref aliases) = shell.aliases {
+        if !aliases.is_empty() {
+            lines.push("  programs.bash.enable = true;".to_string());
+            lines.push("  programs.bash.shellAliases = {".to_string());
+            for (name, cmd) in aliases {
+                // Escape double quotes in the command
+                let escaped = cmd.replace('\\', "\\\\").replace('"', "\\\"").replace("${", "\\${");
+                lines.push(format!("    {name} = \"{escaped}\";"));
+            }
+            lines.push("  };".to_string());
+        }
     }
+
+    // Environment variables → home.sessionVariables
+    if let Some(ref env) = shell.env {
+        if !env.is_empty() {
+            lines.push("  home.sessionVariables = {".to_string());
+            for (key, val) in env {
+                let escaped = val.replace('\\', "\\\\").replace('"', "\\\"").replace("${", "\\${");
+                lines.push(format!("    {key} = \"{escaped}\";"));
+            }
+            lines.push("  };".to_string());
+        }
+    }
+
+    lines.push("}".to_string());
+    lines.push(String::new());
+
+    if let Some(parent) = shell_nix.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&shell_nix, lines.join("\n"))?;
+
+    println!("  {} shell config written", style("✓").green());
+    println!("    {}", style(shell_nix.display()).dim());
 
     Ok(())
 }
@@ -607,72 +799,571 @@ fn apply_git(_config: &Config, git: &ProfileGit, dry_run: bool) -> Result<()> {
 }
 
 /// Apply macOS system defaults.
-fn apply_macos(_config: &Config, macos: &ProfileMacos, dry_run: bool) -> Result<()> {
+fn apply_macos(config: &Config, macos: &ProfileMacos, dry_run: bool) -> Result<()> {
     if dry_run {
         output::dry_run("would apply macOS preferences");
         return Ok(());
     }
 
-    // These are applied via the nix-darwin config (system.defaults).
-    // The profile.toml is the portable record — actual settings are in
-    // darwin/base.nix which the scaffold generates.
-    // For immediate effect without switch, apply via defaults(1):
-    let defaults = [
-        (
-            "NSGlobalDomain",
-            "AppleShowAllExtensions",
-            macos.show_all_extensions,
-        ),
-        (
-            "NSGlobalDomain",
-            "AppleShowAllFiles",
-            macos.show_hidden_files,
-        ),
-        (
-            "NSGlobalDomain",
-            "NSAutomaticCapitalizationEnabled",
-            macos.auto_capitalize,
-        ),
-        (
-            "NSGlobalDomain",
-            "NSAutomaticSpellingCorrectionEnabled",
-            macos.auto_correct,
-        ),
+    // ── Boolean NSGlobalDomain defaults ──────────────────────────────────
+    let bool_defaults = [
+        ("NSGlobalDomain", "AppleShowAllExtensions", macos.show_all_extensions),
+        ("NSGlobalDomain", "AppleShowAllFiles", macos.show_hidden_files),
+        ("NSGlobalDomain", "NSAutomaticCapitalizationEnabled", macos.auto_capitalize),
+        ("NSGlobalDomain", "NSAutomaticSpellingCorrectionEnabled", macos.auto_correct),
+        ("NSGlobalDomain", "com.apple.swipescrolldirection", macos.natural_scroll),
     ];
 
-    for (domain, key, value) in &defaults {
+    for (domain, key, value) in &bool_defaults {
         if let Some(v) = value {
-            let val_str = if *v { "true" } else { "false" };
-            let _ = Command::new("defaults")
-                .args(["write", domain, key, "-bool", val_str])
-                .output();
+            defaults_write_bool(domain, key, *v);
         }
     }
 
-    if let Some(false) = macos.natural_scroll {
-        let _ = Command::new("defaults")
-            .args([
-                "write",
-                "NSGlobalDomain",
-                "com.apple.swipescrolldirection",
-                "-bool",
-                "false",
-            ])
-            .output();
+    // ── Legacy dock booleans (top-level) ─────────────────────────────────
+    if let Some(v) = macos.dock_autohide {
+        defaults_write_bool("com.apple.dock", "autohide", v);
+    }
+    if let Some(v) = macos.dock_show_recents {
+        defaults_write_bool("com.apple.dock", "show-recents", v);
     }
 
-    if macos.dock_autohide == Some(true) {
-        let _ = Command::new("defaults")
-            .args(["write", "com.apple.dock", "autohide", "-bool", "true"])
-            .output();
+    // ── Trackpad ─────────────────────────────────────────────────────────
+    if let Some(true) = macos.tap_to_click {
+        defaults_write_bool("com.apple.AppleMultitouchTrackpad", "Clicking", true);
+        defaults_write_bool("com.apple.driver.AppleBluetoothMultitouch.trackpad", "Clicking", true);
     }
-    if macos.dock_show_recents == Some(false) {
-        let _ = Command::new("defaults")
-            .args(["write", "com.apple.dock", "show-recents", "-bool", "false"])
-            .output();
+    if let Some(true) = macos.three_finger_drag {
+        defaults_write_bool("com.apple.AppleMultitouchTrackpad", "TrackpadThreeFingerDrag", true);
+        defaults_write_bool("com.apple.driver.AppleBluetoothMultitouch.trackpad", "TrackpadThreeFingerDrag", true);
     }
+
+    // ── Dock settings ────────────────────────────────────────────────────
+    if let Some(dock) = &macos.dock {
+        if let Some(size) = dock.tile_size {
+            defaults_write_int("com.apple.dock", "tilesize", size);
+        }
+        if let Some(ref pos) = dock.position {
+            defaults_write_string("com.apple.dock", "orientation", pos);
+        }
+        if let Some(ref effect) = dock.minimize_effect {
+            defaults_write_string("com.apple.dock", "mineffect", effect);
+        }
+        if let Some(v) = dock.magnification {
+            defaults_write_bool("com.apple.dock", "magnification", v);
+        }
+        if let Some(size) = dock.magnification_size {
+            defaults_write_int("com.apple.dock", "largesize", size);
+        }
+        if let Some(v) = dock.launchanim {
+            defaults_write_bool("com.apple.dock", "launchanim", v);
+        }
+        if let Some(v) = dock.show_process_indicators {
+            defaults_write_bool("com.apple.dock", "show-process-indicators", v);
+        }
+
+        // Dock persistent apps via dockutil
+        if let Some(ref apps) = dock.persistent_apps {
+            apply_dock_apps(apps);
+        }
+    }
+
+    // ── Appearance ───────────────────────────────────────────────────────
+    if let Some(appearance) = &macos.appearance {
+        if let Some(true) = appearance.dark_mode {
+            defaults_write_string("NSGlobalDomain", "AppleInterfaceStyle", "Dark");
+        } else if appearance.dark_mode == Some(false) {
+            let _ = Command::new("defaults")
+                .args(["delete", "NSGlobalDomain", "AppleInterfaceStyle"])
+                .output();
+        }
+        if let Some(ref color) = appearance.accent_color {
+            // macOS accent colors: Blue=-1(default), Purple=5, Pink=6, Red=0,
+            // Orange=1, Yellow=2, Green=3, Graphite=-2
+            let lowered = color.to_lowercase();
+            let val = match lowered.as_str() {
+                "blue" => "-1",
+                "purple" => "5",
+                "pink" => "6",
+                "red" => "0",
+                "orange" => "1",
+                "yellow" => "2",
+                "green" => "3",
+                "graphite" => "-2",
+                _ => &lowered,
+            };
+            defaults_write_string("NSGlobalDomain", "AppleAccentColor", val);
+        }
+        if let Some(ref color) = appearance.highlight_color {
+            defaults_write_string("NSGlobalDomain", "AppleHighlightColor", color);
+        }
+        if let Some(v) = appearance.reduce_transparency {
+            defaults_write_bool("com.apple.universalaccess", "reduceTransparency", v);
+        }
+        if let Some(size) = appearance.sidebar_icon_size {
+            defaults_write_int("NSGlobalDomain", "NSTableViewDefaultSizeMode", size);
+        }
+    }
+
+    // ── Input ────────────────────────────────────────────────────────────
+    if let Some(input) = &macos.input {
+        if let Some(rate) = input.key_repeat {
+            defaults_write_int("NSGlobalDomain", "KeyRepeat", rate);
+        }
+        if let Some(delay) = input.initial_key_repeat {
+            defaults_write_int("NSGlobalDomain", "InitialKeyRepeat", delay);
+        }
+        if let Some(v) = input.fn_as_standard {
+            defaults_write_bool("NSGlobalDomain", "com.apple.keyboard.fnState", v);
+        }
+        if let Some(v) = input.press_and_hold {
+            defaults_write_bool("NSGlobalDomain", "ApplePressAndHoldEnabled", v);
+        }
+    }
+
+    // ── Finder ───────────────────────────────────────────────────────────
+    if let Some(finder) = &macos.finder {
+        if let Some(ref view) = finder.default_view {
+            // Nlsv=list, icnv=icon, clmv=column, glyv=gallery
+            let code = match view.as_str() {
+                "list" => "Nlsv",
+                "icon" => "icnv",
+                "column" => "clmv",
+                "gallery" => "glyv",
+                other => other,
+            };
+            defaults_write_string("com.apple.finder", "FXPreferredViewStyle", code);
+        }
+        if let Some(v) = finder.show_path_bar {
+            defaults_write_bool("com.apple.finder", "ShowPathbar", v);
+        }
+        if let Some(v) = finder.show_status_bar {
+            defaults_write_bool("com.apple.finder", "ShowStatusBar", v);
+        }
+        if let Some(v) = finder.show_tab_bar {
+            defaults_write_bool("com.apple.finder", "ShowTabView", v);
+        }
+        if let Some(ref path) = finder.new_window_path {
+            // PfHm=home, PfDe=desktop, PfLo=custom path
+            defaults_write_string("com.apple.finder", "NewWindowTarget", "PfLo");
+            defaults_write_string("com.apple.finder", "NewWindowTargetPath", path);
+        }
+        if let Some(ref scope) = finder.search_scope {
+            // SCcf=current folder, SCsp=previous scope, SCev=entire mac
+            let val = match scope.as_str() {
+                "current" => "SCcf",
+                "previous" => "SCsp",
+                "computer" => "SCev",
+                other => other,
+            };
+            defaults_write_string("com.apple.finder", "FXDefaultSearchScope", val);
+        }
+        if let Some(v) = finder.show_extensions {
+            defaults_write_bool("NSGlobalDomain", "AppleShowAllExtensions", v);
+        }
+        if let Some(v) = finder.warn_on_extension_change {
+            defaults_write_bool("com.apple.finder", "FXEnableExtensionChangeWarning", v);
+        }
+    }
+
+    // ── Screenshots ──────────────────────────────────────────────────────
+    if let Some(ss) = &macos.screenshots {
+        if let Some(ref loc) = ss.location {
+            // Expand ~ for the defaults command
+            let expanded = loc.replace('~', &dirs::home_dir().map(|h| h.display().to_string()).unwrap_or_default());
+            defaults_write_string("com.apple.screencapture", "location", &expanded);
+        }
+        if let Some(ref fmt) = ss.format {
+            defaults_write_string("com.apple.screencapture", "type", fmt);
+        }
+        if let Some(v) = ss.disable_shadow {
+            defaults_write_bool("com.apple.screencapture", "disable-shadow", v);
+        }
+    }
+
+    // ── Default apps ─────────────────────────────────────────────────────
+    if let Some(apps) = &macos.default_apps {
+        if let Some(ref browser) = apps.browser {
+            // Resolve app name to bundle ID if needed
+            let bundle_id = resolve_bundle_id(browser);
+            let bid = bundle_id.as_deref().unwrap_or(browser);
+
+            // Set default browser via open -a (works with app names)
+            let _ = Command::new("open")
+                .args(["-a", browser, "--args", "--make-default-browser"])
+                .output();
+
+            // Write the LSHandler with the proper bundle ID
+            defaults_write_string(
+                "com.apple.LaunchServices/com.apple.launchservices.secure",
+                "LSHandlerURLSchemeHTTP",
+                bid,
+            );
+        }
+    }
+
+    // ── Restart affected services ────────────────────────────────────────
+    let needs_dock_restart = macos.dock.is_some()
+        || macos.dock_autohide.is_some()
+        || macos.dock_show_recents.is_some();
+    let needs_finder_restart = macos.finder.is_some();
+
+    if needs_dock_restart {
+        let _ = Command::new("killall").arg("Dock").output();
+    }
+    if needs_finder_restart {
+        let _ = Command::new("killall").arg("Finder").output();
+    }
+    if macos.screenshots.is_some() {
+        let _ = Command::new("killall").arg("SystemUIServer").output();
+    }
+
+    // ── Write system.defaults to base.nix for declarative management ────
+    write_system_defaults(config, macos)?;
 
     println!("  {} macOS preferences applied", style("✓").green());
+
+    Ok(())
+}
+
+// ── Helper functions for defaults write ──────────────────────────────────
+
+/// Resolve an app name (e.g. "Safari") to its macOS bundle ID (e.g. "com.apple.Safari").
+/// Returns None if resolution fails (caller should use the original string).
+fn resolve_bundle_id(app_name: &str) -> Option<String> {
+    // If it already looks like a bundle ID, return as-is
+    if app_name.contains('.') {
+        return Some(app_name.to_string());
+    }
+
+    // Use mdls to query the bundle identifier from the app
+    let app_path = format!("/Applications/{app_name}.app");
+    let output = Command::new("mdls")
+        .args(["-name", "kMDItemCFBundleIdentifier", "-raw", &app_path])
+        .output()
+        .ok()?;
+
+    if output.status.success() {
+        let bid = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !bid.is_empty() && bid != "(null)" {
+            return Some(bid);
+        }
+    }
+
+    // Well-known fallbacks
+    match app_name {
+        "Safari" => Some("com.apple.Safari".to_string()),
+        "Firefox" => Some("org.mozilla.firefox".to_string()),
+        "Chrome" | "Google Chrome" => Some("com.google.Chrome".to_string()),
+        "Arc" => Some("company.thebrowser.Browser".to_string()),
+        "Brave" | "Brave Browser" => Some("com.brave.Browser".to_string()),
+        _ => None,
+    }
+}
+
+fn defaults_write_bool(domain: &str, key: &str, value: bool) {
+    let val = if value { "true" } else { "false" };
+    let _ = Command::new("defaults")
+        .args(["write", domain, key, "-bool", val])
+        .output();
+}
+
+fn defaults_write_int(domain: &str, key: &str, value: u32) {
+    let _ = Command::new("defaults")
+        .args(["write", domain, key, "-int", &value.to_string()])
+        .output();
+}
+
+fn defaults_write_string(domain: &str, key: &str, value: &str) {
+    let _ = Command::new("defaults")
+        .args(["write", domain, key, "-string", value])
+        .output();
+}
+
+/// Set dock persistent apps using dockutil (if available) or direct plist manipulation.
+fn apply_dock_apps(apps: &[String]) {
+    // Check for dockutil
+    let has_dockutil = Command::new("which")
+        .arg("dockutil")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+
+    if !has_dockutil {
+        println!(
+            "  {} install dockutil to manage dock apps: {}",
+            style("!").yellow(),
+            style("brew install dockutil").bold()
+        );
+        return;
+    }
+
+    // Remove all existing items
+    let _ = Command::new("dockutil")
+        .args(["--remove", "all", "--no-restart"])
+        .output();
+
+    // Add each app
+    for app in apps {
+        let path = if app.starts_with('/') {
+            app.clone()
+        } else {
+            format!("/Applications/{app}.app")
+        };
+        let _ = Command::new("dockutil")
+            .args(["--add", &path, "--no-restart"])
+            .output();
+        println!("    {} {}", style("+").green(), style(&path).dim());
+    }
+
+    // Restart dock once at the end
+    let _ = Command::new("killall").arg("Dock").output();
+}
+
+/// Write a system.defaults block into darwin/base.nix for nix-darwin declarative management.
+fn write_system_defaults(config: &Config, macos: &ProfileMacos) -> Result<()> {
+    let base_nix = config.repo.join("nix/modules/darwin/base.nix");
+    let content = std::fs::read_to_string(&base_nix)
+        .with_context(|| format!("reading {}", base_nix.display()))?;
+
+    // Build system.defaults block
+    let mut defaults_lines: Vec<String> = Vec::new();
+
+    // NSGlobalDomain
+    let mut nsg: Vec<String> = Vec::new();
+    if let Some(v) = macos.show_all_extensions {
+        nsg.push(format!("    AppleShowAllExtensions = {};", v));
+    }
+    if let Some(v) = macos.show_hidden_files {
+        nsg.push(format!("    AppleShowAllFiles = {};", v));
+    }
+    if let Some(v) = macos.auto_capitalize {
+        nsg.push(format!("    NSAutomaticCapitalizationEnabled = {};", v));
+    }
+    if let Some(v) = macos.auto_correct {
+        nsg.push(format!("    NSAutomaticSpellingCorrectionEnabled = {};", v));
+    }
+    if let Some(v) = macos.natural_scroll {
+        nsg.push(format!("    \"com.apple.swipescrolldirection\" = {};", v));
+    }
+    if let Some(appearance) = &macos.appearance {
+        if let Some(true) = appearance.dark_mode {
+            nsg.push("    AppleInterfaceStyle = \"Dark\";".to_string());
+        }
+        if let Some(size) = appearance.sidebar_icon_size {
+            nsg.push(format!("    NSTableViewDefaultSizeMode = {};", size));
+        }
+    }
+    if let Some(input) = &macos.input {
+        if let Some(rate) = input.key_repeat {
+            nsg.push(format!("    KeyRepeat = {};", rate));
+        }
+        if let Some(delay) = input.initial_key_repeat {
+            nsg.push(format!("    InitialKeyRepeat = {};", delay));
+        }
+        if let Some(v) = input.press_and_hold {
+            nsg.push(format!("    ApplePressAndHoldEnabled = {};", v));
+        }
+    }
+    if !nsg.is_empty() {
+        defaults_lines.push("  NSGlobalDomain = {".to_string());
+        defaults_lines.extend(nsg);
+        defaults_lines.push("  };".to_string());
+    }
+
+    // dock
+    let mut dock: Vec<String> = Vec::new();
+    if let Some(v) = macos.dock_autohide {
+        dock.push(format!("    autohide = {};", v));
+    }
+    if let Some(v) = macos.dock_show_recents {
+        dock.push(format!("    show-recents = {};", v));
+    }
+    if let Some(d) = &macos.dock {
+        if let Some(size) = d.tile_size {
+            dock.push(format!("    tilesize = {};", size));
+        }
+        if let Some(ref pos) = d.position {
+            dock.push(format!("    orientation = \"{}\";", pos));
+        }
+        if let Some(ref effect) = d.minimize_effect {
+            dock.push(format!("    mineffect = \"{}\";", effect));
+        }
+        if let Some(v) = d.magnification {
+            dock.push(format!("    magnification = {};", v));
+        }
+        if let Some(size) = d.magnification_size {
+            dock.push(format!("    largesize = {};", size));
+        }
+        if let Some(v) = d.launchanim {
+            dock.push(format!("    launchanim = {};", v));
+        }
+        if let Some(v) = d.show_process_indicators {
+            dock.push(format!("    show-process-indicators = {};", v));
+        }
+    }
+    if !dock.is_empty() {
+        defaults_lines.push("  dock = {".to_string());
+        defaults_lines.extend(dock);
+        defaults_lines.push("  };".to_string());
+    }
+
+    // finder
+    let mut finder: Vec<String> = Vec::new();
+    if let Some(f) = &macos.finder {
+        if let Some(ref view) = f.default_view {
+            let code = match view.as_str() {
+                "list" => "Nlsv",
+                "icon" => "icnv",
+                "column" => "clmv",
+                "gallery" => "glyv",
+                other => other,
+            };
+            finder.push(format!("    FXPreferredViewStyle = \"{}\";", code));
+        }
+        if let Some(v) = f.show_path_bar {
+            finder.push(format!("    ShowPathbar = {};", v));
+        }
+        if let Some(v) = f.show_status_bar {
+            finder.push(format!("    ShowStatusBar = {};", v));
+        }
+        if let Some(ref scope) = f.search_scope {
+            let val = match scope.as_str() {
+                "current" => "SCcf",
+                "previous" => "SCsp",
+                "computer" => "SCev",
+                other => other,
+            };
+            finder.push(format!("    FXDefaultSearchScope = \"{}\";", val));
+        }
+        if let Some(v) = f.warn_on_extension_change {
+            finder.push(format!("    FXEnableExtensionChangeWarning = {};", v));
+        }
+    }
+    if !finder.is_empty() {
+        defaults_lines.push("  finder = {".to_string());
+        defaults_lines.extend(finder);
+        defaults_lines.push("  };".to_string());
+    }
+
+    // screencapture
+    let mut screencap: Vec<String> = Vec::new();
+    if let Some(ss) = &macos.screenshots {
+        if let Some(ref loc) = ss.location {
+            screencap.push(format!("    location = \"{}\";", loc));
+        }
+        if let Some(ref fmt) = ss.format {
+            screencap.push(format!("    type = \"{}\";", fmt));
+        }
+        if let Some(v) = ss.disable_shadow {
+            screencap.push(format!("    disable-shadow = {};", v));
+        }
+    }
+    if !screencap.is_empty() {
+        defaults_lines.push("  screencapture = {".to_string());
+        defaults_lines.extend(screencap);
+        defaults_lines.push("  };".to_string());
+    }
+
+    // trackpad
+    let mut trackpad: Vec<String> = Vec::new();
+    if let Some(true) = macos.tap_to_click {
+        trackpad.push("    Clicking = true;".to_string());
+    }
+    if let Some(true) = macos.three_finger_drag {
+        trackpad.push("    TrackpadThreeFingerDrag = true;".to_string());
+    }
+    if !trackpad.is_empty() {
+        defaults_lines.push("  trackpad = {".to_string());
+        defaults_lines.extend(trackpad);
+        defaults_lines.push("  };".to_string());
+    }
+
+    if defaults_lines.is_empty() {
+        return Ok(());
+    }
+
+    let defaults_block = format!(
+        "\n  system.defaults = {{\n{}\n  }};\n",
+        defaults_lines.join("\n")
+    );
+
+    // Insert or replace the system.defaults block
+    if content.contains("system.defaults = {") {
+        // Replace existing block — find from "system.defaults = {" to its closing "};"
+        let start = match content.find("  system.defaults = {") {
+            Some(pos) => pos,
+            None => {
+                // Shouldn't happen given the contains() check, but be safe
+                let insert_pos = content.rfind('}').unwrap_or(content.len());
+                let mut patched = content[..insert_pos].to_string();
+                patched.push_str(&defaults_block);
+                patched.push('}');
+                if content.ends_with('\n') { patched.push('\n'); }
+                std::fs::write(&base_nix, patched)?;
+                return Ok(());
+            }
+        };
+
+        // Find the matching closing brace by counting depth from the first '{'
+        let after_start = &content[start..];
+        let mut depth: i32 = 0;
+        let mut end = content.len(); // fallback: end of file
+        let mut found = false;
+        for (i, c) in after_start.char_indices() {
+            match c {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        // Consume trailing `;` and newline if present
+                        let mut consume_end = start + i + 1;
+                        let remaining = &content[consume_end..];
+                        if remaining.starts_with(";\n") {
+                            consume_end += 2;
+                        } else if remaining.starts_with(';') {
+                            consume_end += 1;
+                        } else if remaining.starts_with('\n') {
+                            consume_end += 1;
+                        }
+                        end = consume_end;
+                        found = true;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        if !found {
+            // Malformed: unmatched braces — append instead of replacing
+            let insert_pos = content.rfind('}').unwrap_or(content.len());
+            let mut patched = content[..insert_pos].to_string();
+            patched.push_str(&defaults_block);
+            patched.push('}');
+            if content.ends_with('\n') { patched.push('\n'); }
+            std::fs::write(&base_nix, patched)?;
+            return Ok(());
+        }
+
+        let mut patched = content[..start].to_string();
+        patched.push_str(&format!(
+            "  system.defaults = {{\n{}\n  }};\n",
+            defaults_lines.join("\n")
+        ));
+        patched.push_str(&content[end..]);
+        std::fs::write(&base_nix, patched)?;
+    } else {
+        // Insert before the closing "}" of the module
+        let insert_pos = content.rfind('}').unwrap_or(content.len());
+        let mut patched = content[..insert_pos].to_string();
+        patched.push_str(&defaults_block);
+        patched.push('}');
+        if content.ends_with('\n') {
+            patched.push('\n');
+        }
+        std::fs::write(&base_nix, patched)?;
+    }
 
     Ok(())
 }
@@ -685,5 +1376,256 @@ fn apply_security(_config: &Config, _security: &ProfileSecurity, dry_run: bool) 
     }
     // TouchID sudo is handled by the nix-darwin module (security.nix)
     // which the scaffold already includes.
+    Ok(())
+}
+
+/// Apply Linux / NixOS system configuration.
+/// Writes a NixOS module to nix/modules/nixos/desktop.nix that configures
+/// the desktop environment, GPU drivers, gaming stack, and audio.
+fn apply_linux(config: &Config, linux: &ProfileLinux, dry_run: bool) -> Result<()> {
+    if dry_run {
+        output::dry_run("would apply Linux desktop configuration");
+        return Ok(());
+    }
+
+    let mut lines: Vec<String> = Vec::new();
+    lines.push("{ pkgs, lib, ... }:".to_string());
+    lines.push(String::new());
+    lines.push("{".to_string());
+
+    // ── Desktop environment ──────────────────────────────────────────
+    if let Some(ref de) = linux.desktop {
+        match de.as_str() {
+            "gnome" => {
+                lines.push("  services.xserver.enable = true;".to_string());
+                lines.push("  services.xserver.displayManager.gdm.enable = true;".to_string());
+                lines.push("  services.xserver.desktopManager.gnome.enable = true;".to_string());
+            }
+            "kde" | "plasma" => {
+                lines.push("  services.desktopManager.plasma6.enable = true;".to_string());
+                lines.push("  services.displayManager.sddm.enable = true;".to_string());
+                lines.push("  services.displayManager.sddm.wayland.enable = true;".to_string());
+            }
+            "cosmic" => {
+                lines.push("  services.desktopManager.cosmic.enable = true;".to_string());
+                lines.push("  services.displayManager.cosmic-greeter.enable = true;".to_string());
+            }
+            _ => {}
+        }
+    }
+
+    // Override display manager if explicitly set
+    if let Some(ref dm) = linux.display_manager {
+        match dm.as_str() {
+            "gdm" => {
+                lines.push("  services.xserver.displayManager.gdm.enable = lib.mkForce true;".to_string());
+            }
+            "sddm" => {
+                lines.push("  services.displayManager.sddm.enable = lib.mkForce true;".to_string());
+            }
+            "greetd" => {
+                lines.push("  services.greetd.enable = true;".to_string());
+            }
+            _ => {}
+        }
+    }
+
+    // ── GPU drivers ──────────────────────────────────────────────────
+    if let Some(ref gpu) = linux.gpu {
+        if let Some(ref driver) = gpu.driver {
+            lines.push(String::new());
+            lines.push("  hardware.graphics.enable = true;".to_string());
+            if gpu.lib32 == Some(true) {
+                lines.push("  hardware.graphics.enable32Bit = true;".to_string());
+            }
+
+            // Support comma-separated multi-GPU: "amdgpu,nvidia"
+            let drivers: Vec<&str> = driver.split(',').map(|d| d.trim()).collect();
+            let mut video_drivers: Vec<&str> = Vec::new();
+            let mut extra_packages: Vec<&str> = Vec::new();
+
+            for drv in &drivers {
+                match *drv {
+                    "amdgpu" => {
+                        lines.push("  # GPU: AMD".to_string());
+                        lines.push("  hardware.amdgpu.initrd.enable = true;".to_string());
+                        if gpu.opencl == Some(true) {
+                            lines.push("  hardware.amdgpu.opencl.enable = true;".to_string());
+                        }
+                        if gpu.vaapi == Some(true) {
+                            extra_packages.push("libva-vdpau-driver");
+                        }
+                    }
+                    "nvidia" => {
+                        lines.push("  # GPU: NVIDIA".to_string());
+                        video_drivers.push("nvidia");
+                        lines.push("  hardware.nvidia.modesetting.enable = true;".to_string());
+                        // nvidia.open = true only works on Turing+ (RTX 2000+)
+                        // Default true for modern cards; set nvidia_open = false in profile for older
+                        let open = gpu.nvidia_open.unwrap_or(true);
+                        lines.push(format!("  hardware.nvidia.open = {};", open));
+                    }
+                    "nouveau" => {
+                        lines.push("  # GPU: NVIDIA (nouveau)".to_string());
+                        video_drivers.push("nouveau");
+                    }
+                    "intel" => {
+                        lines.push("  # GPU: Intel".to_string());
+                        if gpu.vaapi == Some(true) {
+                            extra_packages.push("intel-media-driver");
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            if !video_drivers.is_empty() {
+                let vd = video_drivers.iter().map(|d| format!("\"{d}\"")).collect::<Vec<_>>().join(" ");
+                lines.push(format!("  services.xserver.videoDrivers = [ {vd} ];"));
+            }
+            if !extra_packages.is_empty() {
+                lines.push("  hardware.graphics.extraPackages = with pkgs; [".to_string());
+                for pkg in &extra_packages {
+                    lines.push(format!("    {pkg}"));
+                }
+                lines.push("  ];".to_string());
+            }
+        }
+    }
+
+    // ── Audio ────────────────────────────────────────────────────────
+    if let Some(ref audio) = linux.audio {
+        lines.push(String::new());
+        lines.push("  # Audio".to_string());
+        match audio.backend.as_deref() {
+            Some("pipewire") | None => {
+                lines.push("  services.pipewire = {".to_string());
+                lines.push("    enable = true;".to_string());
+                lines.push("    alsa.enable = true;".to_string());
+                lines.push("    alsa.support32Bit = true;".to_string());
+                lines.push("    pulse.enable = true;".to_string());
+                if audio.low_latency == Some(true) {
+                    lines.push("    extraConfig.pipewire.\"92-low-latency\" = {".to_string());
+                    lines.push("      \"context.properties\" = { \"default.clock.rate\" = 48000; \"default.clock.quantum\" = 64; };".to_string());
+                    lines.push("    };".to_string());
+                }
+                lines.push("  };".to_string());
+            }
+            Some("pulseaudio") => {
+                lines.push("  hardware.pulseaudio.enable = true;".to_string());
+            }
+            _ => {}
+        }
+        if audio.bluetooth == Some(true) {
+            lines.push("  hardware.bluetooth.enable = true;".to_string());
+            lines.push("  hardware.bluetooth.powerOnBoot = true;".to_string());
+        }
+    }
+
+    // ── Gaming ───────────────────────────────────────────────────────
+    if let Some(ref gaming) = linux.gaming {
+        lines.push(String::new());
+        lines.push("  # Gaming".to_string());
+        if gaming.steam == Some(true) {
+            lines.push("  programs.steam = {".to_string());
+            lines.push("    enable = true;".to_string());
+            lines.push("    gamescopeSession.enable = {};".replace("{}", if gaming.gamescope == Some(true) { "true" } else { "false" }).to_string());
+            lines.push("  };".to_string());
+        }
+        if gaming.gamemode == Some(true) {
+            lines.push("  programs.gamemode.enable = true;".to_string());
+        }
+        if gaming.controllers == Some(true) {
+            lines.push("  hardware.steam-hardware.enable = true;".to_string());
+        }
+
+        // Gaming packages
+        let mut gaming_pkgs: Vec<&str> = Vec::new();
+        if gaming.mangohud == Some(true) {
+            gaming_pkgs.push("mangohud");
+        }
+        if gaming.proton_ge == Some(true) {
+            // proton-ge is installed via Steam compatibility tools, not as a system package
+        }
+        if !gaming_pkgs.is_empty() {
+            lines.push("  environment.systemPackages = with pkgs; [".to_string());
+            for pkg in &gaming_pkgs {
+                lines.push(format!("    {pkg}"));
+            }
+            lines.push("  ];".to_string());
+        }
+    }
+
+    // ── Extra services ───────────────────────────────────────────────
+    if let Some(ref services) = linux.services {
+        lines.push(String::new());
+        for svc in services {
+            lines.push(format!("  services.{svc}.enable = true;"));
+        }
+    }
+
+    // ── Kernel parameters ────────────────────────────────────────────
+    if let Some(ref params) = linux.kernel_params {
+        lines.push(String::new());
+        let params_str = params.iter().map(|p| format!("\"{p}\"")).collect::<Vec<_>>().join(" ");
+        lines.push(format!("  boot.kernelParams = [ {params_str} ];"));
+    }
+
+    lines.push("}".to_string());
+    lines.push(String::new());
+
+    // Detect layout: scaffolded (nix/modules/nixos/) vs flat (/etc/nixos/)
+    let scaffolded = config.repo.join("nix/modules/nixos").exists()
+        || config.repo.join("nix/hosts").exists();
+
+    let desktop_nix = if scaffolded {
+        config.repo.join("nix/modules/nixos/desktop.nix")
+    } else {
+        // Flat layout (e.g., /etc/nixos from polymerize)
+        config.repo.join("desktop.nix")
+    };
+
+    if let Some(parent) = desktop_nix.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&desktop_nix, lines.join("\n"))?;
+
+    // Ensure the desktop module is imported by the main config
+    if scaffolded {
+        // Scaffolded layout: patch nix/hosts/{hostname}/default.nix
+        let host_default = config.repo.join(format!("nix/hosts/{}/default.nix", config.hostname));
+        if host_default.exists() {
+            let content = std::fs::read_to_string(&host_default)?;
+            if !content.contains("desktop.nix") {
+                let patched = content.replace(
+                    "../../modules/nixos/base.nix",
+                    "../../modules/nixos/base.nix\n    ../../modules/nixos/desktop.nix",
+                );
+                std::fs::write(&host_default, patched)?;
+            }
+        }
+    } else {
+        // Flat layout: patch configuration.nix to import ./desktop.nix
+        let config_nix = config.repo.join("configuration.nix");
+        if config_nix.exists() {
+            let content = std::fs::read_to_string(&config_nix)?;
+            if !content.contains("desktop.nix") {
+                // Insert import after the opening "{"
+                if let Some(brace_pos) = content.find('{') {
+                    let mut patched = content[..=brace_pos].to_string();
+                    patched.push_str("\n  imports = [ ./desktop.nix ];");
+                    patched.push_str(&content[brace_pos + 1..]);
+                    std::fs::write(&config_nix, patched)?;
+                }
+            }
+        }
+    }
+
+    println!("  {} Linux desktop configuration written", style("✓").green());
+    println!(
+        "    {}",
+        style(desktop_nix.display()).dim()
+    );
+
     Ok(())
 }
