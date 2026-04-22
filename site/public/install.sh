@@ -100,6 +100,11 @@ try_prebuilt() {
   rm -rf "$_TMPDIR"
   _TMPDIR=""
 
+  if [ ! -x "$install_dir/nex" ]; then
+    warn "binary not found at $install_dir/nex after install"
+    return 1
+  fi
+
   ensure_path "$install_dir"
   printf "  installed to %s\n" "$install_dir"
   return 0

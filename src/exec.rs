@@ -5,7 +5,7 @@ use anyhow::{bail, Context, Result};
 
 /// Resolve the path to the `nix` binary.
 /// Checks PATH first, then well-known locations for freshly installed nix.
-fn find_nix() -> String {
+pub fn find_nix() -> String {
     // Test if nix is directly available in PATH
     if let Ok(output) = Command::new("nix").arg("--version").output() {
         if output.status.success() {
@@ -232,10 +232,12 @@ pub fn darwin_rebuild_switch(repo: &Path, hostname: &str) -> Result<()> {
 /// Determinate Nix on fresh macOS doesn't create per-user profile dirs,
 /// which causes home-manager to fail with "Could not find suitable profile directory".
 /// Also fixes ~/.local ownership if the install script created it as root.
-/// Also fixes ~/.local ownership if the install script created it as root.
 pub fn ensure_profile_dirs() {
-    let user = std::env::var("USER").unwrap_or_default();
+    let user = std::env::var("USER")
+        .or_else(|_| std::env::var("LOGNAME"))
+        .unwrap_or_default();
     if user.is_empty() {
+        eprintln!("  warning: USER not set, skipping profile directory setup");
         return;
     }
 
@@ -246,9 +248,17 @@ pub fn ensure_profile_dirs() {
             if let Ok(meta) = std::fs::metadata(&dot_local) {
                 use std::os::unix::fs::MetadataExt;
                 if meta.uid() == 0 {
-                    let _ = Command::new("sudo")
+                    if let Ok(s) = Command::new("sudo")
                         .args(["chown", "-R", &user, &dot_local.to_string_lossy()])
-                        .status();
+                        .status()
+                    {
+                        if !s.success() {
+                            eprintln!(
+                                "  warning: failed to fix ownership of {}",
+                                dot_local.display()
+                            );
+                        }
+                    }
                 }
             }
         }
@@ -273,12 +283,22 @@ pub fn ensure_profile_dirs() {
         if path.exists() {
             continue;
         }
-        // /nix/var/nix/profiles/per-user needs sudo
         if dir.starts_with("/nix/") {
-            let _ = Command::new("sudo").args(["mkdir", "-p", dir]).status();
-            let _ = Command::new("sudo").args(["chown", &user, dir]).status();
-        } else {
-            let _ = std::fs::create_dir_all(path);
+            let ok = Command::new("sudo")
+                .args(["mkdir", "-p", dir])
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false)
+                && Command::new("sudo")
+                    .args(["chown", &user, dir])
+                    .status()
+                    .map(|s| s.success())
+                    .unwrap_or(false);
+            if !ok {
+                eprintln!("  warning: failed to create {dir}");
+            }
+        } else if std::fs::create_dir_all(path).is_err() {
+            eprintln!("  warning: failed to create {dir}");
         }
     }
 }

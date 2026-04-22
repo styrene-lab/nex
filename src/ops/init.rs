@@ -153,7 +153,8 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
     output::status("building (this takes a few minutes on first run)...");
 
     // First build to verify it works
-    let build_status = Command::new("nix")
+    let nix = crate::exec::find_nix();
+    let build_status = Command::new(&nix)
         .args([
             "build",
             &format!(".#darwinConfigurations.{hostname}.system"),
@@ -381,27 +382,12 @@ fn install_nix_pkg() -> Result<()> {
 }
 
 fn source_nix_env() {
-    // Source nix in current process env
-    if let Ok(profile) =
-        std::fs::read_to_string("/nix/var/nix/profiles/default/etc/profile.d/nix-daemon.sh")
-    {
-        // Can't source bash in Rust, but we can update PATH
-        for line in profile.lines() {
-            if line.starts_with("export PATH=") || line.contains("PATH=") {
-                if let Some(path_val) = line.split('=').nth(1) {
-                    let cleaned = path_val
-                        .trim_matches('"')
-                        .replace("$PATH", &std::env::var("PATH").unwrap_or_default());
-                    std::env::set_var("PATH", cleaned);
-                }
-            }
-        }
-    }
-    // Simpler fallback: just add the known nix paths
+    // Add well-known nix paths so subsequent commands can find the nix binary.
+    // We can't source nix-daemon.sh from Rust, but the known paths are stable.
     let current_path = std::env::var("PATH").unwrap_or_default();
     std::env::set_var(
         "PATH",
-        format!("/nix/var/nix/profiles/default/bin:{current_path}"),
+        format!("/nix/var/nix/profiles/default/bin:/run/current-system/sw/bin:{current_path}"),
     );
 }
 
@@ -452,6 +438,14 @@ fn clone_repo(url: &str, dry_run: bool) -> Result<PathBuf> {
     Ok(repo_path)
 }
 
+fn detect_system() -> &'static str {
+    if cfg!(target_arch = "x86_64") {
+        "x86_64-darwin"
+    } else {
+        "aarch64-darwin"
+    }
+}
+
 fn scaffold_repo(hostname: &str, dry_run: bool) -> Result<PathBuf> {
     let home = dirs::home_dir().context("no home directory")?;
     let repo_path = home.join("macos-nix");
@@ -482,6 +476,7 @@ fn scaffold_repo(hostname: &str, dry_run: bool) -> Result<PathBuf> {
     std::fs::create_dir_all(&lib_dir)?;
 
     let user = std::env::var("USER").unwrap_or_else(|_| "user".to_string());
+    let system = detect_system();
 
     // flake.nix
     std::fs::write(
@@ -510,7 +505,7 @@ fn scaffold_repo(hostname: &str, dry_run: bool) -> Result<PathBuf> {
     {{
       darwinConfigurations."{hostname}" = mkHost {{
         hostname = "{hostname}";
-        system = "aarch64-darwin";
+        system = "{system}";
         username = "{user}";
         hostModule = ./nix/hosts/{hostname};
       }};
