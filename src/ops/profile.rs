@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::process::Command;
 
 use anyhow::{bail, Context, Result};
@@ -11,7 +11,7 @@ use crate::nixfile;
 use crate::output;
 
 /// Profile data parsed from a profile.toml
-#[derive(serde::Deserialize)]
+#[derive(Clone, serde::Deserialize)]
 struct Profile {
     meta: Option<ProfileMeta>,
     packages: Option<ProfilePackages>,
@@ -23,14 +23,14 @@ struct Profile {
     security: Option<ProfileSecurity>,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(Clone, serde::Deserialize)]
 struct ProfileMeta {
     name: Option<String>,
     description: Option<String>,
     extends: Option<String>,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(Clone, serde::Deserialize)]
 #[allow(dead_code)]
 struct ProfileKitty {
     font: Option<String>,
@@ -42,7 +42,7 @@ struct ProfileKitty {
     macos_quit_when_last_window_closed: Option<bool>,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(Clone, serde::Deserialize)]
 struct ProfilePackages {
     nix: Option<Vec<String>>,
     brews: Option<Vec<String>>,
@@ -50,7 +50,7 @@ struct ProfilePackages {
     taps: Option<Vec<String>>,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(Clone, serde::Deserialize)]
 struct ProfileShell {
     default: Option<String>,
     aliases: Option<std::collections::HashMap<String, String>>,
@@ -61,7 +61,7 @@ struct ProfileShell {
     init_extra: Option<String>,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(Clone, serde::Deserialize)]
 struct ProfileGit {
     name: Option<String>,
     email: Option<String>,
@@ -70,7 +70,7 @@ struct ProfileGit {
     push_auto_setup_remote: Option<bool>,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(Clone, serde::Deserialize)]
 #[allow(dead_code)]
 struct ProfileMacos {
     show_all_extensions: Option<bool>,
@@ -92,14 +92,14 @@ struct ProfileMacos {
     default_apps: Option<ProfileDefaultApps>,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(Clone, serde::Deserialize)]
 #[allow(dead_code)]
 struct ProfileFonts {
     nerd: Option<Vec<String>>,
     families: Option<Vec<String>>,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(Clone, serde::Deserialize)]
 #[allow(dead_code)]
 struct ProfileDock {
     persistent_apps: Option<Vec<String>>,
@@ -113,7 +113,7 @@ struct ProfileDock {
     show_process_indicators: Option<bool>,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(Clone, serde::Deserialize)]
 #[allow(dead_code)]
 struct ProfileAppearance {
     dark_mode: Option<bool>,
@@ -123,7 +123,7 @@ struct ProfileAppearance {
     sidebar_icon_size: Option<u32>, // 1=small, 2=medium, 3=large
 }
 
-#[derive(serde::Deserialize)]
+#[derive(Clone, serde::Deserialize)]
 #[allow(dead_code)]
 struct ProfileInput {
     key_repeat: Option<u32>,         // lower = faster (1-15, default 6)
@@ -132,7 +132,7 @@ struct ProfileInput {
     press_and_hold: Option<bool>,    // false = enable key repeat instead of character picker
 }
 
-#[derive(serde::Deserialize)]
+#[derive(Clone, serde::Deserialize)]
 #[allow(dead_code)]
 struct ProfileFinder {
     default_view: Option<String>, // "list", "icon", "column", "gallery"
@@ -145,7 +145,7 @@ struct ProfileFinder {
     warn_on_extension_change: Option<bool>,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(Clone, serde::Deserialize)]
 #[allow(dead_code)]
 struct ProfileScreenshots {
     location: Option<String>,
@@ -153,7 +153,7 @@ struct ProfileScreenshots {
     disable_shadow: Option<bool>,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(Clone, serde::Deserialize)]
 #[allow(dead_code)]
 struct ProfileDefaultApps {
     browser: Option<String>, // bundle id, e.g. "com.apple.Safari"
@@ -161,7 +161,7 @@ struct ProfileDefaultApps {
 
 // ── Linux / NixOS profile structs ────────────────────────────────────────
 
-#[derive(serde::Deserialize)]
+#[derive(Clone, serde::Deserialize)]
 #[allow(dead_code)]
 struct ProfileLinux {
     desktop: Option<String>,         // "gnome", "kde", "cosmic"
@@ -176,7 +176,7 @@ struct ProfileLinux {
     cosmic: Option<ProfileCosmic>,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(Clone, serde::Deserialize)]
 #[allow(dead_code)]
 struct ProfileGpu {
     driver: Option<String>, // "amdgpu", "nvidia", "intel", "nouveau" (comma-separated for multi-GPU)
@@ -188,7 +188,7 @@ struct ProfileGpu {
     nvidia_open: Option<bool>, // true for Turing+ (RTX 2000+), false for older (Kepler/Maxwell/Pascal)
 }
 
-#[derive(serde::Deserialize)]
+#[derive(Clone, serde::Deserialize)]
 #[allow(dead_code)]
 struct ProfileAudio {
     backend: Option<String>, // "pipewire", "pulseaudio"
@@ -196,7 +196,7 @@ struct ProfileAudio {
     bluetooth: Option<bool>,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(Clone, serde::Deserialize)]
 #[allow(dead_code)]
 struct ProfileGaming {
     steam: Option<bool>,
@@ -207,7 +207,7 @@ struct ProfileGaming {
     proton_ge: Option<bool>,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(Clone, serde::Deserialize)]
 #[allow(dead_code)]
 struct ProfileGnome {
     dark_mode: Option<bool>,
@@ -220,7 +220,7 @@ struct ProfileGnome {
     extensions: Option<Vec<String>>,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(Clone, serde::Deserialize)]
 #[allow(dead_code)]
 struct ProfileKde {
     color_scheme: Option<String>,
@@ -229,7 +229,7 @@ struct ProfileKde {
     num_desktops: Option<u32>,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(Clone, serde::Deserialize)]
 #[allow(dead_code)]
 struct ProfileCosmic {
     dark_mode: Option<bool>,
@@ -238,34 +238,305 @@ struct ProfileCosmic {
     dock_favorites: Option<Vec<String>>,
 }
 
-#[derive(serde::Deserialize)]
+#[derive(Clone, serde::Deserialize)]
 #[allow(dead_code)]
 struct ProfileSecurity {
     touchid_sudo: Option<bool>,
 }
 
-pub fn run(config: &Config, repo_ref: &str, dry_run: bool) -> Result<()> {
-    let profile = fetch_profile(repo_ref)?;
+/// A fetched profile plus its repo ref (needed for kitty file downloads).
+struct ProfileLayer {
+    repo_ref: String,
+    profile: Profile,
+}
 
-    // Handle extends — apply the base profile first
-    if let Some(base_ref) = profile.meta.as_ref().and_then(|m| m.extends.as_deref()) {
-        println!("  {} extends {}", style("i").cyan(), style(base_ref).bold());
-        run(config, base_ref, dry_run)?;
+/// Merged shell configuration across all profile layers.
+#[derive(Default)]
+struct MergedShell {
+    aliases: BTreeMap<String, String>,
+    env: BTreeMap<String, String>,
+    profile_extra: Option<String>,
+    init_extra: Option<String>,
+    history_size: Option<u64>,
+    history_file_size: Option<u64>,
+    history_control: Option<Vec<String>>,
+}
+
+/// Merged git configuration. Last-writer-wins per field.
+#[derive(Default)]
+struct MergedGit {
+    name: Option<String>,
+    email: Option<String>,
+    default_branch: Option<String>,
+    pull_rebase: Option<bool>,
+    push_auto_setup_remote: Option<bool>,
+}
+
+/// The single merged result of all profile layers.
+struct MergedProfile {
+    name: String,
+    packages_nix: Vec<String>,
+    packages_brews: Vec<String>,
+    packages_casks: Vec<String>,
+    packages_taps: Vec<String>,
+    shell: MergedShell,
+    git: MergedGit,
+    kitty: Option<ProfileKitty>,
+    macos: Option<ProfileMacos>,
+    linux: Option<ProfileLinux>,
+    security: Option<ProfileSecurity>,
+}
+
+fn collect_profiles(repo_ref: &str) -> Result<Vec<ProfileLayer>> {
+    let mut layers = Vec::new();
+    let mut visited = HashSet::new();
+    let mut current = Some(repo_ref.to_string());
+
+    while let Some(ref r) = current {
+        if !visited.insert(r.clone()) {
+            bail!("profile cycle detected: {r}");
+        }
+        let profile = fetch_profile(r)?;
+        let next = profile.meta.as_ref().and_then(|m| m.extends.clone());
+        layers.push(ProfileLayer {
+            repo_ref: r.clone(),
+            profile,
+        });
+        current = next;
+    }
+    layers.reverse(); // base first, overlay last
+    Ok(layers)
+}
+
+impl MergedProfile {
+    fn new() -> Self {
+        Self {
+            name: String::new(),
+            packages_nix: Vec::new(),
+            packages_brews: Vec::new(),
+            packages_casks: Vec::new(),
+            packages_taps: Vec::new(),
+            shell: MergedShell::default(),
+            git: MergedGit::default(),
+            kitty: None,
+            macos: None,
+            linux: None,
+            security: None,
+        }
+    }
+
+    fn merge_layer(&mut self, layer: &ProfileLayer) {
+        let profile = &layer.profile;
+
+        // Name: use the outermost profile's name
+        if let Some(meta) = &profile.meta {
+            if let Some(name) = &meta.name {
+                self.name = name.clone();
+            }
+        }
+
+        // Packages: union with dedup
+        if let Some(pkgs) = &profile.packages {
+            union_dedup(&mut self.packages_nix, pkgs.nix.as_deref());
+            union_dedup(&mut self.packages_brews, pkgs.brews.as_deref());
+            union_dedup(&mut self.packages_casks, pkgs.casks.as_deref());
+            union_dedup(&mut self.packages_taps, pkgs.taps.as_deref());
+        }
+
+        // Shell
+        if let Some(shell) = &profile.shell {
+            self.shell.merge_from(shell);
+        }
+
+        // Git: last-writer-wins per field
+        if let Some(git) = &profile.git {
+            if git.name.is_some() {
+                self.git.name = git.name.clone();
+            }
+            if git.email.is_some() {
+                self.git.email = git.email.clone();
+            }
+            if git.default_branch.is_some() {
+                self.git.default_branch = git.default_branch.clone();
+            }
+            if git.pull_rebase.is_some() {
+                self.git.pull_rebase = git.pull_rebase;
+            }
+            if git.push_auto_setup_remote.is_some() {
+                self.git.push_auto_setup_remote = git.push_auto_setup_remote;
+            }
+        }
+
+        // Kitty, macOS, Linux, Security: last-writer-wins (whole struct)
+        if profile.kitty.is_some() {
+            self.kitty = profile.kitty.clone();
+        }
+        if profile.macos.is_some() {
+            self.macos = profile.macos.clone();
+        }
+        if profile.linux.is_some() {
+            self.linux = profile.linux.clone();
+        }
+        if profile.security.is_some() {
+            self.security = profile.security.clone();
+        }
+    }
+}
+
+fn union_dedup(target: &mut Vec<String>, source: Option<&[String]>) {
+    if let Some(items) = source {
+        let existing: HashSet<String> = target.iter().cloned().collect();
+        for item in items {
+            if !existing.contains(item) {
+                target.push(item.clone());
+            }
+        }
+    }
+}
+
+impl MergedShell {
+    fn merge_from(&mut self, shell: &ProfileShell) {
+        // Aliases: overlay wins on conflict
+        if let Some(aliases) = &shell.aliases {
+            for (k, v) in aliases {
+                self.aliases.insert(k.clone(), v.clone());
+            }
+        }
+
+        // Env vars: overlay wins on conflict
+        if let Some(env) = &shell.env {
+            for (k, v) in env {
+                self.env.insert(k.clone(), v.clone());
+            }
+        }
+
+        // Extract history settings from env into dedicated fields
+        if let Some(val) = self.env.remove("HISTSIZE") {
+            if let Ok(n) = val.parse::<u64>() {
+                self.history_size = Some(n);
+            }
+        }
+        if let Some(val) = self.env.remove("HISTFILESIZE") {
+            if let Ok(n) = val.parse::<u64>() {
+                self.history_file_size = Some(n);
+            }
+        }
+        if let Some(val) = self.env.remove("HISTCONTROL") {
+            self.history_control = Some(val.split(':').map(|s| s.to_string()).collect());
+        }
+
+        // profileExtra/initExtra: append if genuinely new
+        Self::merge_multiline(&mut self.profile_extra, shell.profile_extra.as_deref());
+        Self::merge_multiline(&mut self.init_extra, shell.init_extra.as_deref());
+    }
+
+    fn merge_multiline(target: &mut Option<String>, overlay: Option<&str>) {
+        let overlay_trimmed = match overlay {
+            Some(s) if !s.trim().is_empty() => s.trim(),
+            _ => return,
+        };
+        match target {
+            Some(existing) => {
+                let existing_trimmed = existing.trim();
+                if existing_trimmed.contains(overlay_trimmed) {
+                    // Already present
+                } else if overlay_trimmed.contains(existing_trimmed) {
+                    *target = Some(overlay_trimmed.to_string());
+                } else {
+                    *target = Some(format!("{existing_trimmed}\n\n{overlay_trimmed}"));
+                }
+            }
+            None => {
+                *target = Some(overlay_trimmed.to_string());
+            }
+        }
+    }
+}
+
+fn render_shell_nix(shell: &MergedShell) -> String {
+    let mut lines = Vec::new();
+    lines.push("{ pkgs, ... }:".to_string());
+    lines.push(String::new());
+    lines.push("{".to_string());
+    lines.push("  programs.bash.enable = true;".to_string());
+
+    if let Some(n) = shell.history_size {
+        lines.push(format!("  programs.bash.historySize = {n};"));
+    }
+    if let Some(n) = shell.history_file_size {
+        lines.push(format!("  programs.bash.historyFileSize = {n};"));
+    }
+    if let Some(ref items) = shell.history_control {
+        let nix_list = items
+            .iter()
+            .map(|s| format!("\"{s}\""))
+            .collect::<Vec<_>>()
+            .join(" ");
+        lines.push(format!("  programs.bash.historyControl = [ {nix_list} ];"));
+    }
+
+    if !shell.aliases.is_empty() {
+        lines.push("  programs.bash.shellAliases = {".to_string());
+        for (name, cmd) in &shell.aliases {
+            let escaped = escape_nix_string(cmd);
+            lines.push(format!("    {name} = \"{escaped}\";"));
+        }
+        lines.push("  };".to_string());
+    }
+
+    render_multiline_attr(&mut lines, "profileExtra", &shell.profile_extra);
+    render_multiline_attr(&mut lines, "initExtra", &shell.init_extra);
+
+    if !shell.env.is_empty() {
+        lines.push("  home.sessionVariables = {".to_string());
+        for (key, val) in &shell.env {
+            let escaped = escape_nix_string(val);
+            lines.push(format!("    {key} = \"{escaped}\";"));
+        }
+        lines.push("  };".to_string());
+    }
+
+    lines.push("}".to_string());
+    lines.push(String::new());
+    lines.join("\n")
+}
+
+fn escape_nix_string(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace("${", "\\${")
+}
+
+fn render_multiline_attr(lines: &mut Vec<String>, attr: &str, value: &Option<String>) {
+    if let Some(ref text) = value {
+        let trimmed = text.trim();
+        if !trimmed.is_empty() {
+            lines.push(format!(
+                "  programs.bash.{attr} = ''\n{}\n  '';",
+                indent_nix_multiline(trimmed, 4)
+            ));
+        }
+    }
+}
+
+pub fn run(config: &Config, repo_ref: &str, dry_run: bool) -> Result<()> {
+    // Phase 1: Collect all profile layers
+    let layers = collect_profiles(repo_ref)?;
+
+    // Print the chain
+    if layers.len() > 1 {
+        let chain: Vec<&str> = layers
+            .iter()
+            .filter_map(|l| l.profile.meta.as_ref().and_then(|m| m.name.as_deref()))
+            .collect();
         println!();
         println!(
-            "  {} applying overlay {}",
+            "  {} profile chain: {}",
             style("nex profile").bold(),
-            style(
-                profile
-                    .meta
-                    .as_ref()
-                    .and_then(|m| m.name.as_deref())
-                    .unwrap_or(repo_ref)
-            )
-            .cyan()
+            chain.join(" → ")
         );
         println!();
-    } else if let Some(meta) = &profile.meta {
+    } else if let Some(meta) = layers.last().and_then(|l| l.profile.meta.as_ref()) {
         println!();
         println!(
             "  {} applying profile {}",
@@ -278,47 +549,103 @@ pub fn run(config: &Config, repo_ref: &str, dry_run: bool) -> Result<()> {
         println!();
     }
 
+    // Phase 2: Merge all layers
+    let mut merged = MergedProfile::new();
+    for layer in &layers {
+        merged.merge_layer(layer);
+    }
+
+    // Phase 3: Apply
     let mut session = EditSession::new();
     let mut changes = 0;
 
-    // Apply packages — nix packages are cross-platform, brew/casks are macOS-only
-    if let Some(pkgs) = &profile.packages {
-        changes += apply_nix_packages(config, &mut session, pkgs, dry_run)?;
-        if config.platform == Platform::Darwin {
-            changes += apply_brew_packages(config, &mut session, pkgs, dry_run)?;
-            apply_taps(config, pkgs, dry_run)?;
+    // Packages
+    let merged_pkgs = ProfilePackages {
+        nix: if merged.packages_nix.is_empty() {
+            None
+        } else {
+            Some(merged.packages_nix.clone())
+        },
+        brews: if merged.packages_brews.is_empty() {
+            None
+        } else {
+            Some(merged.packages_brews.clone())
+        },
+        casks: if merged.packages_casks.is_empty() {
+            None
+        } else {
+            Some(merged.packages_casks.clone())
+        },
+        taps: if merged.packages_taps.is_empty() {
+            None
+        } else {
+            Some(merged.packages_taps.clone())
+        },
+    };
+    changes += apply_nix_packages(config, &mut session, &merged_pkgs, dry_run)?;
+    if config.platform == Platform::Darwin {
+        changes += apply_brew_packages(config, &mut session, &merged_pkgs, dry_run)?;
+        apply_taps(config, &merged_pkgs, dry_run)?;
+    }
+
+    // Kitty — per-layer (needs repo_ref for downloads)
+    for layer in &layers {
+        if layer.profile.kitty.is_some() {
+            apply_kitty(config, &layer.repo_ref, &layer.profile.kitty, dry_run)?;
         }
     }
 
-    // Apply kitty config and files
-    if profile.kitty.is_some() {
-        apply_kitty(config, repo_ref, &profile.kitty, dry_run)?;
+    // Shell — render once from merged data
+    let has_shell = !merged.shell.aliases.is_empty()
+        || !merged.shell.env.is_empty()
+        || merged.shell.profile_extra.is_some()
+        || merged.shell.init_extra.is_some()
+        || merged.shell.history_size.is_some();
+
+    if has_shell {
+        if dry_run {
+            output::dry_run("would apply shell configuration");
+        } else {
+            let scaffolded = config.repo.join("nix/modules/home").exists();
+            let shell_nix = if scaffolded {
+                config.repo.join("nix/modules/home/shell.nix")
+            } else {
+                config.repo.join("shell.nix")
+            };
+
+            let content = render_shell_nix(&merged.shell);
+            if let Some(parent) = shell_nix.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(&shell_nix, content)?;
+            wire_shell_import(config, scaffolded)?;
+
+            println!("  {} shell config written", style("✓").green());
+            println!("    {}", style(shell_nix.display()).dim());
+        }
     }
 
-    // Apply shell config
-    if let Some(shell) = &profile.shell {
-        apply_shell(config, shell, dry_run)?;
+    // Git
+    if merged.git.name.is_some() || merged.git.email.is_some() {
+        apply_git_merged(config, &merged.git, dry_run)?;
     }
 
-    // Apply git config
-    if let Some(git) = &profile.git {
-        apply_git(config, git, dry_run)?;
-    }
-
-    // Apply platform-specific preferences
+    // macOS
     if config.platform == Platform::Darwin {
-        if let Some(macos) = &profile.macos {
+        if let Some(ref macos) = merged.macos {
             apply_macos(config, macos, dry_run)?;
         }
     }
+
+    // Linux
     if config.platform == Platform::Linux {
-        if let Some(linux) = &profile.linux {
+        if let Some(ref linux) = merged.linux {
             apply_linux(config, linux, dry_run)?;
         }
     }
 
-    // Apply security
-    if let Some(security) = &profile.security {
+    // Security
+    if let Some(ref security) = merged.security {
         apply_security(config, security, dry_run)?;
     }
 
@@ -330,8 +657,6 @@ pub fn run(config: &Config, repo_ref: &str, dry_run: bool) -> Result<()> {
 
     if changes > 0 {
         session.commit_all()?;
-
-        // Commit changes to the nix-darwin repo
         let _ = Command::new("git")
             .args(["add", "-A"])
             .current_dir(&config.repo)
@@ -342,7 +667,6 @@ pub fn run(config: &Config, repo_ref: &str, dry_run: bool) -> Result<()> {
             .output();
     }
 
-    // Save the profile reference for future updates
     let _ = crate::config::set_preference("profile", &format!("\"{repo_ref}\""));
 
     println!();
@@ -693,310 +1017,6 @@ fn download_tree(
     Ok(())
 }
 
-/// Apply shell configuration — writes a home-manager nix module and wires the import.
-/// Merges with any existing shell.nix so that profile overlays are additive.
-fn apply_shell(config: &Config, shell: &ProfileShell, dry_run: bool) -> Result<()> {
-    let has_content = shell.default.is_some()
-        || shell.aliases.is_some()
-        || shell.env.is_some()
-        || shell.profile_extra.is_some()
-        || shell.init_extra.is_some();
-
-    if !has_content {
-        return Ok(());
-    }
-
-    if dry_run {
-        output::dry_run("would apply shell configuration");
-        return Ok(());
-    }
-
-    // Write shell config to a nix module that home-manager can import
-    let scaffolded = config.repo.join("nix/modules/home").exists();
-    let shell_nix = if scaffolded {
-        config.repo.join("nix/modules/home/shell.nix")
-    } else {
-        config.repo.join("shell.nix")
-    };
-
-    // Load existing shell.nix state so overlay profiles merge rather than replace
-    let existing = if shell_nix.exists() {
-        std::fs::read_to_string(&shell_nix).unwrap_or_default()
-    } else {
-        String::new()
-    };
-
-    // Merge aliases: parse existing + overlay new ones (overlay wins on conflict)
-    let mut aliases: std::collections::BTreeMap<String, String> =
-        parse_nix_attrset(&existing, "shellAliases");
-    if let Some(ref new_aliases) = shell.aliases {
-        for (k, v) in new_aliases {
-            aliases.insert(k.clone(), v.clone());
-        }
-    }
-
-    // Merge env vars: same strategy
-    let mut env_vars: std::collections::BTreeMap<String, String> =
-        parse_nix_attrset(&existing, "sessionVariables");
-    if let Some(ref new_env) = shell.env {
-        for (k, v) in new_env {
-            env_vars.insert(k.clone(), v.clone());
-        }
-    }
-
-    // Merge multiline strings: append overlay after base (with blank line separator)
-    let profile_extra = merge_nix_multiline(
-        &parse_nix_multiline(&existing, "profileExtra"),
-        shell.profile_extra.as_deref(),
-    );
-    let init_extra = merge_nix_multiline(
-        &parse_nix_multiline(&existing, "initExtra"),
-        shell.init_extra.as_deref(),
-    );
-
-    // Generate the merged shell.nix
-    let mut lines = Vec::new();
-    lines.push("{ pkgs, ... }:".to_string());
-    lines.push(String::new());
-    lines.push("{".to_string());
-
-    lines.push("  programs.bash.enable = true;".to_string());
-
-    // Extract history settings from env vars — these need native programs.bash options
-    // rather than home.sessionVariables, because home-manager sets its own defaults
-    // in .bashrc that would override sessionVariables from .profile.
-    // Also preserve values already written to shell.nix by a base profile.
-    let hist_size = env_vars
-        .remove("HISTSIZE")
-        .or_else(|| parse_nix_scalar(&existing, "historySize"));
-    let hist_file_size = env_vars
-        .remove("HISTFILESIZE")
-        .or_else(|| parse_nix_scalar(&existing, "historyFileSize"));
-    let hist_control = env_vars
-        .remove("HISTCONTROL")
-        .or_else(|| parse_nix_list_as_colon(&existing, "historyControl"));
-
-    if let Some(size) = hist_size {
-        if let Ok(n) = size.parse::<u64>() {
-            lines.push(format!("  programs.bash.historySize = {n};"));
-        }
-    }
-    if let Some(size) = hist_file_size {
-        if let Ok(n) = size.parse::<u64>() {
-            lines.push(format!("  programs.bash.historyFileSize = {n};"));
-        }
-    }
-    if let Some(ref control) = hist_control {
-        // HISTCONTROL is colon-separated: "ignoreboth:erasedups" → [ "ignoreboth" "erasedups" ]
-        let items: Vec<&str> = control.split(':').collect();
-        let nix_list = items
-            .iter()
-            .map(|s| format!("\"{s}\""))
-            .collect::<Vec<_>>()
-            .join(" ");
-        lines.push(format!("  programs.bash.historyControl = [ {nix_list} ];"));
-    }
-
-    if !aliases.is_empty() {
-        lines.push("  programs.bash.shellAliases = {".to_string());
-        for (name, cmd) in &aliases {
-            let escaped = cmd
-                .replace('\\', "\\\\")
-                .replace('"', "\\\"")
-                .replace("${", "\\${");
-            lines.push(format!("    {name} = \"{escaped}\";"));
-        }
-        lines.push("  };".to_string());
-    }
-
-    if let Some(ref pe) = profile_extra {
-        let trimmed = pe.trim();
-        if !trimmed.is_empty() {
-            lines.push(format!(
-                "  programs.bash.profileExtra = ''\n{}\n  '';",
-                indent_nix_multiline(trimmed, 4)
-            ));
-        }
-    }
-
-    if let Some(ref ie) = init_extra {
-        let trimmed = ie.trim();
-        if !trimmed.is_empty() {
-            lines.push(format!(
-                "  programs.bash.initExtra = ''\n{}\n  '';",
-                indent_nix_multiline(trimmed, 4)
-            ));
-        }
-    }
-
-    if !env_vars.is_empty() {
-        lines.push("  home.sessionVariables = {".to_string());
-        for (key, val) in &env_vars {
-            let escaped = val
-                .replace('\\', "\\\\")
-                .replace('"', "\\\"")
-                .replace("${", "\\${");
-            lines.push(format!("    {key} = \"{escaped}\";"));
-        }
-        lines.push("  };".to_string());
-    }
-
-    lines.push("}".to_string());
-    lines.push(String::new());
-
-    if let Some(parent) = shell_nix.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(&shell_nix, lines.join("\n"))?;
-
-    // Wire the import into the home-manager config
-    wire_shell_import(config, scaffolded)?;
-
-    println!("  {} shell config written", style("✓").green());
-    println!("    {}", style(shell_nix.display()).dim());
-
-    Ok(())
-}
-
-/// Parse a nix attrset block like `shellAliases = { key = "val"; ... };` from file content.
-/// Returns key-value pairs. Lightweight parser — handles the output we generate, not arbitrary nix.
-fn parse_nix_attrset(content: &str, attr_name: &str) -> std::collections::BTreeMap<String, String> {
-    let mut map = std::collections::BTreeMap::new();
-    let marker = format!("{attr_name} = {{");
-    let block_start = match content.find(&marker) {
-        Some(pos) => pos + marker.len(),
-        None => return map,
-    };
-    let block_end = match content[block_start..].find("};") {
-        Some(pos) => block_start + pos,
-        None => return map,
-    };
-    for line in content[block_start..block_end].lines() {
-        let trimmed = line.trim();
-        // Match: key = "value";
-        if let Some(eq_pos) = trimmed.find(" = \"") {
-            let key = trimmed[..eq_pos].trim();
-            let val_start = eq_pos + 4; // skip ` = "`
-            if let Some(val_end) = trimmed[val_start..].rfind("\";") {
-                let val = &trimmed[val_start..val_start + val_end];
-                // Unescape nix string escapes
-                let unescaped = val
-                    .replace("\\\"", "\"")
-                    .replace("\\\\", "\\")
-                    .replace("\\${", "${");
-                map.insert(key.to_string(), unescaped);
-            }
-        }
-    }
-    map
-}
-
-/// Parse a nix multiline string like `profileExtra = '' ... '';` from file content.
-/// Strips common leading indentation so the result can be re-indented cleanly.
-fn parse_nix_multiline(content: &str, attr_name: &str) -> Option<String> {
-    let marker = format!("{attr_name} = ''");
-    let start = content.find(&marker)?;
-    let after_marker = start + marker.len();
-    // Find the closing `'';` — skip the opening line
-    let close = content[after_marker..].find("'';")?;
-    let inner = &content[after_marker..after_marker + close];
-
-    // Dedent: find minimum indentation of non-empty lines, then strip it
-    let lines: Vec<&str> = inner.lines().collect();
-    let min_indent = lines
-        .iter()
-        .filter(|l| !l.trim().is_empty())
-        .map(|l| l.len() - l.trim_start().len())
-        .min()
-        .unwrap_or(0);
-
-    let dedented: Vec<&str> = lines
-        .iter()
-        .map(|l| {
-            if l.trim().is_empty() {
-                ""
-            } else if l.len() >= min_indent {
-                &l[min_indent..]
-            } else {
-                l.trim()
-            }
-        })
-        .collect();
-
-    let result = dedented.join("\n");
-    let trimmed = result.trim();
-    if trimmed.is_empty() {
-        None
-    } else {
-        Some(trimmed.to_string())
-    }
-}
-
-/// Parse a scalar nix value like `programs.bash.historySize = 50000;` from file content.
-/// Matches on the attr_name suffix (e.g. "historySize" matches "programs.bash.historySize").
-fn parse_nix_scalar(content: &str, attr_name: &str) -> Option<String> {
-    let suffix = format!("{attr_name} = ");
-    for line in content.lines() {
-        let trimmed = line.trim();
-        if trimmed.contains(&suffix) && trimmed.ends_with(';') {
-            if let Some(pos) = trimmed.find(&suffix) {
-                let val = &trimmed[pos + suffix.len()..trimmed.len() - 1];
-                return Some(val.trim().to_string());
-            }
-        }
-    }
-    None
-}
-
-/// Parse a nix list like `programs.bash.historyControl = [ "ignoreboth" "erasedups" ];`
-/// and return as a colon-separated string.
-fn parse_nix_list_as_colon(content: &str, attr_name: &str) -> Option<String> {
-    let suffix = format!("{attr_name} = [");
-    for line in content.lines() {
-        let trimmed = line.trim();
-        if let Some(pos) = trimmed.find(&suffix) {
-            let after = &trimmed[pos + suffix.len()..];
-            let inner = after.trim_end_matches("];").trim();
-            let items: Vec<&str> = inner
-                .split_whitespace()
-                .map(|s| s.trim_matches('"'))
-                .collect();
-            if items.is_empty() {
-                return None;
-            }
-            return Some(items.join(":"));
-        }
-    }
-    None
-}
-
-/// Merge two optional multiline shell script strings. Overlay appends after base.
-/// Merge two optional multiline shell script strings. Overlay appends after base,
-/// but only if the content is genuinely new (avoids duplication when re-applying
-/// the same profile or when an extends chain re-applies the base).
-fn merge_nix_multiline(base: &Option<String>, overlay: Option<&str>) -> Option<String> {
-    let base_trimmed = base.as_deref().map(|s| s.trim()).filter(|s| !s.is_empty());
-    let overlay_trimmed = overlay.map(|s| s.trim()).filter(|s| !s.is_empty());
-
-    match (base_trimmed, overlay_trimmed) {
-        (Some(b), Some(o)) => {
-            if b.contains(o) {
-                // Overlay content already present in base — don't duplicate
-                Some(b.to_string())
-            } else if o.contains(b) {
-                // Overlay is a superset of base — use overlay
-                Some(o.to_string())
-            } else {
-                // Genuinely new content — append
-                Some(format!("{b}\n\n{o}"))
-            }
-        }
-        (Some(b), None) => Some(b.to_string()),
-        (None, Some(o)) => Some(o.to_string()),
-        (None, None) => None,
-    }
-}
-
 /// Ensure shell.nix is imported by the home-manager configuration.
 ///
 /// The host default.nix typically assigns home-manager.users.<user> to
@@ -1088,13 +1108,11 @@ fn indent_nix_multiline(s: &str, spaces: usize) -> String {
         .join("\n")
 }
 
-/// Apply git config via git commands.
-fn apply_git(_config: &Config, git: &ProfileGit, dry_run: bool) -> Result<()> {
+fn apply_git_merged(_config: &Config, git: &MergedGit, dry_run: bool) -> Result<()> {
     if dry_run {
         output::dry_run("would apply git configuration");
         return Ok(());
     }
-
     if let Some(name) = &git.name {
         let _ = Command::new("git")
             .args(["config", "--global", "user.name", name])
@@ -1122,8 +1140,6 @@ fn apply_git(_config: &Config, git: &ProfileGit, dry_run: bool) -> Result<()> {
             .args(["config", "--global", "push.autoSetupRemote", "true"])
             .output();
     }
-
-    // Set up GitHub credential helper
     let _ = Command::new("git")
         .args([
             "config",
@@ -1132,7 +1148,6 @@ fn apply_git(_config: &Config, git: &ProfileGit, dry_run: bool) -> Result<()> {
             "!gh auth git-credential",
         ])
         .output();
-
     Ok(())
 }
 
