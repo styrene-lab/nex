@@ -94,11 +94,43 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
         false
     };
 
-    // 3. Detect hostname
+    // 3. Verify git is available (required for nix flakes)
+    //    On a fresh Mac, the Homebrew installer installs Xcode Command Line Tools
+    //    which provides git. If something went wrong, catch it here before we try
+    //    to scaffold a git repo.
+    if !dry_run {
+        let has_git = Command::new("git")
+            .args(["--version"])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+
+        if has_git {
+            ok("git", &capture_version("git", &["--version"]));
+        } else {
+            eprintln!();
+            eprintln!(
+                "  {} git is not available — nix flakes require a git repository",
+                style("!").red().bold(),
+            );
+            eprintln!();
+            if platform == Platform::Darwin {
+                eprintln!("  Install Xcode Command Line Tools, then re-run nex init:");
+                eprintln!("    {}", style("xcode-select --install").cyan());
+            } else {
+                eprintln!("  Install git, then re-run nex init:");
+                eprintln!("    {}", style("sudo apt install git  # or your distro's equivalent").cyan());
+            }
+            eprintln!();
+            bail!("git is required but not found");
+        }
+    }
+
+    // 4. Detect hostname
     let hostname = crate::discover::hostname()?;
     ok("hostname", &hostname);
 
-    // 4. Set up the nix-darwin config repo
+    // 5. Set up the nix-darwin config repo
     let repo_path = match from {
         Some(url) => clone_repo(&url, dry_run)?,
         None => scaffold_repo(&hostname, dry_run)?,
@@ -106,7 +138,7 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
 
     ok("config repo", &repo_path.display().to_string());
 
-    // 5. Write nex config so future commands find the repo
+    // 6. Write nex config so future commands find the repo
     let config_dir = crate::config::config_dir()?;
 
     if !dry_run {
@@ -123,7 +155,7 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
         &config_dir.join("config.toml").display().to_string(),
     );
 
-    // 6. First build + switch
+    // 7. First build + switch
     if dry_run {
         let rebuild_cmd = match platform {
             Platform::Darwin => "darwin-rebuild switch",
@@ -134,29 +166,13 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
         return Ok(());
     }
 
-    // Ensure git tree is clean so nix doesn't refuse to build
+    // Ensure git tree is clean so nix doesn't refuse to build.
+    // scaffold_repo already does git init + add + commit + identity setup,
+    // but clone_repo or an adopted repo may have dirty state.
     let _ = Command::new("git")
         .args(["add", "-A"])
         .current_dir(&repo_path)
         .output();
-    // Set fallback git identity if not configured (fresh systems)
-    let has_name = Command::new("git")
-        .args(["config", "user.name"])
-        .current_dir(&repo_path)
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
-    if !has_name {
-        let user = std::env::var("USER").unwrap_or_else(|_| "nex".to_string());
-        let _ = Command::new("git")
-            .args(["config", "user.name", &user])
-            .current_dir(&repo_path)
-            .output();
-        let _ = Command::new("git")
-            .args(["config", "user.email", &format!("{user}@localhost")])
-            .current_dir(&repo_path)
-            .output();
-    }
     let commit_status = Command::new("git")
         .args(["commit", "-m", "nex init"])
         .current_dir(&repo_path)
@@ -569,19 +585,60 @@ fn scaffold_repo(hostname: &str, dry_run: bool) -> Result<PathBuf> {
         ),
     )?;
 
-    // Init git repo
-    let _ = Command::new("git")
+    // Init git repo — nix flakes require files to be tracked by git
+    let git_init = Command::new("git")
         .args(["init"])
         .current_dir(&repo_path)
-        .output();
+        .output()
+        .context("failed to run git init")?;
+
+    if !git_init.status.success() {
+        bail!(
+            "git init failed in {} — nix flakes require a git repository.\n\
+             Check that git is installed: git --version",
+            repo_path.display()
+        );
+    }
+
     let _ = Command::new("git")
         .args(["branch", "-m", "main"])
         .current_dir(&repo_path)
         .output();
-    let _ = Command::new("git")
+
+    let git_add = Command::new("git")
         .args(["add", "-A"])
         .current_dir(&repo_path)
-        .output();
+        .output()
+        .context("failed to run git add")?;
+
+    if !git_add.status.success() {
+        bail!(
+            "git add failed in {} — nix flakes require files to be tracked.\n\
+             Run manually: cd {} && git add -A && git commit -m 'init'",
+            repo_path.display(),
+            repo_path.display()
+        );
+    }
+
+    // Set fallback git identity if not configured (fresh systems with no .gitconfig)
+    let has_name = Command::new("git")
+        .args(["config", "user.name"])
+        .current_dir(&repo_path)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    if !has_name {
+        let user = std::env::var("USER").unwrap_or_else(|_| "nex".to_string());
+        let _ = Command::new("git")
+            .args(["config", "user.name", &user])
+            .current_dir(&repo_path)
+            .output();
+        let _ = Command::new("git")
+            .args(["config", "user.email", &format!("{user}@localhost")])
+            .current_dir(&repo_path)
+            .output();
+    }
+
     let _ = Command::new("git")
         .args(["commit", "-m", "init: nex scaffold"])
         .current_dir(&repo_path)
