@@ -206,6 +206,54 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
         );
     }
 
+    // Check for existing brew packages BEFORE activating, because
+    // homebrew.onActivation.cleanup = "zap" will remove anything not in the
+    // nix-managed brew lists. Run nex adopt to capture them first.
+    if platform == Platform::Darwin {
+        let has_brew_packages = crate::exec::brew_available()
+            && (!crate::exec::brew_leaves().unwrap_or_default().is_empty()
+                || !crate::exec::brew_list_casks()
+                    .unwrap_or_default()
+                    .is_empty());
+
+        if has_brew_packages {
+            println!();
+            eprintln!(
+                "  {} existing brew packages detected — adopting before activation",
+                style("!").yellow().bold()
+            );
+            eprintln!(
+                "  This prevents {} from removing your installed packages.",
+                style("cleanup = \"zap\"").dim()
+            );
+            println!();
+            // Run nex adopt to capture existing packages into the nix config
+            let adopt_status = Command::new(std::env::current_exe().unwrap_or_else(|_| "nex".into()))
+                .args(["adopt"])
+                .current_dir(&repo_path)
+                .status();
+            if let Ok(status) = adopt_status {
+                if status.success() {
+                    // Re-stage and commit the adopted packages
+                    let _ = Command::new("git")
+                        .args(["add", "-A"])
+                        .current_dir(&repo_path)
+                        .output();
+                    let _ = Command::new("git")
+                        .args(["commit", "-m", "nex adopt: capture existing brew packages"])
+                        .current_dir(&repo_path)
+                        .output();
+                    // Rebuild with the adopted packages
+                    output::status("rebuilding with adopted packages...");
+                    let _ = Command::new(&nix)
+                        .args(["build", &build_attr, "--show-trace"])
+                        .current_dir(&repo_path)
+                        .status();
+                }
+            }
+        }
+    }
+
     output::status("activating (sudo required)...");
 
     // nix-darwin refuses to overwrite files in /etc on first run.
@@ -300,48 +348,10 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
         return Ok(());
     }
 
-    // Check if brew has existing packages that need adopting (macOS only)
-    if platform == Platform::Darwin {
-        let has_brew_packages = crate::exec::brew_available()
-            && (!crate::exec::brew_leaves().unwrap_or_default().is_empty()
-                || !crate::exec::brew_list_casks()
-                    .unwrap_or_default()
-                    .is_empty());
-
-        if has_brew_packages {
-            println!();
-            eprintln!(
-                "  {} existing brew packages detected",
-                style("!").yellow().bold()
-            );
-            eprintln!(
-                "  Run {} to add them to the nex config before switching.",
-                style("nex adopt").bold()
-            );
-            eprintln!(
-                "  This prevents {} from removing your installed packages.",
-                style("cleanup = \"zap\"").dim()
-            );
-        }
-    }
-
     println!();
     println!("  {} Setup complete.", style("✓").green().bold());
     println!();
     println!("  Next steps:");
-    if platform == Platform::Darwin {
-        let has_brew_packages = crate::exec::brew_available()
-            && (!crate::exec::brew_leaves().unwrap_or_default().is_empty()
-                || !crate::exec::brew_list_casks()
-                    .unwrap_or_default()
-                    .is_empty());
-        if has_brew_packages {
-            println!(
-                "  {}  Capture existing brew packages",
-                style("  nex adopt").cyan()
-            );
-        }
-    }
     println!(
         "  {}  Install a package",
         style("  nex install htop").cyan()
@@ -580,6 +590,9 @@ fn scaffold_repo(hostname: &str, dry_run: bool) -> Result<PathBuf> {
              \x20   vim\n\
              \x20 ];\n\
              \n\
+             \x20 # Enable bash so home-manager generates .bashrc and .bash_profile.\n\
+             \x20 # Without this, the login shell works but has no managed config.\n\
+             \x20 programs.bash.enable = true;\n\
              \x20 programs.home-manager.enable = true;\n\
              }}\n"
         ),
