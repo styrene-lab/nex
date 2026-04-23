@@ -937,7 +937,11 @@ fn exec_write_config(
         "  };".to_string(),
     ];
     home.push(String::new());
-    home.push("  home.sessionPath = [ \"$HOME/.local/bin\" ];".to_string());
+    home.push("  home.sessionPath = [".to_string());
+    home.push("    \"$HOME/.local/bin\"".to_string());
+    home.push("    \"$HOME/.cargo/bin\"".to_string());
+    home.push("    \"$HOME/.nix-profile/bin\"".to_string());
+    home.push("  ];".to_string());
     home.push(String::new());
     home.push("  home.packages = with pkgs; [".to_string());
 

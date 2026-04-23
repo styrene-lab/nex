@@ -529,6 +529,14 @@ fn render_shell_nix(shell: &MergedShell) -> String {
         lines.push("  };".to_string());
     }
 
+    // Ensure critical PATH directories are always present
+    lines.push("  home.sessionPath = [".to_string());
+    lines.push("    \"$HOME/.local/bin\"".to_string());
+    lines.push("    \"$HOME/.cargo/bin\"".to_string());
+    lines.push("    \"$HOME/.nix-profile/bin\"".to_string());
+    lines.push("    \"/opt/homebrew/bin\"".to_string());
+    lines.push("  ];".to_string());
+
     lines.push("}".to_string());
     lines.push(String::new());
     lines.join("\n")

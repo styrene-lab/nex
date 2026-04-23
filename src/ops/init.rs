@@ -595,7 +595,11 @@ fn scaffold_repo(hostname: &str, dry_run: bool) -> Result<PathBuf> {
              \x20   stateVersion = \"25.05\";\n\
              \x20 }};\n\
              \n\
-             \x20 home.sessionPath = [ \"$HOME/.local/bin\" ];\n\
+             \x20 home.sessionPath = [\n\
+             \x20   \"$HOME/.local/bin\"\n\
+             \x20   \"$HOME/.cargo/bin\"\n\
+             \x20   \"$HOME/.nix-profile/bin\"\n\
+             \x20 ];\n\
              \n\
              \x20 home.packages = with pkgs; [\n\
              \x20   git\n\
