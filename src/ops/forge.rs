@@ -434,8 +434,7 @@ fn fetch_nex_binary(dest: &Path) -> Result<()> {
                     // --print-out-paths outputs the store path on stdout (may have multiple lines)
                     let store_path = String::from_utf8_lossy(&output.stdout)
                         .lines()
-                        .filter(|l| l.starts_with("/nix/store/"))
-                        .last()
+                        .rfind(|l| l.starts_with("/nix/store/"))
                         .unwrap_or("")
                         .trim()
                         .to_string();
@@ -666,14 +665,15 @@ fn scaffold_nixos_config(config_dir: &Path, hostname: &str, profile_toml: &str) 
     )?;
 
     // home.nix — user-level config from profile packages
-    let mut home_lines = Vec::new();
-    home_lines.push("{ pkgs, username, ... }:".to_string());
-    home_lines.push(String::new());
-    home_lines.push("{".to_string());
-    home_lines.push("  home = {".to_string());
-    home_lines.push("    username = username;".to_string());
-    home_lines.push("    homeDirectory = \"/home/${username}\";".to_string());
-    home_lines.push("    stateVersion = \"25.05\";".to_string());
+    let mut home_lines = vec![
+        "{ pkgs, username, ... }:".to_string(),
+        String::new(),
+        "{".to_string(),
+        "  home = {".to_string(),
+        "    username = username;".to_string(),
+        "    homeDirectory = \"/home/${username}\";".to_string(),
+        "    stateVersion = \"25.05\";".to_string(),
+    ];
     home_lines.push("  };".to_string());
     home_lines.push(String::new());
     home_lines.push("  home.sessionPath = [ \"$HOME/.local/bin\" ];".to_string());
@@ -936,9 +936,7 @@ pub fn generate_linux_config(lines: &mut Vec<String>, linux: &toml::Value) {
                 // a dconf profile that gets applied on login.
                 lines.push("  # GNOME favorite apps — written as dconf db override".to_string());
                 let apps_str = apps.join(", ");
-                lines.push(format!(
-                    "  environment.etc.\"dconf/db/local.d/01-nex-favorites\".text = ''",
-                ));
+                lines.push("  environment.etc.\"dconf/db/local.d/01-nex-favorites\".text = ''".to_string());
                 lines.push("    [org/gnome/shell]".to_string());
                 lines.push(format!("    favorite-apps=[{apps_str}]"));
                 if dark {
@@ -1435,9 +1433,20 @@ fn flash_to_usb(bundle_dir: &Path, iso_path: &Path, device: &str) -> Result<()> 
     Ok(())
 }
 
+fn chrono_now() -> String {
+    let output = Command::new("date")
+        .args(["-u", "+%Y-%m-%dT%H:%M:%SZ"])
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .unwrap_or_else(|| "unknown".to_string());
+    output.trim().to_string()
+}
+
 // ── Tests ────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 
@@ -1873,15 +1882,4 @@ mod tests {
         assert!(!output.contains("color-scheme"));
         assert!(output.contains("'kitty.desktop'"));
     }
-}
-
-fn chrono_now() -> String {
-    // Simple ISO timestamp without pulling in chrono
-    let output = Command::new("date")
-        .args(["-u", "+%Y-%m-%dT%H:%M:%SZ"])
-        .output()
-        .ok()
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .unwrap_or_else(|| "unknown".to_string());
-    output.trim().to_string()
 }

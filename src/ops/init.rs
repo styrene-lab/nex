@@ -903,10 +903,9 @@ nixpkgs.lib.nixosSystem {
     // Host default.nix
     std::fs::write(
         host_dir.join("default.nix"),
-        format!(
-            r#"{{ pkgs, hostname, username, ... }}:
+        r#"{ pkgs, hostname, username, ... }:
 
-{{
+{
   imports = [
     ../../modules/nixos/base.nix
     ./hardware-configuration.nix
@@ -914,12 +913,11 @@ nixpkgs.lib.nixosSystem {
 
   networking.hostName = hostname;
 
-  home-manager.users.${{username}} = import ../../modules/home/base.nix;
+  home-manager.users.${username} = import ../../modules/home/base.nix;
 
   system.stateVersion = "25.05";
-}}
-"#
-        ),
+}
+"#,
     )?;
 
     // Generate hardware-configuration.nix if nixos-generate-config is available
@@ -938,21 +936,19 @@ nixpkgs.lib.nixosSystem {
     if !host_dir.join("hardware-configuration.nix").exists() {
         std::fs::write(
             host_dir.join("hardware-configuration.nix"),
-            format!(
-                r#"# Auto-generated hardware configuration.
+            r#"# Auto-generated hardware configuration.
 # Replace with output of: nixos-generate-config --show-hardware-config
-{{ config, lib, pkgs, modulesPath, ... }}:
+{ config, lib, pkgs, modulesPath, ... }:
 
-{{
+{
   imports = [
     (modulesPath + "/installer/scan/not-detected.nix")
   ];
 
   boot.loader.systemd-boot.enable = true;
   boot.loader.efi.canTouchEfiVariables = true;
-}}
-"#
-            ),
+}
+"#,
         )?;
     }
 

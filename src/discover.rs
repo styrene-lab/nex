@@ -302,6 +302,7 @@ pub fn default_repo_name() -> &'static str {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 

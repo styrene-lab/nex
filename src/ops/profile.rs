@@ -54,6 +54,7 @@ struct ProfilePackages {
 
 #[derive(Clone, serde::Deserialize)]
 struct ProfileShell {
+    #[allow(dead_code)]
     default: Option<String>,
     aliases: Option<std::collections::HashMap<String, String>>,
     env: Option<std::collections::HashMap<String, String>>,
@@ -485,11 +486,12 @@ impl MergedShell {
 }
 
 fn render_shell_nix(shell: &MergedShell) -> String {
-    let mut lines = Vec::new();
-    lines.push("{ pkgs, ... }:".to_string());
-    lines.push(String::new());
-    lines.push("{".to_string());
-    lines.push("  programs.bash.enable = true;".to_string());
+    let mut lines = vec![
+        "{ pkgs, ... }:".to_string(),
+        String::new(),
+        "{".to_string(),
+        "  programs.bash.enable = true;".to_string(),
+    ];
 
     if let Some(n) = shell.history_size {
         lines.push(format!("  programs.bash.historySize = {n};"));
@@ -1743,9 +1745,7 @@ fn write_system_defaults(config: &Config, macos: &ProfileMacos) -> Result<()> {
                         let remaining = &content[consume_end..];
                         if remaining.starts_with(";\n") {
                             consume_end += 2;
-                        } else if remaining.starts_with(';') {
-                            consume_end += 1;
-                        } else if remaining.starts_with('\n') {
+                        } else if remaining.starts_with(';') || remaining.starts_with('\n') {
                             consume_end += 1;
                         }
                         end = consume_end;

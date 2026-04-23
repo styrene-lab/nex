@@ -926,15 +926,16 @@ fn exec_write_config(
     std::fs::write(config_dir.join("configuration.nix"), lines.join("\n"))?;
 
     // ── home.nix ─────────────────────────────────────────────────────
-    let mut home = Vec::new();
-    home.push("{ pkgs, username, ... }:".to_string());
-    home.push(String::new());
-    home.push("{".to_string());
-    home.push("  home = {".to_string());
-    home.push("    username = username;".to_string());
-    home.push("    homeDirectory = \"/home/${username}\";".to_string());
-    home.push("    stateVersion = \"25.05\";".to_string());
-    home.push("  };".to_string());
+    let mut home = vec![
+        "{ pkgs, username, ... }:".to_string(),
+        String::new(),
+        "{".to_string(),
+        "  home = {".to_string(),
+        "    username = username;".to_string(),
+        "    homeDirectory = \"/home/${username}\";".to_string(),
+        "    stateVersion = \"25.05\";".to_string(),
+        "  };".to_string(),
+    ];
     home.push(String::new());
     home.push("  home.sessionPath = [ \"$HOME/.local/bin\" ];".to_string());
     home.push(String::new());
@@ -1278,6 +1279,7 @@ fn check_disk_for_special_layouts(disk: &str) {
 // ── Tests ────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 
