@@ -762,6 +762,41 @@ fn apply_shell(config: &Config, shell: &ProfileShell, dry_run: bool) -> Result<(
 
     lines.push("  programs.bash.enable = true;".to_string());
 
+    // Extract history settings from env vars — these need native programs.bash options
+    // rather than home.sessionVariables, because home-manager sets its own defaults
+    // in .bashrc that would override sessionVariables from .profile.
+    // Also preserve values already written to shell.nix by a base profile.
+    let hist_size = env_vars
+        .remove("HISTSIZE")
+        .or_else(|| parse_nix_scalar(&existing, "historySize"));
+    let hist_file_size = env_vars
+        .remove("HISTFILESIZE")
+        .or_else(|| parse_nix_scalar(&existing, "historyFileSize"));
+    let hist_control = env_vars
+        .remove("HISTCONTROL")
+        .or_else(|| parse_nix_list_as_colon(&existing, "historyControl"));
+
+    if let Some(size) = hist_size {
+        if let Ok(n) = size.parse::<u64>() {
+            lines.push(format!("  programs.bash.historySize = {n};"));
+        }
+    }
+    if let Some(size) = hist_file_size {
+        if let Ok(n) = size.parse::<u64>() {
+            lines.push(format!("  programs.bash.historyFileSize = {n};"));
+        }
+    }
+    if let Some(ref control) = hist_control {
+        // HISTCONTROL is colon-separated: "ignoreboth:erasedups" → [ "ignoreboth" "erasedups" ]
+        let items: Vec<&str> = control.split(':').collect();
+        let nix_list = items
+            .iter()
+            .map(|s| format!("\"{s}\""))
+            .collect::<Vec<_>>()
+            .join(" ");
+        lines.push(format!("  programs.bash.historyControl = [ {nix_list} ];"));
+    }
+
     if !aliases.is_empty() {
         lines.push("  programs.bash.shellAliases = {".to_string());
         for (name, cmd) in &aliases {
@@ -891,6 +926,44 @@ fn parse_nix_multiline(content: &str, attr_name: &str) -> Option<String> {
     }
 }
 
+/// Parse a scalar nix value like `programs.bash.historySize = 50000;` from file content.
+/// Matches on the attr_name suffix (e.g. "historySize" matches "programs.bash.historySize").
+fn parse_nix_scalar(content: &str, attr_name: &str) -> Option<String> {
+    let suffix = format!("{attr_name} = ");
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.contains(&suffix) && trimmed.ends_with(';') {
+            if let Some(pos) = trimmed.find(&suffix) {
+                let val = &trimmed[pos + suffix.len()..trimmed.len() - 1];
+                return Some(val.trim().to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Parse a nix list like `programs.bash.historyControl = [ "ignoreboth" "erasedups" ];`
+/// and return as a colon-separated string.
+fn parse_nix_list_as_colon(content: &str, attr_name: &str) -> Option<String> {
+    let suffix = format!("{attr_name} = [");
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if let Some(pos) = trimmed.find(&suffix) {
+            let after = &trimmed[pos + suffix.len()..];
+            let inner = after.trim_end_matches("];").trim();
+            let items: Vec<&str> = inner
+                .split_whitespace()
+                .map(|s| s.trim_matches('"'))
+                .collect();
+            if items.is_empty() {
+                return None;
+            }
+            return Some(items.join(":"));
+        }
+    }
+    None
+}
+
 /// Merge two optional multiline shell script strings. Overlay appends after base.
 fn merge_nix_multiline(base: &Option<String>, overlay: Option<&str>) -> Option<String> {
     let base_trimmed = base.as_deref().map(|s| s.trim()).filter(|s| !s.is_empty());
@@ -920,27 +993,46 @@ fn wire_shell_import(config: &Config, scaffolded: bool) -> Result<()> {
         let host_default = config
             .repo
             .join(format!("nix/hosts/{}/default.nix", config.hostname));
-        if host_default.exists() {
-            let content = std::fs::read_to_string(&host_default)?;
-            if !content.contains("shell.nix") {
-                // Current form: home-manager.users.${username} = import ../../modules/home/base.nix;
-                // Target form:  home-manager.users.${username} = { imports = [ ... ]; };
-                let patched = if content.contains("import ../../modules/home/base.nix") {
-                    content.replace(
-                        "import ../../modules/home/base.nix;",
-                        "{\n    imports = [\n      ../../modules/home/base.nix\n      ../../modules/home/shell.nix\n    ];\n  };",
-                    )
-                } else if content.contains("../../modules/home/base.nix") {
-                    // Already uses imports list form — add shell.nix
-                    content.replace(
-                        "../../modules/home/base.nix",
-                        "../../modules/home/base.nix\n      ../../modules/home/shell.nix",
-                    )
-                } else {
-                    content
-                };
-                std::fs::write(&host_default, patched)?;
-            }
+        if !host_default.exists() {
+            println!(
+                "  {} could not wire shell.nix import — {} not found",
+                style("!").yellow(),
+                style(host_default.display()).dim()
+            );
+            println!(
+                "    Add {} to your home-manager imports manually",
+                style("../../modules/home/shell.nix").bold()
+            );
+            return Ok(());
+        }
+        let content = std::fs::read_to_string(&host_default)?;
+        if !content.contains("shell.nix") {
+            // Current form: home-manager.users.${username} = import ../../modules/home/base.nix;
+            // Target form:  home-manager.users.${username} = { imports = [ ... ]; };
+            let patched = if content.contains("import ../../modules/home/base.nix") {
+                content.replace(
+                    "import ../../modules/home/base.nix;",
+                    "{\n    imports = [\n      ../../modules/home/base.nix\n      ../../modules/home/shell.nix\n    ];\n  };",
+                )
+            } else if content.contains("../../modules/home/base.nix") {
+                // Already uses imports list form — add shell.nix
+                content.replace(
+                    "../../modules/home/base.nix",
+                    "../../modules/home/base.nix\n      ../../modules/home/shell.nix",
+                )
+            } else {
+                println!(
+                    "  {} could not find home-manager base.nix import in {}",
+                    style("!").yellow(),
+                    style(host_default.display()).dim()
+                );
+                println!(
+                    "    Add {} to your home-manager imports manually",
+                    style("../../modules/home/shell.nix").bold()
+                );
+                content
+            };
+            std::fs::write(&host_default, patched)?;
         }
     } else {
         // Flat layout: home.nix is a proper module, so imports work directly
