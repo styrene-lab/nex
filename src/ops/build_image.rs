@@ -70,11 +70,12 @@ pub fn run(
         return Ok(());
     }
 
-    // Collect packages from profile
+    // Collect packages — [container.packages] takes priority over [packages.nix]
     let packages: Vec<&str> = profile
-        .get("packages")
-        .and_then(|p| p.get("nix"))
+        .get("container")
+        .and_then(|c| c.get("packages"))
         .and_then(|n| n.as_array())
+        .or_else(|| profile.get("packages").and_then(|p| p.get("nix")).and_then(|n| n.as_array()))
         .map(|arr| {
             arr.iter()
                 .filter_map(|v| v.as_str())
@@ -152,6 +153,15 @@ pub fn run(
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
+        if stderr.contains("required system") && stderr.contains("x86_64-linux") {
+            bail!(
+                "Cannot build Linux container images on macOS without a remote builder.\n\
+                 Options:\n\
+                 • Build on a Linux machine: nex build-image {profile_ref}\n\
+                 • Set up a remote builder: https://wiki.nixos.org/wiki/Distributed_build\n\
+                 • Use a Linux VM: nix build in a NixOS VM or container"
+            );
+        }
         bail!("image build failed:\n{stderr}");
     }
 
@@ -177,6 +187,14 @@ pub fn run(
     // Detect available runtime — prefer podman, fall back to docker
     let runtime = detect_container_runtime();
 
+    let size_mb = std::fs::metadata(&output_file).map(|m| m.len() / (1024 * 1024)).unwrap_or(0);
+    println!(
+        "  {} {} ({} MB)",
+        style("✓").green().bold(),
+        style(&output_file).cyan(),
+        size_mb
+    );
+    println!();
     println!(
         "  Load:  {}",
         style(format!("{runtime} load -i {output_file}")).cyan()
@@ -227,8 +245,15 @@ fn generate_image_nix(
 ) -> String {
     let mut nix = String::new();
 
+    // Containers are always Linux. Use the host arch if on Linux,
+    // otherwise default to x86_64-linux (requires remote builder from macOS).
+    let container_system = if cfg!(target_os = "linux") {
+        crate::discover::detect_system()
+    } else {
+        "x86_64-linux"
+    };
     nix.push_str("let\n");
-    nix.push_str("  pkgs = import <nixpkgs> {};\n");
+    nix.push_str(&format!("  pkgs = import <nixpkgs> {{ system = \"{container_system}\"; config.allowUnfree = true; }};\n"));
     nix.push_str("in\n");
     nix.push_str("pkgs.dockerTools.buildLayeredImage {\n");
     nix.push_str(&format!("  name = \"{name}\";\n"));
