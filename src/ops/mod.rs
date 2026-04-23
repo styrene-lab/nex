@@ -1,5 +1,6 @@
 pub mod adopt;
 pub mod build_image;
+pub mod dev;
 pub mod develop;
 pub mod diff;
 pub mod doctor;

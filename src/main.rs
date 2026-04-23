@@ -45,6 +45,9 @@ fn main() -> Result<()> {
         Command::Develop { ref flake } => {
             return ops::develop::run(flake)
         }
+        Command::Dev { ref project } => {
+            return ops::dev::run(project)
+        }
         _ => {}
     }
 
@@ -93,7 +96,7 @@ fn main() -> Result<()> {
         Command::Try { package } => ops::try_pkg::run(&package, cli.dry_run),
         Command::Diff => ops::diff::run(&config),
         // Already handled above
-        Command::Init { .. } | Command::Search { .. } | Command::SelfUpdate | Command::Gc | Command::Forge { .. } | Command::Polymerize { .. } | Command::BuildImage { .. } | Command::Develop { .. } => {
+        Command::Init { .. } | Command::Search { .. } | Command::SelfUpdate | Command::Gc | Command::Forge { .. } | Command::Polymerize { .. } | Command::BuildImage { .. } | Command::Develop { .. } | Command::Dev { .. } => {
             unreachable!()
         }
     }

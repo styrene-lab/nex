@@ -127,6 +127,12 @@ pub enum Command {
         #[arg(value_name = "FLAKE")]
         flake: String,
     },
+    /// Open a project with omegon AI coding agent (requires omegon)
+    Dev {
+        /// Project flake reference or bare name (e.g. styrene-lab/nex, omegon, .)
+        #[arg(value_name = "PROJECT")]
+        project: String,
+    },
     /// Check and fix common configuration issues
     Doctor,
     /// Update nex itself to the latest release
