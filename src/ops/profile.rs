@@ -13,6 +13,7 @@ use crate::output;
 /// Profile data parsed from a profile.toml
 #[derive(Clone, serde::Deserialize)]
 struct Profile {
+    #[serde(alias = "fragment")]
     meta: Option<ProfileMeta>,
     packages: Option<ProfilePackages>,
     shell: Option<ProfileShell>,
@@ -28,6 +29,7 @@ struct ProfileMeta {
     name: Option<String>,
     description: Option<String>,
     extends: Option<String>,
+    compose: Option<Vec<String>>,
 }
 
 #[derive(Clone, serde::Deserialize)]
@@ -287,25 +289,54 @@ struct MergedProfile {
     security: Option<ProfileSecurity>,
 }
 
+/// Walk the extends chain and resolve compose fragments.
+/// Returns layers in base-first order, ready for merging.
+///
+/// Resolution order for a profile with both extends and compose:
+///   1. The extended parent (recursively resolved)
+///   2. Each compose fragment in order
+///   3. The profile's own inline sections (overrides)
 fn collect_profiles(repo_ref: &str) -> Result<Vec<ProfileLayer>> {
     let mut layers = Vec::new();
     let mut visited = HashSet::new();
-    let mut current = Some(repo_ref.to_string());
-
-    while let Some(ref r) = current {
-        if !visited.insert(r.clone()) {
-            bail!("profile cycle detected: {r}");
-        }
-        let profile = fetch_profile(r)?;
-        let next = profile.meta.as_ref().and_then(|m| m.extends.clone());
-        layers.push(ProfileLayer {
-            repo_ref: r.clone(),
-            profile,
-        });
-        current = next;
-    }
-    layers.reverse(); // base first, overlay last
+    collect_recursive(repo_ref, "profile.toml", &mut layers, &mut visited)?;
     Ok(layers)
+}
+
+fn collect_recursive(
+    repo_ref: &str,
+    file: &str,
+    layers: &mut Vec<ProfileLayer>,
+    visited: &mut HashSet<String>,
+) -> Result<()> {
+    let visit_key = format!("{repo_ref}:{file}");
+    if !visited.insert(visit_key.clone()) {
+        bail!("profile cycle detected: {visit_key}");
+    }
+
+    let profile = fetch_profile_file(repo_ref, file)?;
+
+    // 1. If this profile extends another, resolve the parent first (base goes earliest)
+    if let Some(parent_ref) = profile.meta.as_ref().and_then(|m| m.extends.clone()) {
+        collect_recursive(&parent_ref, "profile.toml", layers, visited)?;
+    }
+
+    // 2. If this profile composes fragments, resolve each one.
+    //    Fragments are paths within the SAME repo (e.g., "core/essentials" → "core/essentials.toml").
+    if let Some(compose) = profile.meta.as_ref().and_then(|m| m.compose.clone()) {
+        for fragment_path in &compose {
+            let fragment_file = format!("{fragment_path}.toml");
+            collect_recursive(repo_ref, &fragment_file, layers, visited)?;
+        }
+    }
+
+    // 3. The profile itself is the final layer (its inline sections override fragments)
+    layers.push(ProfileLayer {
+        repo_ref: repo_ref.to_string(),
+        profile,
+    });
+
+    Ok(())
 }
 
 impl MergedProfile {
@@ -682,9 +713,10 @@ pub fn run(config: &Config, repo_ref: &str, dry_run: bool) -> Result<()> {
     Ok(())
 }
 
-/// Fetch profile.toml from a GitHub repo.
-/// Tries `gh api` first (handles private repos), falls back to raw.githubusercontent.
-fn fetch_profile(repo_ref: &str) -> Result<Profile> {
+/// Fetch a TOML file from a GitHub repo and parse it as a Profile.
+/// For top-level profiles, `file` is "profile.toml".
+/// For compose fragments, `file` is a path like "shell/bash.toml".
+fn fetch_profile_file(repo_ref: &str, file: &str) -> Result<Profile> {
     let repo = if repo_ref.starts_with("http") {
         repo_ref.to_string()
     } else {
@@ -694,24 +726,23 @@ fn fetch_profile(repo_ref: &str) -> Result<Profile> {
             .to_string()
     };
 
-    output::status(&format!("fetching profile from {repo}..."));
+    output::status(&format!("fetching {file} from {repo}..."));
 
-    // Try gh CLI first (handles auth for private repos)
-    let content = fetch_via_gh(&repo)
-        .or_else(|_| fetch_via_curl(&repo))
-        .with_context(|| format!("could not fetch profile.toml from {repo}"))?;
+    let content = fetch_toml_via_gh(&repo, file)
+        .or_else(|_| fetch_toml_via_curl(&repo, file))
+        .with_context(|| format!("could not fetch {file} from {repo}"))?;
 
     let profile: Profile =
-        toml::from_str(&content).with_context(|| format!("invalid profile.toml from {repo}"))?;
+        toml::from_str(&content).with_context(|| format!("invalid {file} from {repo}"))?;
 
     Ok(profile)
 }
 
-fn fetch_via_gh(repo: &str) -> Result<String> {
+fn fetch_toml_via_gh(repo: &str, file: &str) -> Result<String> {
     let output = Command::new("gh")
         .args([
             "api",
-            &format!("repos/{repo}/contents/profile.toml"),
+            &format!("repos/{repo}/contents/{file}"),
             "-H",
             "Accept: application/vnd.github.raw+json",
         ])
@@ -721,7 +752,7 @@ fn fetch_via_gh(repo: &str) -> Result<String> {
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let hint = if stderr.contains("404") {
-            format!("repo {repo} not found (check the name, or run `gh auth refresh -s repo`)")
+            format!("{file} not found in {repo} (check the path, or run `gh auth refresh -s repo`)")
         } else if stderr.contains("401") || stderr.contains("403") {
             format!(
                 "access denied to {repo} — run `gh auth refresh -s repo` to grant private repo access"
@@ -735,8 +766,8 @@ fn fetch_via_gh(repo: &str) -> Result<String> {
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
-fn fetch_via_curl(repo: &str) -> Result<String> {
-    let url = format!("https://raw.githubusercontent.com/{repo}/main/profile.toml");
+fn fetch_toml_via_curl(repo: &str, file: &str) -> Result<String> {
+    let url = format!("https://raw.githubusercontent.com/{repo}/main/{file}");
     let output = Command::new("curl")
         .args(["-fsSL", &url])
         .output()
