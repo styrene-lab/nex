@@ -7,12 +7,13 @@ import Base from '../layouts/Base.astro';
 <!-- Hero -->
 <section class="hero">
   <div class="container">
-    <p class="eyebrow">Package management for nix-darwin</p>
+    <p class="eyebrow">System management for macOS &amp; NixOS</p>
     <h1><span class="c-nix">n</span><span class="c-brew">e</span><span class="c-nix">x</span> the <span class="c-brew">br</span><span class="c-nix">i</span><span class="c-brew">w</span>.</h1>
     <p class="tagline">
-      One command to install, remove, search, and update packages across
-      <strong>Nix</strong> and <strong>Homebrew</strong> on macOS.
-      Declarative under the hood. Imperative at the surface.
+      Packages, profiles, and provisioning across
+      <strong>macOS</strong> and <strong>NixOS</strong>.
+      One TOML profile drives your Mac, your Linux desktop,
+      and your container images.
     </p>
     <div class="install-block" id="install">
       <div class="install-cmd" role="button" tabindex="0" id="install-btn">
@@ -66,48 +67,51 @@ import Base from '../layouts/Base.astro';
         <h3>One verb</h3>
         <p>
           <code>nex install foo</code> figures out the right config file,
-          edits it, and runs <code>darwin-rebuild switch</code>.
-          No manual file editing. No remembering which file.
+          edits it, and rebuilds. Works on macOS (<code>darwin-rebuild</code>)
+          and NixOS (<code>nixos-rebuild</code>). No manual file editing.
         </p>
       </div>
       <div class="feature">
-        <h3>Atomic rollback</h3>
+        <h3>Profiles</h3>
         <p>
-          Every edit is backed up before the switch. If the build fails,
-          your config is restored automatically. No half-broken state.
+          A TOML file defines your packages, shell aliases, git config,
+          dock contents, GPU drivers, desktop environment &mdash; everything.
+          <code>nex profile apply user/repo</code> sets up your machine.
+          Profiles compose via <code>extends</code>.
         </p>
       </div>
       <div class="feature">
-        <h3>Smart resolution</h3>
+        <h3>Cross-platform</h3>
         <p>
-          <code>nex install zed</code> finds <code>zed-editor</code> in nixpkgs,
-          detects the cask, compares versions, and recommends the best source.
-          Name aliases built in &mdash; <code>rg</code> finds <code>ripgrep</code>.
+          Same profile, two operating systems.
+          <code>[macos]</code> for dock and system preferences.
+          <code>[linux]</code> for COSMIC, GNOME, KDE, GPU drivers, gaming.
+          <code>[shell]</code> and <code>[git]</code> apply everywhere.
         </p>
       </div>
       <div class="feature">
-        <h3>Safe onboarding</h3>
+        <h3>Forge + Polymerize</h3>
         <p>
-          <code>nex adopt</code> captures your existing brew packages into the
-          config before the first switch. Detects PATH collisions with manually
-          installed binaries and offers to pin them. Nothing gets nuked.
+          <code>nex forge user/profile --disk /dev/sdX</code> burns a bootable
+          NixOS USB from your Mac. <code>nex polymerize</code> is the interactive
+          installer on the target. WiFi, disk, hostname &mdash; all guided.
         </p>
       </div>
       <div class="feature">
-        <h3>Declarative truth</h3>
+        <h3>Container images</h3>
         <p>
-          Under the hood, your packages live in <code>.nix</code> files
-          checked into git. Reproducible across machines. Diff-able.
-          Rollback-able. The config <em>is</em> the install state.
+          <code>nex build-image user/profile</code> produces an OCI container
+          from the same profile that drives your desktop. Minimal layers via
+          <code>dockerTools</code>. Works with podman or docker.
         </p>
       </div>
       <div class="feature">
-        <h3>Self-maintaining</h3>
+        <h3>Dev shells</h3>
         <p>
-          <code>nex self-update</code> pulls the latest release.
-          <code>nex doctor</code> checks your config for common issues and
-          fixes them. <code>nex migrate</code> identifies brew packages
-          that can move to nix.
+          <code>nex develop user/repo</code> enters a flake dev shell.
+          <code>nex dev user/repo</code> does the same but with
+          <a href="https://github.com/styrene-lab/omegon">omegon</a>
+          AI coding agent included and authenticated.
         </p>
       </div>
     </div>
@@ -121,27 +125,51 @@ import Base from '../layouts/Base.astro';
     <div class="usage-grid">
       <div class="usage-item">
         <code class="usage-cmd">nex init</code>
-        <span class="usage-desc">Bootstrap nix-darwin + homebrew from scratch</span>
-      </div>
-      <div class="usage-item">
-        <code class="usage-cmd">nex adopt</code>
-        <span class="usage-desc">Capture existing brew packages into the config</span>
+        <span class="usage-desc">Bootstrap nix-darwin (macOS) or NixOS (Linux)</span>
       </div>
       <div class="usage-item">
         <code class="usage-cmd">nex install htop</code>
-        <span class="usage-desc">Install a package (auto-resolves source)</span>
+        <span class="usage-desc">Install a package (auto-resolves nix vs brew)</span>
       </div>
       <div class="usage-item">
         <code class="usage-cmd">nex install --cask slack</code>
         <span class="usage-desc">Install a GUI app via Homebrew</span>
       </div>
       <div class="usage-item">
-        <code class="usage-cmd">nex install --brew rustup</code>
-        <span class="usage-desc">Install a Homebrew formula</span>
-      </div>
-      <div class="usage-item">
         <code class="usage-cmd">nex remove htop</code>
         <span class="usage-desc">Remove from wherever it's declared</span>
+      </div>
+      <div class="usage-item">
+        <code class="usage-cmd">nex profile apply user/repo</code>
+        <span class="usage-desc">Apply a full machine profile from GitHub</span>
+      </div>
+      <div class="usage-item">
+        <code class="usage-cmd">nex forge user/profile</code>
+        <span class="usage-desc">Build a bootable NixOS USB from a profile</span>
+      </div>
+      <div class="usage-item">
+        <code class="usage-cmd">nex polymerize</code>
+        <span class="usage-desc">Interactive NixOS installer (on target machine)</span>
+      </div>
+      <div class="usage-item">
+        <code class="usage-cmd">nex build-image user/profile</code>
+        <span class="usage-desc">Build an OCI container image from a profile</span>
+      </div>
+      <div class="usage-item">
+        <code class="usage-cmd">nex develop user/repo</code>
+        <span class="usage-desc">Enter a flake dev shell</span>
+      </div>
+      <div class="usage-item">
+        <code class="usage-cmd">nex dev user/repo</code>
+        <span class="usage-desc">Dev shell + omegon AI coding agent</span>
+      </div>
+      <div class="usage-item">
+        <code class="usage-cmd">nex switch</code>
+        <span class="usage-desc">Rebuild and activate</span>
+      </div>
+      <div class="usage-item">
+        <code class="usage-cmd">nex rollback</code>
+        <span class="usage-desc">Revert to previous generation</span>
       </div>
       <div class="usage-item">
         <code class="usage-cmd">nex search "http"</code>
@@ -156,32 +184,16 @@ import Base from '../layouts/Base.astro';
         <span class="usage-desc">Update flake inputs + rebuild</span>
       </div>
       <div class="usage-item">
-        <code class="usage-cmd">nex try htop</code>
-        <span class="usage-desc">Ephemeral shell, no install</span>
-      </div>
-      <div class="usage-item">
-        <code class="usage-cmd">nex switch</code>
-        <span class="usage-desc">Rebuild and activate</span>
-      </div>
-      <div class="usage-item">
-        <code class="usage-cmd">nex rollback</code>
-        <span class="usage-desc">Revert to previous generation</span>
+        <code class="usage-cmd">nex adopt</code>
+        <span class="usage-desc">Capture existing brew packages into config</span>
       </div>
       <div class="usage-item">
         <code class="usage-cmd">nex diff</code>
         <span class="usage-desc">Preview what would change</span>
       </div>
       <div class="usage-item">
-        <code class="usage-cmd">nex migrate</code>
-        <span class="usage-desc">Find brew packages that can move to nix</span>
-      </div>
-      <div class="usage-item">
         <code class="usage-cmd">nex doctor</code>
         <span class="usage-desc">Check and fix config issues</span>
-      </div>
-      <div class="usage-item">
-        <code class="usage-cmd">nex self-update</code>
-        <span class="usage-desc">Update nex to the latest release</span>
       </div>
       <div class="usage-item">
         <code class="usage-cmd">nex gc</code>
@@ -198,24 +210,24 @@ import Base from '../layouts/Base.astro';
     <div class="comparison">
       <div class="comparison-col before">
         <h3>Before</h3>
-        <pre><code><span class="fg-dim"># Which file was it again?</span>
-vim nix/modules/home/base.nix
-<span class="fg-dim"># Add the package to the list...</span>
-<span class="fg-dim"># Save, exit...</span>
-darwin-rebuild switch --flake .#hostname
-<span class="fg-dim"># Did it break? Revert manually.</span>
-<span class="fg-dim"># Was it a cask? Different file.</span>
-<span class="fg-dim"># Is "zed" the right attr name?</span></code></pre>
+        <pre><code><span class="fg-dim"># New machine. From scratch.</span>
+<span class="fg-dim"># Install nix... install homebrew...</span>
+<span class="fg-dim"># Write configuration.nix...</span>
+<span class="fg-dim"># Copy dotfiles... set system prefs...</span>
+<span class="fg-dim"># Different for macOS vs Linux...</span>
+<span class="fg-dim"># Ansible? Chezmoi? Shell scripts?</span>
+<span class="fg-dim"># Nothing talks to each other.</span></code></pre>
       </div>
       <div class="comparison-col after">
         <h3>After</h3>
-        <pre><code><span class="fg-dim"># First time? Bring your packages.</span>
-nex init
-nex adopt
-nex switch
+        <pre><code><span class="fg-dim"># One profile. Every machine.</span>
+nex profile apply user/my-profile
 
-<span class="fg-dim"># Then just:</span>
-nex install zed</code></pre>
+<span class="fg-dim"># New Linux box? Burn a USB.</span>
+nex forge user/my-profile --disk /dev/sdX
+
+<span class="fg-dim"># Need a container too?</span>
+nex build-image user/my-profile</code></pre>
       </div>
     </div>
   </div>
