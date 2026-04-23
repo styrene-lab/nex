@@ -971,12 +971,26 @@ fn parse_nix_list_as_colon(content: &str, attr_name: &str) -> Option<String> {
 }
 
 /// Merge two optional multiline shell script strings. Overlay appends after base.
+/// Merge two optional multiline shell script strings. Overlay appends after base,
+/// but only if the content is genuinely new (avoids duplication when re-applying
+/// the same profile or when an extends chain re-applies the base).
 fn merge_nix_multiline(base: &Option<String>, overlay: Option<&str>) -> Option<String> {
     let base_trimmed = base.as_deref().map(|s| s.trim()).filter(|s| !s.is_empty());
     let overlay_trimmed = overlay.map(|s| s.trim()).filter(|s| !s.is_empty());
 
     match (base_trimmed, overlay_trimmed) {
-        (Some(b), Some(o)) => Some(format!("{b}\n\n{o}")),
+        (Some(b), Some(o)) => {
+            if b.contains(o) {
+                // Overlay content already present in base — don't duplicate
+                Some(b.to_string())
+            } else if o.contains(b) {
+                // Overlay is a superset of base — use overlay
+                Some(o.to_string())
+            } else {
+                // Genuinely new content — append
+                Some(format!("{b}\n\n{o}"))
+            }
+        }
         (Some(b), None) => Some(b.to_string()),
         (None, Some(o)) => Some(o.to_string()),
         (None, None) => None,
