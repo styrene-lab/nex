@@ -39,9 +39,8 @@ fn main() -> Result<()> {
             ref profile,
             ref name,
             ref tag,
-            ref format,
         } => {
-            return ops::build_image::run(profile, name.as_deref(), tag, format, cli.dry_run)
+            return ops::build_image::run(profile, name.as_deref(), tag, cli.dry_run)
         }
         Command::Develop { ref flake } => {
             return ops::develop::run(flake)

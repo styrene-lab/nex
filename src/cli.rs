@@ -120,10 +120,6 @@ pub enum Command {
         /// Image tag (default: "latest")
         #[arg(long, default_value = "latest")]
         tag: String,
-
-        /// Output format: "docker" (tarball) or "oci" (OCI layout)
-        #[arg(long, default_value = "docker")]
-        format: String,
     },
     /// Enter a dev shell from a flake (wraps nix develop)
     Develop {

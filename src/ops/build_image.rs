@@ -12,7 +12,6 @@ pub fn run(
     profile_ref: &str,
     name: Option<&str>,
     tag: &str,
-    format: &str,
     dry_run: bool,
 ) -> Result<()> {
     println!();
@@ -165,33 +164,53 @@ pub fn run(
     // The output is a Docker tarball or OCI layout
     let output_file = format!("{image_name}-{tag}.tar.gz");
 
-    if format == "docker" {
-        // dockerTools outputs a .tar.gz — copy it
-        std::fs::copy(&store_path, &output_file)?;
-        println!();
-        println!(
-            "  {} {}",
-            style("✓").green().bold(),
-            style(&output_file).cyan()
-        );
-        println!();
-        println!("  Load with: {}", style(format!("docker load < {output_file}")).cyan());
-        println!(
-            "  Run with:  {}",
-            style(format!("docker run -it {image_name}:{tag}")).cyan()
-        );
-    } else {
-        // OCI layout — just point to the store path
-        println!();
-        println!(
-            "  {} {}",
-            style("✓").green().bold(),
-            style(&store_path).cyan()
-        );
-    }
+    // Copy the image tarball to the working directory
+    std::fs::copy(&store_path, &output_file)?;
+    println!();
+    println!(
+        "  {} {}",
+        style("✓").green().bold(),
+        style(&output_file).cyan()
+    );
+    println!();
+
+    // Detect available runtime — prefer podman, fall back to docker
+    let runtime = detect_container_runtime();
+
+    println!(
+        "  Load:  {}",
+        style(format!("{runtime} load -i {output_file}")).cyan()
+    );
+    println!(
+        "  Run:   {}",
+        style(format!("{runtime} run -it {image_name}:{tag}")).cyan()
+    );
 
     println!();
     Ok(())
+}
+
+/// Detect the container runtime — prefer podman, fall back to docker.
+fn detect_container_runtime() -> &'static str {
+    if Command::new("podman").arg("--version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+    {
+        return "podman";
+    }
+    if Command::new("docker").arg("--version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+    {
+        return "docker";
+    }
+    "podman" // canonical default even if not installed
 }
 
 /// Generate a Nix expression that builds an OCI image using dockerTools.
