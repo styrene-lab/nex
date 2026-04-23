@@ -29,21 +29,55 @@ pub fn run(project: &str) -> Result<()> {
     // Step 1: resolve omegon — hard requirement
     let omegon_path = resolve_omegon(&nix)?;
 
-    // Step 2: verify the project has a devShell
+    let omegon_bin = format!("{omegon_path}/bin/omegon");
+
     println!(
-        "  {} omegon at {}",
+        "  {} omegon resolved",
         style("✓").green().bold(),
-        style(&omegon_path).dim()
     );
 
-    // Step 3: enter dev shell with omegon in PATH and started
+    // Step 2: check auth — if not authenticated, prompt login
+    let auth_ok = Command::new(&omegon_bin)
+        .args(["auth", "status"])
+        .output()
+        .map(|o| {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            stdout.contains("authenticated") && !stdout.contains("Authenticated:   0")
+        })
+        .unwrap_or(false);
+
+    if !auth_ok {
+        println!(
+            "  {} omegon not authenticated — launching login",
+            style("!").yellow()
+        );
+        let login = Command::new(&omegon_bin)
+            .args(["auth", "login"])
+            .status()
+            .context("failed to run omegon auth login")?;
+
+        if !login.success() {
+            bail!("omegon auth login failed — run `omegon auth login` manually");
+        }
+    } else {
+        println!(
+            "  {} omegon authenticated",
+            style("✓").green().bold(),
+        );
+    }
+
+    // Step 3: enter dev shell with omegon, launch interactive TUI
+    println!(
+        "  {} entering dev shell + omegon interactive",
+        style(">>>").bold()
+    );
+
     let status = Command::new(&nix)
         .args([
             "develop", &flake_ref, "-c", "bash", "-c",
             &format!(
                 "export PATH=\"{omegon_path}/bin:$PATH\"; \
-                 omegon start --background 2>/dev/null || true; \
-                 exec bash"
+                 exec omegon interactive"
             ),
         ])
         .status()
