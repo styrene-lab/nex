@@ -233,9 +233,17 @@ pub fn detect_system() -> &'static str {
         _ => {
             // Fallback to compile-time detection
             if cfg!(target_os = "macos") {
-                if cfg!(target_arch = "x86_64") { "x86_64-darwin" } else { "aarch64-darwin" }
+                if cfg!(target_arch = "x86_64") {
+                    "x86_64-darwin"
+                } else {
+                    "aarch64-darwin"
+                }
             } else {
-                if cfg!(target_arch = "x86_64") { "x86_64-linux" } else { "aarch64-linux" }
+                if cfg!(target_arch = "x86_64") {
+                    "x86_64-linux"
+                } else {
+                    "aarch64-linux"
+                }
             }
         }
     }
@@ -252,7 +260,11 @@ fn runtime_os() -> &'static str {
         return "darwin";
     }
     // Fallback to compile-time
-    if cfg!(target_os = "macos") { "darwin" } else { "linux" }
+    if cfg!(target_os = "macos") {
+        "darwin"
+    } else {
+        "linux"
+    }
 }
 
 /// Runtime architecture detection via uname -m.
@@ -264,11 +276,21 @@ fn runtime_arch() -> &'static str {
             return match arch {
                 "x86_64" => "x86_64",
                 "aarch64" | "arm64" => "aarch64",
-                _ => if cfg!(target_arch = "x86_64") { "x86_64" } else { "aarch64" },
+                _ => {
+                    if cfg!(target_arch = "x86_64") {
+                        "x86_64"
+                    } else {
+                        "aarch64"
+                    }
+                }
             };
         }
     }
-    if cfg!(target_arch = "x86_64") { "x86_64" } else { "aarch64" }
+    if cfg!(target_arch = "x86_64") {
+        "x86_64"
+    } else {
+        "aarch64"
+    }
 }
 
 /// Return the conventional repo directory name for this platform.
@@ -287,7 +309,13 @@ mod tests {
     fn test_detect_system_returns_valid_string() {
         let sys = detect_system();
         assert!(
-            ["x86_64-darwin", "aarch64-darwin", "x86_64-linux", "aarch64-linux"].contains(&sys),
+            [
+                "x86_64-darwin",
+                "aarch64-darwin",
+                "x86_64-linux",
+                "aarch64-linux"
+            ]
+            .contains(&sys),
             "detect_system returned unexpected: {sys}"
         );
     }

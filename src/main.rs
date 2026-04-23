@@ -30,24 +30,22 @@ fn main() -> Result<()> {
             ref disk,
             ref output,
         } => {
-            return ops::forge::run(profile.as_deref(), hostname.as_deref(), disk.as_deref(), output.as_deref(), cli.dry_run)
+            return ops::forge::run(
+                profile.as_deref(),
+                hostname.as_deref(),
+                disk.as_deref(),
+                output.as_deref(),
+                cli.dry_run,
+            )
         }
-        Command::Polymerize { ref bundle } => {
-            return ops::polymerize::run(bundle.as_deref())
-        }
+        Command::Polymerize { ref bundle } => return ops::polymerize::run(bundle.as_deref()),
         Command::BuildImage {
             ref profile,
             ref name,
             ref tag,
-        } => {
-            return ops::build_image::run(profile, name.as_deref(), tag, cli.dry_run)
-        }
-        Command::Develop { ref flake } => {
-            return ops::develop::run(flake)
-        }
-        Command::Dev { ref project } => {
-            return ops::dev::run(project)
-        }
+        } => return ops::build_image::run(profile, name.as_deref(), tag, cli.dry_run),
+        Command::Develop { ref flake } => return ops::develop::run(flake),
+        Command::Dev { ref project } => return ops::dev::run(project),
         _ => {}
     }
 
@@ -96,7 +94,15 @@ fn main() -> Result<()> {
         Command::Try { package } => ops::try_pkg::run(&package, cli.dry_run),
         Command::Diff => ops::diff::run(&config),
         // Already handled above
-        Command::Init { .. } | Command::Search { .. } | Command::SelfUpdate | Command::Gc | Command::Forge { .. } | Command::Polymerize { .. } | Command::BuildImage { .. } | Command::Develop { .. } | Command::Dev { .. } => {
+        Command::Init { .. }
+        | Command::Search { .. }
+        | Command::SelfUpdate
+        | Command::Gc
+        | Command::Forge { .. }
+        | Command::Polymerize { .. }
+        | Command::BuildImage { .. }
+        | Command::Develop { .. }
+        | Command::Dev { .. } => {
             unreachable!()
         }
     }

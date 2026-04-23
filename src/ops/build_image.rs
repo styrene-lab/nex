@@ -8,12 +8,7 @@ use crate::exec;
 use crate::ops::forge;
 
 /// Run `nex build-image` — build an OCI container image from a profile.
-pub fn run(
-    profile_ref: &str,
-    name: Option<&str>,
-    tag: &str,
-    dry_run: bool,
-) -> Result<()> {
+pub fn run(profile_ref: &str, name: Option<&str>, tag: &str, dry_run: bool) -> Result<()> {
     println!();
     println!(
         "  {} — build container image",
@@ -39,8 +34,7 @@ pub fn run(
         forge::resolve_profile_chain(profile_ref)?
     };
 
-    let profile: toml::Value = toml::from_str(&resolved.merged)
-        .context("invalid profile.toml")?;
+    let profile: toml::Value = toml::from_str(&resolved.merged).context("invalid profile.toml")?;
 
     // Derive image name from profile
     let image_name = name.unwrap_or_else(|| {
@@ -75,12 +69,13 @@ pub fn run(
         .get("container")
         .and_then(|c| c.get("packages"))
         .and_then(|n| n.as_array())
-        .or_else(|| profile.get("packages").and_then(|p| p.get("nix")).and_then(|n| n.as_array()))
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str())
-                .collect()
+        .or_else(|| {
+            profile
+                .get("packages")
+                .and_then(|p| p.get("nix"))
+                .and_then(|n| n.as_array())
         })
+        .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
         .unwrap_or_default();
 
     // Collect env vars
@@ -104,7 +99,11 @@ pub fn run(
     let expose: Vec<u16> = container
         .and_then(|c| c.get("expose"))
         .and_then(|e| e.as_array())
-        .map(|arr| arr.iter().filter_map(|v| v.as_integer().map(|i| i as u16)).collect())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_integer().map(|i| i as u16))
+                .collect()
+        })
         .unwrap_or_default();
     let user = container
         .and_then(|c| c.get("user"))
@@ -121,8 +120,7 @@ pub fn run(
 
     // Generate the nix expression
     let nix_expr = generate_image_nix(
-        image_name, tag, &packages, &env_vars, entrypoint,
-        &expose, user, workdir, &cmd,
+        image_name, tag, &packages, &env_vars, entrypoint, &expose, user, workdir, &cmd,
     );
 
     // Write to temp file
@@ -146,7 +144,8 @@ pub fn run(
             "--impure",
             "--no-link",
             "--print-out-paths",
-            "-f", &nix_file.display().to_string(),
+            "-f",
+            &nix_file.display().to_string(),
         ])
         .output()
         .context("nix build failed")?;
@@ -187,7 +186,9 @@ pub fn run(
     // Detect available runtime — prefer podman, fall back to docker
     let runtime = detect_container_runtime();
 
-    let size_mb = std::fs::metadata(&output_file).map(|m| m.len() / (1024 * 1024)).unwrap_or(0);
+    let size_mb = std::fs::metadata(&output_file)
+        .map(|m| m.len() / (1024 * 1024))
+        .unwrap_or(0);
     println!(
         "  {} {} ({} MB)",
         style("✓").green().bold(),
@@ -210,7 +211,8 @@ pub fn run(
 
 /// Detect the container runtime — prefer podman, fall back to docker.
 fn detect_container_runtime() -> &'static str {
-    if Command::new("podman").arg("--version")
+    if Command::new("podman")
+        .arg("--version")
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status()
@@ -219,7 +221,8 @@ fn detect_container_runtime() -> &'static str {
     {
         return "podman";
     }
-    if Command::new("docker").arg("--version")
+    if Command::new("docker")
+        .arg("--version")
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status()
@@ -282,7 +285,11 @@ fn generate_image_nix(
 
     // Cmd
     if !cmd.is_empty() {
-        let cmd_str = cmd.iter().map(|c| format!("\"{c}\"")).collect::<Vec<_>>().join(" ");
+        let cmd_str = cmd
+            .iter()
+            .map(|c| format!("\"{c}\""))
+            .collect::<Vec<_>>()
+            .join(" ");
         nix.push_str(&format!("    Cmd = [ {cmd_str} ];\n"));
     }
 
@@ -320,7 +327,9 @@ fn generate_image_nix(
     nix.push_str("  };\n");
 
     // Create working directory
-    nix.push_str(&format!("\n  extraCommands = ''\n    mkdir -p {workdir}\n  '';\n"));
+    nix.push_str(&format!(
+        "\n  extraCommands = ''\n    mkdir -p {workdir}\n  '';\n"
+    ));
 
     nix.push_str("}\n");
 
@@ -334,7 +343,8 @@ mod tests {
     #[test]
     fn test_generate_image_nix_basic() {
         let nix = generate_image_nix(
-            "test-image", "v1",
+            "test-image",
+            "v1",
             &["git", "ripgrep"],
             &[("EDITOR".to_string(), "vim".to_string())],
             "/bin/bash",
@@ -356,7 +366,8 @@ mod tests {
     #[test]
     fn test_generate_image_nix_minimal() {
         let nix = generate_image_nix(
-            "minimal", "latest",
+            "minimal",
+            "latest",
             &[],
             &[],
             "/bin/bash",
@@ -375,7 +386,8 @@ mod tests {
     #[test]
     fn test_generate_image_nix_with_cmd() {
         let nix = generate_image_nix(
-            "server", "latest",
+            "server",
+            "latest",
             &["nginx"],
             &[],
             "/bin/nginx",
@@ -393,7 +405,8 @@ mod tests {
     #[test]
     fn test_generate_image_no_duplicate_bash() {
         let nix = generate_image_nix(
-            "test", "latest",
+            "test",
+            "latest",
             &["bash", "coreutils", "git"],
             &[],
             "/bin/bash",

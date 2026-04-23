@@ -31,10 +31,7 @@ pub fn run(project: &str) -> Result<()> {
 
     let omegon_bin = format!("{omegon_path}/bin/omegon");
 
-    println!(
-        "  {} omegon resolved",
-        style("✓").green().bold(),
-    );
+    println!("  {} omegon resolved", style("✓").green().bold(),);
 
     // Step 2: check auth — if not authenticated, prompt login
     let auth_ok = Command::new(&omegon_bin)
@@ -60,10 +57,7 @@ pub fn run(project: &str) -> Result<()> {
             bail!("omegon auth login failed — run `omegon auth login` manually");
         }
     } else {
-        println!(
-            "  {} omegon authenticated",
-            style("✓").green().bold(),
-        );
+        println!("  {} omegon authenticated", style("✓").green().bold(),);
     }
 
     // Step 3: enter dev shell with omegon, launch interactive TUI
@@ -74,7 +68,11 @@ pub fn run(project: &str) -> Result<()> {
 
     let status = Command::new(&nix)
         .args([
-            "develop", &flake_ref, "-c", "bash", "-c",
+            "develop",
+            &flake_ref,
+            "-c",
+            "bash",
+            "-c",
             &format!(
                 "export PATH=\"{omegon_path}/bin:$PATH\"; \
                  exec omegon interactive"
@@ -109,10 +107,7 @@ fn resolve_omegon(nix: &str) -> Result<String> {
     }
 
     // Build from flake
-    println!(
-        "  {} resolving omegon...",
-        style(">>>").bold()
-    );
+    println!("  {} resolving omegon...", style(">>>").bold());
 
     let output = Command::new(nix)
         .args(["build", OMEGON_FLAKE, "--no-link", "--print-out-paths"])
@@ -124,7 +119,8 @@ fn resolve_omegon(nix: &str) -> Result<String> {
         bail!(
             "omegon is required for `nex dev` but could not be resolved.\n\
              Install it: nix profile install {OMEGON_FLAKE}\n\
-             Error: {}", stderr.lines().last().unwrap_or("unknown")
+             Error: {}",
+            stderr.lines().last().unwrap_or("unknown")
         );
     }
 

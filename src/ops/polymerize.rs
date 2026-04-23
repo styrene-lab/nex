@@ -58,11 +58,11 @@ fn resolve_bundle_dir(explicit: Option<&Path>) -> Option<PathBuf> {
 
     // Auto-detect: scan common mount points for styrene/ bundle
     let candidates = [
-        "/iso/styrene",       // NixOS live ISO mounts at /iso
-        "/iso",               // files might be at ISO root
+        "/iso/styrene", // NixOS live ISO mounts at /iso
+        "/iso",         // files might be at ISO root
         "/mnt/styrene",
         "/mnt",
-        "/tmp/nex/styrene",   // manual mount point from docs
+        "/tmp/nex/styrene", // manual mount point from docs
         "/tmp/nex",
         "/run/media",
     ];
@@ -187,7 +187,13 @@ pub fn run(bundle: Option<&Path>) -> Result<()> {
     exec_partition(&disk)?;
     exec_mount(&disk)?;
     exec_generate_hardware()?;
-    exec_write_config(&hostname, &username, &timezone, &disk, profile_toml.as_deref())?;
+    exec_write_config(
+        &hostname,
+        &username,
+        &timezone,
+        &disk,
+        profile_toml.as_deref(),
+    )?;
     exec_install(&hostname)?;
     exec_set_passwords(&username)?;
 
@@ -235,7 +241,10 @@ fn step_network() -> Result<()> {
         .unwrap_or(false);
 
     if has_net {
-        println!("  {} Network connected (ethernet or pre-configured)", style("✓").green().bold());
+        println!(
+            "  {} Network connected (ethernet or pre-configured)",
+            style("✓").green().bold()
+        );
         println!();
         return Ok(());
     }
@@ -258,7 +267,10 @@ fn step_network() -> Result<()> {
         .unwrap_or(false);
 
     if has_net {
-        println!("  {} Network connected (ethernet)", style("✓").green().bold());
+        println!(
+            "  {} Network connected (ethernet)",
+            style("✓").green().bold()
+        );
         println!();
         return Ok(());
     }
@@ -271,28 +283,35 @@ fn step_network() -> Result<()> {
 
     // Try nmcli first (available in NixOS live)
     let scan = Command::new("nmcli")
-        .args(["-t", "-f", "SSID,SIGNAL,SECURITY", "device", "wifi", "list", "--rescan", "yes"])
+        .args([
+            "-t",
+            "-f",
+            "SSID,SIGNAL,SECURITY",
+            "device",
+            "wifi",
+            "list",
+            "--rescan",
+            "yes",
+        ])
         .output();
 
     let networks: Vec<(String, String, String)> = match scan {
-        Ok(output) if output.status.success() => {
-            String::from_utf8_lossy(&output.stdout)
-                .lines()
-                .filter(|l| !l.trim().is_empty())
-                .filter_map(|line| {
-                    let parts: Vec<&str> = line.splitn(3, ':').collect();
-                    if parts.len() >= 2 && !parts[0].is_empty() {
-                        Some((
-                            parts[0].to_string(),
-                            parts.get(1).unwrap_or(&"").to_string(),
-                            parts.get(2).unwrap_or(&"").to_string(),
-                        ))
-                    } else {
-                        None
-                    }
-                })
-                .collect()
-        }
+        Ok(output) if output.status.success() => String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .filter_map(|line| {
+                let parts: Vec<&str> = line.splitn(3, ':').collect();
+                if parts.len() >= 2 && !parts[0].is_empty() {
+                    Some((
+                        parts[0].to_string(),
+                        parts.get(1).unwrap_or(&"").to_string(),
+                        parts.get(2).unwrap_or(&"").to_string(),
+                    ))
+                } else {
+                    None
+                }
+            })
+            .collect(),
         _ => Vec::new(),
     };
 
@@ -321,9 +340,7 @@ fn step_network() -> Result<()> {
             if !connected {
                 // wpa_supplicant fallback for environments without NetworkManager
                 println!("  nmcli unavailable, trying wpa_supplicant...");
-                let wpa_conf = format!(
-                    "network={{\n  ssid=\"{ssid}\"\n  psk=\"{password}\"\n}}\n"
-                );
+                let wpa_conf = format!("network={{\n  ssid=\"{ssid}\"\n  psk=\"{password}\"\n}}\n");
                 let wpa_path = "/tmp/wpa_supplicant.conf";
                 let _ = std::fs::write(wpa_path, &wpa_conf);
                 // Find the wireless interface
@@ -337,16 +354,17 @@ fn step_network() -> Result<()> {
             // Wait briefly for connection
             std::thread::sleep(std::time::Duration::from_secs(3));
         } else {
-            println!("  {} Continuing without network (offline install)", style("!").yellow());
+            println!(
+                "  {} Continuing without network (offline install)",
+                style("!").yellow()
+            );
             return Ok(());
         }
     } else {
         // Show network picker
         let labels: Vec<String> = networks
             .iter()
-            .map(|(ssid, signal, sec)| {
-                format!("{ssid}  (signal: {signal}%  {sec})")
-            })
+            .map(|(ssid, signal, sec)| format!("{ssid}  (signal: {signal}%  {sec})"))
             .collect();
 
         let selection = dialoguer::Select::new()
@@ -389,7 +407,10 @@ fn step_network() -> Result<()> {
     if connected {
         println!("  {} Network connected", style("✓").green().bold());
     } else {
-        println!("  {} Could not verify connectivity — continuing anyway", style("!").yellow());
+        println!(
+            "  {} Could not verify connectivity — continuing anyway",
+            style("!").yellow()
+        );
     }
 
     // Clean up WiFi credentials from disk
@@ -403,8 +424,7 @@ fn step_hostname(defaults: &Defaults) -> Result<String> {
     println!("  {}", style("── Hostname ──").bold());
 
     loop {
-        let mut input = dialoguer::Input::<String>::new()
-            .with_prompt("  Hostname");
+        let mut input = dialoguer::Input::<String>::new().with_prompt("  Hostname");
 
         if let Some(ref h) = defaults.hostname {
             input = input.default(h.clone());
@@ -428,16 +448,12 @@ fn step_username(defaults: &Defaults) -> Result<String> {
     println!("  {}", style("── User account ──").bold());
 
     loop {
-        let mut input = dialoguer::Input::<String>::new()
-            .with_prompt("  Username");
+        let mut input = dialoguer::Input::<String>::new().with_prompt("  Username");
 
         if let Some(ref u) = defaults.username {
             input = input.default(u.clone());
         } else {
-            input = input.default(
-                std::env::var("USER")
-                    .unwrap_or_else(|_| "user".to_string()),
-            );
+            input = input.default(std::env::var("USER").unwrap_or_else(|_| "user".to_string()));
         }
 
         let username = input.interact_text()?;
@@ -481,8 +497,13 @@ fn validate_username(u: &str) -> std::result::Result<(), &'static str> {
     if !u.starts_with(|c: char| c.is_ascii_lowercase() || c == '_') {
         return Err("username must start with a lowercase letter or underscore");
     }
-    if !u.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_') {
-        return Err("username must contain only lowercase letters, digits, hyphens, and underscores");
+    if !u
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_')
+    {
+        return Err(
+            "username must contain only lowercase letters, digits, hyphens, and underscores",
+        );
     }
     Ok(())
 }
@@ -529,8 +550,7 @@ fn step_disk() -> Result<String> {
         .output()
         .context("lsblk not found")?;
 
-    let json: serde_json::Value =
-        serde_json::from_slice(&output.stdout).unwrap_or_default();
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap_or_default();
 
     let disks: Vec<(String, String, bool)> = json
         .get("blockdevices")
@@ -558,7 +578,8 @@ fn step_disk() -> Result<String> {
         .collect();
 
     // Filter out boot device from selectable options
-    let selectable: Vec<&(String, String, bool)> = disks.iter().filter(|(_, _, is_boot)| !is_boot).collect();
+    let selectable: Vec<&(String, String, bool)> =
+        disks.iter().filter(|(_, _, is_boot)| !is_boot).collect();
 
     if selectable.is_empty() {
         bail!("No installable disks found. Is the target machine's storage visible?");
@@ -645,10 +666,7 @@ fn step_profile(defaults: &Defaults) -> Result<(Option<String>, Option<String>)>
 
         if use_bundled {
             println!();
-            return Ok((
-                Some(profile_ref.clone()),
-                defaults.profile_toml.clone(),
-            ));
+            return Ok((Some(profile_ref.clone()), defaults.profile_toml.clone()));
         }
     }
 
@@ -717,13 +735,13 @@ fn exec_partition(disk: &str) -> Result<()> {
     };
 
     if is_efi {
-        run_cmd("parted", &[
-            disk, "--script", "--",
-            "mklabel", "gpt",
-            "mkpart", "ESP", "fat32", "1MiB", "512MiB",
-            "set", "1", "esp", "on",
-            "mkpart", "root", "ext4", "512MiB", "100%",
-        ])?;
+        run_cmd(
+            "parted",
+            &[
+                disk, "--script", "--", "mklabel", "gpt", "mkpart", "ESP", "fat32", "1MiB",
+                "512MiB", "set", "1", "esp", "on", "mkpart", "root", "ext4", "512MiB", "100%",
+            ],
+        )?;
 
         std::thread::sleep(std::time::Duration::from_secs(1));
 
@@ -731,19 +749,24 @@ fn exec_partition(disk: &str) -> Result<()> {
         run_cmd("mkfs.ext4", &["-F", &format!("{part_prefix}2")])?;
     } else {
         // BIOS: MBR with single ext4 partition + GRUB
-        run_cmd("parted", &[
-            disk, "--script", "--",
-            "mklabel", "msdos",
-            "mkpart", "primary", "ext4", "1MiB", "100%",
-            "set", "1", "boot", "on",
-        ])?;
+        run_cmd(
+            "parted",
+            &[
+                disk, "--script", "--", "mklabel", "msdos", "mkpart", "primary", "ext4", "1MiB",
+                "100%", "set", "1", "boot", "on",
+            ],
+        )?;
 
         std::thread::sleep(std::time::Duration::from_secs(1));
 
         run_cmd("mkfs.ext4", &["-F", &format!("{part_prefix}1")])?;
     }
 
-    println!("  {} Partitioned ({})", style("✓").green().bold(), if is_efi { "EFI" } else { "BIOS" });
+    println!(
+        "  {} Partitioned ({})",
+        style("✓").green().bold(),
+        if is_efi { "EFI" } else { "BIOS" }
+    );
     Ok(())
 }
 
@@ -774,7 +797,10 @@ fn exec_mount(disk: &str) -> Result<()> {
 }
 
 fn exec_generate_hardware() -> Result<()> {
-    println!("  {} Generating hardware-configuration.nix...", style(">>>").bold());
+    println!(
+        "  {} Generating hardware-configuration.nix...",
+        style(">>>").bold()
+    );
 
     let output = Command::new("nixos-generate-config")
         .args(["--root", "/mnt", "--show-hardware-config"])
@@ -804,8 +830,7 @@ fn exec_write_config(
     let config_dir = Path::new("/mnt/etc/nixos");
 
     // Parse profile for [linux] section if available
-    let profile: Option<toml::Value> = profile_toml
-        .and_then(|t| toml::from_str(t).ok());
+    let profile: Option<toml::Value> = profile_toml.and_then(|t| toml::from_str(t).ok());
 
     // ── flake.nix ────────────────────────────────────────────────────
     let system = crate::discover::detect_system();
@@ -859,7 +884,8 @@ fn exec_write_config(
     lines.push("{".to_string());
     lines.push(format!("  networking.hostName = \"{hostname}\";"));
     lines.push(String::new());
-    lines.push("  nix.settings.experimental-features = [ \"nix-command\" \"flakes\" ];".to_string());
+    lines
+        .push("  nix.settings.experimental-features = [ \"nix-command\" \"flakes\" ];".to_string());
     lines.push("  nix.settings.download-buffer-size = 1073741824;".to_string());
     lines.push("  nixpkgs.config.allowUnfree = true;".to_string());
     lines.push(String::new());
@@ -874,7 +900,9 @@ fn exec_write_config(
     lines.push(String::new());
     lines.push(format!("  users.users.\"{username}\" = {{"));
     lines.push("    isNormalUser = true;".to_string());
-    lines.push("    extraGroups = [ \"wheel\" \"networkmanager\" \"video\" \"audio\" ];".to_string());
+    lines.push(
+        "    extraGroups = [ \"wheel\" \"networkmanager\" \"video\" \"audio\" ];".to_string(),
+    );
     lines.push("    shell = pkgs.bash;".to_string());
     lines.push("  };".to_string());
     lines.push(String::new());
@@ -936,12 +964,19 @@ fn exec_write_config(
 
     // Shell aliases from profile
     if let Some(ref profile) = profile {
-        if let Some(aliases) = profile.get("shell").and_then(|s| s.get("aliases")).and_then(|a| a.as_table()) {
+        if let Some(aliases) = profile
+            .get("shell")
+            .and_then(|s| s.get("aliases"))
+            .and_then(|a| a.as_table())
+        {
             home.push("  programs.bash.enable = true;".to_string());
             home.push("  programs.bash.shellAliases = {".to_string());
             for (name, cmd) in aliases {
                 if let Some(cmd_str) = cmd.as_str() {
-                    let escaped = cmd_str.replace('\\', "\\\\").replace('"', "\\\"").replace("${", "\\${");
+                    let escaped = cmd_str
+                        .replace('\\', "\\\\")
+                        .replace('"', "\\\"")
+                        .replace("${", "\\${");
                     home.push(format!("    {name} = \"{escaped}\";"));
                 }
             }
@@ -950,11 +985,18 @@ fn exec_write_config(
         }
 
         // Environment variables
-        if let Some(env) = profile.get("shell").and_then(|s| s.get("env")).and_then(|e| e.as_table()) {
+        if let Some(env) = profile
+            .get("shell")
+            .and_then(|s| s.get("env"))
+            .and_then(|e| e.as_table())
+        {
             home.push("  home.sessionVariables = {".to_string());
             for (key, val) in env {
                 if let Some(val_str) = val.as_str() {
-                    let escaped = val_str.replace('\\', "\\\\").replace('"', "\\\"").replace("${", "\\${");
+                    let escaped = val_str
+                        .replace('\\', "\\\\")
+                        .replace('"', "\\\"")
+                        .replace("${", "\\${");
                     home.push(format!("    {key} = \"{escaped}\";"));
                 }
             }
@@ -968,15 +1010,24 @@ fn exec_write_config(
             home.push("    enable = true;".to_string());
             home.push("    settings = {".to_string());
             if let Some(name) = git.get("name").and_then(|v| v.as_str()) {
-                let escaped = name.replace('\\', "\\\\").replace('"', "\\\"").replace("${", "\\${");
+                let escaped = name
+                    .replace('\\', "\\\\")
+                    .replace('"', "\\\"")
+                    .replace("${", "\\${");
                 home.push(format!("      user.name = \"{escaped}\";"));
             }
             if let Some(email) = git.get("email").and_then(|v| v.as_str()) {
-                let escaped = email.replace('\\', "\\\\").replace('"', "\\\"").replace("${", "\\${");
+                let escaped = email
+                    .replace('\\', "\\\\")
+                    .replace('"', "\\\"")
+                    .replace("${", "\\${");
                 home.push(format!("      user.email = \"{escaped}\";"));
             }
             if let Some(branch) = git.get("default_branch").and_then(|v| v.as_str()) {
-                let escaped = branch.replace('\\', "\\\\").replace('"', "\\\"").replace("${", "\\${");
+                let escaped = branch
+                    .replace('\\', "\\\\")
+                    .replace('"', "\\\"")
+                    .replace("${", "\\${");
                 home.push(format!("      init.defaultBranch = \"{escaped}\";"));
             }
             if git.get("pull_rebase").and_then(|v| v.as_bool()) == Some(true) {
@@ -1050,7 +1101,11 @@ fn exec_install(hostname: &str) -> Result<()> {
     );
 
     let status = Command::new("nixos-install")
-        .args(["--flake", &format!("/mnt/etc/nixos#{hostname}"), "--no-root-passwd"])
+        .args([
+            "--flake",
+            &format!("/mnt/etc/nixos#{hostname}"),
+            "--no-root-passwd",
+        ])
         .env("NIX_DOWNLOAD_BUFFER_SIZE", "1073741824")
         .env("NIX_CONFIG", "download-buffer-size = 1073741824")
         .status()
@@ -1059,7 +1114,8 @@ fn exec_install(hostname: &str) -> Result<()> {
     if !status.success() {
         bail!(
             "nixos-install failed. Check the configuration at /mnt/etc/nixos/\n\
-             You can fix issues and re-run: nixos-install --flake /mnt/etc/nixos#{}", hostname
+             You can fix issues and re-run: nixos-install --flake /mnt/etc/nixos#{}",
+            hostname
         );
     }
 
@@ -1118,17 +1174,19 @@ fn exec_write_nex_config(hostname: &str, username: &str) -> Result<()> {
     let nex_config_dir = format!("/mnt/home/{username}/.config/nex");
     std::fs::create_dir_all(&nex_config_dir)?;
 
-    let config_content = format!(
-        "repo_path = \"/etc/nixos\"\nhostname = \"{hostname}\"\n"
-    );
+    let config_content = format!("repo_path = \"/etc/nixos\"\nhostname = \"{hostname}\"\n");
     std::fs::write(format!("{nex_config_dir}/config.toml"), &config_content)?;
 
     // Fix ownership — nixos-enter resolves the username inside the installed system
     // where the user account actually exists (created by nixos-install).
     let _ = Command::new("nixos-enter")
         .args([
-            "--root", "/mnt", "--",
-            "chown", "-R", &format!("{username}:users"),
+            "--root",
+            "/mnt",
+            "--",
+            "chown",
+            "-R",
+            &format!("{username}:users"),
             &format!("/home/{username}/.config"),
         ])
         .status();
@@ -1285,15 +1343,30 @@ mod tests {
 
     #[test]
     fn test_strip_partition_suffix_nvme() {
-        assert_eq!(strip_partition_suffix("nvme0n1p1"), Some("nvme0n1".to_string()));
-        assert_eq!(strip_partition_suffix("nvme0n1p2"), Some("nvme0n1".to_string()));
-        assert_eq!(strip_partition_suffix("nvme0n1"), Some("nvme0n1".to_string()));
+        assert_eq!(
+            strip_partition_suffix("nvme0n1p1"),
+            Some("nvme0n1".to_string())
+        );
+        assert_eq!(
+            strip_partition_suffix("nvme0n1p2"),
+            Some("nvme0n1".to_string())
+        );
+        assert_eq!(
+            strip_partition_suffix("nvme0n1"),
+            Some("nvme0n1".to_string())
+        );
     }
 
     #[test]
     fn test_strip_partition_suffix_emmc() {
-        assert_eq!(strip_partition_suffix("mmcblk0p1"), Some("mmcblk0".to_string()));
-        assert_eq!(strip_partition_suffix("mmcblk0"), Some("mmcblk0".to_string()));
+        assert_eq!(
+            strip_partition_suffix("mmcblk0p1"),
+            Some("mmcblk0".to_string())
+        );
+        assert_eq!(
+            strip_partition_suffix("mmcblk0"),
+            Some("mmcblk0".to_string())
+        );
     }
 
     #[test]
@@ -1325,15 +1398,24 @@ mod tests {
 
     #[test]
     fn test_strip_partition_suffix_nvme_multiple_partitions() {
-        assert_eq!(strip_partition_suffix("nvme0n1p10"), Some("nvme0n1".to_string()));
-        assert_eq!(strip_partition_suffix("nvme1n1p3"), Some("nvme1n1".to_string()));
+        assert_eq!(
+            strip_partition_suffix("nvme0n1p10"),
+            Some("nvme0n1".to_string())
+        );
+        assert_eq!(
+            strip_partition_suffix("nvme1n1p3"),
+            Some("nvme1n1".to_string())
+        );
     }
 
     #[test]
     fn test_strip_partition_suffix_bare_device() {
         // No partition suffix at all
         assert_eq!(strip_partition_suffix("sda"), Some("sda".to_string()));
-        assert_eq!(strip_partition_suffix("nvme0n1"), Some("nvme0n1".to_string()));
+        assert_eq!(
+            strip_partition_suffix("nvme0n1"),
+            Some("nvme0n1".to_string())
+        );
     }
 
     #[test]

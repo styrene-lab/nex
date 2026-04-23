@@ -3,7 +3,10 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "nex", about = "Package manager for nix-darwin, NixOS, and homebrew")]
+#[command(
+    name = "nex",
+    about = "Package manager for nix-darwin, NixOS, and homebrew"
+)]
 #[command(version)]
 pub struct Cli {
     #[command(subcommand)]

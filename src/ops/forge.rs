@@ -24,10 +24,7 @@ pub fn run(
     let label = if is_styx { "styx" } else { "nex forge" };
 
     println!();
-    println!(
-        "  {} — build NixOS installer",
-        style(label).bold()
-    );
+    println!("  {} — build NixOS installer", style(label).bold());
     println!();
 
     let hostname = hostname.unwrap_or("nixos");
@@ -42,7 +39,10 @@ pub fn run(
     };
 
     if dry_run {
-        output::dry_run(&format!("would build installer at {}", bundle_dir.display()));
+        output::dry_run(&format!(
+            "would build installer at {}",
+            bundle_dir.display()
+        ));
         if let Some(p) = profile_ref {
             output::dry_run(&format!("profile: {p}"));
         } else {
@@ -98,7 +98,9 @@ pub fn run(
     }
 
     if iso_path.exists() {
-        let size_mb = std::fs::metadata(&iso_path).map(|m| m.len() / (1024 * 1024)).unwrap_or(0);
+        let size_mb = std::fs::metadata(&iso_path)
+            .map(|m| m.len() / (1024 * 1024))
+            .unwrap_or(0);
         println!(
             "  {} NixOS ISO (cached, {} MB)",
             style("✓").green().bold(),
@@ -108,11 +110,7 @@ pub fn run(
         output::status("downloading NixOS minimal ISO...");
         download_file(NIXOS_ISO_URL, &iso_path)?;
         let size_mb = std::fs::metadata(&iso_path)?.len() / (1024 * 1024);
-        println!(
-            "  {} NixOS ISO ({} MB)",
-            style("✓").green().bold(),
-            size_mb
-        );
+        println!("  {} NixOS ISO ({} MB)", style("✓").green().bold(), size_mb);
     }
 
     // ── 4. Write defaults for polymerize ─────────────────────────────
@@ -142,7 +140,9 @@ pub fn run(
             // Verify it's not a placeholder — check content, not just size
             let content = std::fs::read_to_string(&nex_bin_path).unwrap_or_default();
             let is_placeholder = content.contains("nex binary not available");
-            let size = std::fs::metadata(&nex_bin_path).map(|m| m.len()).unwrap_or(0);
+            let size = std::fs::metadata(&nex_bin_path)
+                .map(|m| m.len())
+                .unwrap_or(0);
             if is_placeholder {
                 println!(
                     "  {} nex binary is a placeholder ({} bytes)",
@@ -157,7 +157,11 @@ pub fn run(
                 );
                 println!(
                     "    Or on a Linux machine: {}",
-                    style(format!("cargo build --release && cp target/release/nex {}", nex_bin_path.display())).cyan()
+                    style(format!(
+                        "cargo build --release && cp target/release/nex {}",
+                        nex_bin_path.display()
+                    ))
+                    .cyan()
                 );
                 println!();
 
@@ -169,14 +173,15 @@ pub fn run(
                     bail!("Cannot bundle nex binary for Linux. Build it separately or run forge on a Linux machine.");
                 }
             } else {
-                println!("  {} nex binary bundled ({} MB)", style("✓").green().bold(), size / (1024 * 1024));
+                println!(
+                    "  {} nex binary bundled ({} MB)",
+                    style("✓").green().bold(),
+                    size / (1024 * 1024)
+                );
             }
         }
         Err(e) => {
-            println!(
-                "  {} Could not fetch nex binary: {e}",
-                style("!").yellow()
-            );
+            println!("  {} Could not fetch nex binary: {e}", style("!").yellow());
             println!("    Build manually and copy to: {}", nex_bin_path.display());
         }
     }
@@ -211,7 +216,10 @@ pub fn run(
         if let Some(pref) = profile_ref {
             println!(
                 "    {}",
-                style(format!("nex forge {pref} --hostname {hostname} --disk /dev/sdX")).cyan()
+                style(format!(
+                    "nex forge {pref} --hostname {hostname} --disk /dev/sdX"
+                ))
+                .cyan()
             );
         } else {
             println!(
@@ -221,10 +229,7 @@ pub fn run(
         }
         println!();
         println!("  On the target machine after booting the USB:");
-        println!(
-            "    {}",
-            style("sudo ./styrene/nex polymerize").cyan()
-        );
+        println!("    {}", style("sudo ./styrene/nex polymerize").cyan());
     }
     println!();
 
@@ -279,8 +284,8 @@ pub fn resolve_profile_chain(repo_ref: &str) -> Result<ResolvedProfile> {
     }
 
     // Serialize back to TOML string
-    let merged_str = toml::to_string_pretty(&merged)
-        .context("failed to serialize merged profile")?;
+    let merged_str =
+        toml::to_string_pretty(&merged).context("failed to serialize merged profile")?;
 
     Ok(ResolvedProfile {
         merged: merged_str,
@@ -305,9 +310,9 @@ fn merge_toml(base: &mut toml::Value, overlay: toml::Value) {
             // Concatenate arrays, deduplicate by string value
             for item in overlay_arr {
                 let dominated = match &item {
-                    toml::Value::String(s) => base_arr.iter().any(|existing| {
-                        existing.as_str() == Some(s.as_str())
-                    }),
+                    toml::Value::String(s) => base_arr
+                        .iter()
+                        .any(|existing| existing.as_str() == Some(s.as_str())),
                     _ => base_arr.contains(&item),
                 };
                 if !dominated {
@@ -356,7 +361,13 @@ fn fetch_profile_toml(repo_ref: &str) -> Result<String> {
 /// Download a file with curl, showing progress.
 fn download_file(url: &str, dest: &Path) -> Result<()> {
     let status = Command::new("curl")
-        .args(["-fSL", "--progress-bar", "-o", &dest.display().to_string(), url])
+        .args([
+            "-fSL",
+            "--progress-bar",
+            "-o",
+            &dest.display().to_string(),
+            url,
+        ])
         .status()
         .context("failed to download")?;
 
@@ -375,7 +386,8 @@ fn fetch_nex_binary(dest: &Path) -> Result<()> {
         .and_then(|p| p.parent()?.parent()?.parent().map(|p| p.to_path_buf()));
 
     // ── Strategy 1: nix cross-build (reliable from macOS if nix is available) ──
-    let has_nix = Command::new("nix").arg("--version")
+    let has_nix = Command::new("nix")
+        .arg("--version")
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status()
@@ -399,7 +411,14 @@ fn fetch_nex_binary(dest: &Path) -> Result<()> {
                 src = src.display()
             );
             let build_output = Command::new("nix")
-                .args(["build", "--impure", "--no-link", "--print-out-paths", "--expr", &expr])
+                .args([
+                    "build",
+                    "--impure",
+                    "--no-link",
+                    "--print-out-paths",
+                    "--expr",
+                    &expr,
+                ])
                 .output();
 
             if let Ok(output) = build_output {
@@ -426,7 +445,12 @@ fn fetch_nex_binary(dest: &Path) -> Result<()> {
                         let bundle_dir = dest.parent().unwrap_or(Path::new("/tmp"));
                         let cache_dir = bundle_dir.join("nix-cache");
                         let _ = Command::new("nix")
-                            .args(["copy", "--to", &format!("file://{}", cache_dir.display()), &store_path])
+                            .args([
+                                "copy",
+                                "--to",
+                                &format!("file://{}", cache_dir.display()),
+                                &store_path,
+                            ])
                             .status();
 
                         // Write a bootstrap script as the "nex" entry point
@@ -441,7 +465,10 @@ fn fetch_nex_binary(dest: &Path) -> Result<()> {
                         #[cfg(unix)]
                         {
                             use std::os::unix::fs::PermissionsExt;
-                            let _ = std::fs::set_permissions(dest, std::fs::Permissions::from_mode(0o755));
+                            let _ = std::fs::set_permissions(
+                                dest,
+                                std::fs::Permissions::from_mode(0o755),
+                            );
                         }
                         return Ok(());
                     }
@@ -453,8 +480,12 @@ fn fetch_nex_binary(dest: &Path) -> Result<()> {
     // ── Strategy 2: GitHub release download ──
     let target = "x86_64-unknown-linux-gnu";
     if let Ok(output) = Command::new("gh")
-        .args(["api", "repos/styrene-lab/nex/releases/latest", "-q",
-            &format!(".assets[] | select(.name | contains(\"{target}\")) | .browser_download_url")])
+        .args([
+            "api",
+            "repos/styrene-lab/nex/releases/latest",
+            "-q",
+            &format!(".assets[] | select(.name | contains(\"{target}\")) | .browser_download_url"),
+        ])
         .output()
     {
         if output.status.success() {
@@ -525,8 +556,7 @@ fn scaffold_nixos_config(config_dir: &Path, hostname: &str, profile_toml: &str) 
     let system = discover::detect_system();
 
     // Parse profile to extract linux settings
-    let profile: toml::Value = toml::from_str(profile_toml)
-        .context("invalid profile.toml")?;
+    let profile: toml::Value = toml::from_str(profile_toml).context("invalid profile.toml")?;
 
     // flake.nix
     std::fs::write(
@@ -578,7 +608,8 @@ fn scaffold_nixos_config(config_dir: &Path, hostname: &str, profile_toml: &str) 
     config_lines.push(String::new());
 
     // Nix settings
-    config_lines.push("  nix.settings.experimental-features = [ \"nix-command\" \"flakes\" ];".to_string());
+    config_lines
+        .push("  nix.settings.experimental-features = [ \"nix-command\" \"flakes\" ];".to_string());
     config_lines.push("  nixpkgs.config.allowUnfree = true;".to_string());
     config_lines.push(String::new());
 
@@ -590,7 +621,9 @@ fn scaffold_nixos_config(config_dir: &Path, hostname: &str, profile_toml: &str) 
     // User
     config_lines.push(format!("  users.users.\"{user}\" = {{"));
     config_lines.push("    isNormalUser = true;".to_string());
-    config_lines.push("    extraGroups = [ \"wheel\" \"networkmanager\" \"video\" \"audio\" ];".to_string());
+    config_lines.push(
+        "    extraGroups = [ \"wheel\" \"networkmanager\" \"video\" \"audio\" ];".to_string(),
+    );
     config_lines.push("    shell = pkgs.bash;".to_string());
     config_lines.push("  };".to_string());
     config_lines.push(String::new());
@@ -613,7 +646,10 @@ fn scaffold_nixos_config(config_dir: &Path, hostname: &str, profile_toml: &str) 
     config_lines.push("}".to_string());
     config_lines.push(String::new());
 
-    std::fs::write(config_dir.join("configuration.nix"), config_lines.join("\n"))?;
+    std::fs::write(
+        config_dir.join("configuration.nix"),
+        config_lines.join("\n"),
+    )?;
 
     // hardware-configuration.nix — placeholder, polymerize will generate the real one
     std::fs::write(
@@ -727,7 +763,8 @@ pub fn generate_linux_config(lines: &mut Vec<String>, linux: &toml::Value) {
                     }
                 }
                 "nvidia" => {
-                    let nvidia_open = gpu.get("nvidia_open")
+                    let nvidia_open = gpu
+                        .get("nvidia_open")
                         .and_then(|v| v.as_bool())
                         .unwrap_or(true);
                     lines.push("  # GPU: NVIDIA".to_string());
@@ -757,11 +794,14 @@ pub fn generate_linux_config(lines: &mut Vec<String>, linux: &toml::Value) {
         }
 
         if !video_drivers.is_empty() {
-            let drivers_str = video_drivers.iter()
+            let drivers_str = video_drivers
+                .iter()
                 .map(|d| format!("\"{d}\""))
                 .collect::<Vec<_>>()
                 .join(" ");
-            lines.push(format!("  services.xserver.videoDrivers = [ {drivers_str} ];"));
+            lines.push(format!(
+                "  services.xserver.videoDrivers = [ {drivers_str} ];"
+            ));
         }
 
         if !extra_packages.is_empty() {
@@ -776,9 +816,18 @@ pub fn generate_linux_config(lines: &mut Vec<String>, linux: &toml::Value) {
 
     // Audio
     if let Some(audio) = linux.get("audio") {
-        let backend = audio.get("backend").and_then(|v| v.as_str()).unwrap_or("pipewire");
-        let low_latency = audio.get("low_latency").and_then(|v| v.as_bool()).unwrap_or(false);
-        let bluetooth = audio.get("bluetooth").and_then(|v| v.as_bool()).unwrap_or(false);
+        let backend = audio
+            .get("backend")
+            .and_then(|v| v.as_str())
+            .unwrap_or("pipewire");
+        let low_latency = audio
+            .get("low_latency")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let bluetooth = audio
+            .get("bluetooth")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
         lines.push("  # Audio".to_string());
         if backend == "pipewire" {
@@ -803,12 +852,30 @@ pub fn generate_linux_config(lines: &mut Vec<String>, linux: &toml::Value) {
 
     // Gaming
     if let Some(gaming) = linux.get("gaming") {
-        let steam = gaming.get("steam").and_then(|v| v.as_bool()).unwrap_or(false);
-        let gamemode = gaming.get("gamemode").and_then(|v| v.as_bool()).unwrap_or(false);
-        let gamescope = gaming.get("gamescope").and_then(|v| v.as_bool()).unwrap_or(false);
-        let controllers = gaming.get("controllers").and_then(|v| v.as_bool()).unwrap_or(false);
-        let mangohud = gaming.get("mangohud").and_then(|v| v.as_bool()).unwrap_or(false);
-        let _proton_ge = gaming.get("proton_ge").and_then(|v| v.as_bool()).unwrap_or(false);
+        let steam = gaming
+            .get("steam")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let gamemode = gaming
+            .get("gamemode")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let gamescope = gaming
+            .get("gamescope")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let controllers = gaming
+            .get("controllers")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let mangohud = gaming
+            .get("mangohud")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let _proton_ge = gaming
+            .get("proton_ge")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
         lines.push("  # Gaming".to_string());
         if steam {
@@ -828,7 +895,9 @@ pub fn generate_linux_config(lines: &mut Vec<String>, linux: &toml::Value) {
         }
 
         let mut pkgs = Vec::new();
-        if mangohud { pkgs.push("mangohud"); }
+        if mangohud {
+            pkgs.push("mangohud");
+        }
         // proton-ge-bin is installed via Steam's compatibility tools, not as a system package
         // if proton_ge { pkgs.push("proton-ge-bin"); }
         if !pkgs.is_empty() {
@@ -845,7 +914,10 @@ pub fn generate_linux_config(lines: &mut Vec<String>, linux: &toml::Value) {
     if let Some(gnome) = linux.get("gnome") {
         lines.push("  # GNOME settings (applied via dconf in home-manager)".to_string());
 
-        let dark = gnome.get("dark_mode").and_then(|v| v.as_bool()).unwrap_or(false);
+        let dark = gnome
+            .get("dark_mode")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
         if dark {
             // NixOS-level setting for GNOME dark mode
             lines.push("  environment.sessionVariables.GTK_THEME = \"Adwaita:dark\";".to_string());
@@ -886,7 +958,9 @@ pub fn generate_linux_config(lines: &mut Vec<String>, linux: &toml::Value) {
             let ext_pkgs: Vec<&str> = exts.iter().filter_map(|v| v.as_str()).collect();
             if !ext_pkgs.is_empty() {
                 // NixOS module system merges multiple environment.systemPackages declarations
-                lines.push("  environment.systemPackages = with pkgs.gnomeExtensions; [".to_string());
+                lines.push(
+                    "  environment.systemPackages = with pkgs.gnomeExtensions; [".to_string(),
+                );
                 for ext in &ext_pkgs {
                     lines.push(format!("    {ext}"));
                 }
@@ -901,8 +975,14 @@ pub fn generate_linux_config(lines: &mut Vec<String>, linux: &toml::Value) {
     if let Some(cosmic) = linux.get("cosmic") {
         lines.push("  # COSMIC desktop settings".to_string());
 
-        let dark = cosmic.get("dark_mode").and_then(|v| v.as_bool()).unwrap_or(true);
-        let autohide = cosmic.get("dock_autohide").and_then(|v| v.as_bool()).unwrap_or(false);
+        let dark = cosmic
+            .get("dark_mode")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+        let autohide = cosmic
+            .get("dock_autohide")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
         // COSMIC uses RON config files in ~/.config/cosmic/
         // Write as /etc/skel entries so new users get them on first login.
@@ -921,11 +1001,21 @@ pub fn generate_linux_config(lines: &mut Vec<String>, linux: &toml::Value) {
             let fav_list: Vec<String> = favs
                 .iter()
                 .filter_map(|v| v.as_str())
-                .map(|s| if s.ends_with(".desktop") { s.to_string() } else { format!("{s}.desktop") })
+                .map(|s| {
+                    if s.ends_with(".desktop") {
+                        s.to_string()
+                    } else {
+                        format!("{s}.desktop")
+                    }
+                })
                 .collect();
             if !fav_list.is_empty() {
                 // Inner quotes must be escaped for Nix: \" inside "..."
-                let ron = fav_list.iter().map(|f| format!("\\\"{f}\\\"")).collect::<Vec<_>>().join(", ");
+                let ron = fav_list
+                    .iter()
+                    .map(|f| format!("\\\"{f}\\\""))
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 lines.push(format!(
                     "  environment.etc.\"skel/.config/cosmic/com.system76.CosmicAppList/v1/favorites\".text = \"[{ron}]\";",
                 ));
@@ -1110,12 +1200,13 @@ fn flash_to_usb(bundle_dir: &Path, iso_path: &Path, device: &str) -> Result<()> 
         if let Ok(val) = std::fs::read_to_string(&removable_path) {
             if val.trim() != "1" {
                 // Check if it's USB via transport
-                let transport = std::fs::read_to_string(format!(
-                    "/sys/block/{dev_name}/device/transport"
-                ))
-                .unwrap_or_default();
+                let transport =
+                    std::fs::read_to_string(format!("/sys/block/{dev_name}/device/transport"))
+                        .unwrap_or_default();
                 if !transport.trim().contains("usb") {
-                    bail!("{device} does not appear to be removable USB media. Aborting for safety.");
+                    bail!(
+                        "{device} does not appear to be removable USB media. Aborting for safety."
+                    );
                 }
             }
         }
@@ -1156,7 +1247,9 @@ fn flash_to_usb(bundle_dir: &Path, iso_path: &Path, device: &str) -> Result<()> 
     {
         // Unmount all partitions before dd
         if is_macos {
-            let _ = Command::new("diskutil").args(["unmountDisk", device]).status();
+            let _ = Command::new("diskutil")
+                .args(["unmountDisk", device])
+                .status();
         }
 
         // dd ISO raw to disk — preserves the hybrid MBR+GPT bootloader
@@ -1214,14 +1307,21 @@ fn flash_to_usb(bundle_dir: &Path, iso_path: &Path, device: &str) -> Result<()> 
 
         // Move the backup GPT header to the true end of the disk
         output::status("extending partition table...");
-        let _ = Command::new("sudo")
-            .args(["sgdisk", "-e", device])
-            .status();
+        let _ = Command::new("sudo").args(["sgdisk", "-e", device]).status();
 
         // Add a FAT32 data partition in the free space after the ISO
         output::status("creating data partition for installer files...");
         let sgdisk_ok = Command::new("sudo")
-            .args(["sgdisk", "-n", "4:0:0", "-t", "4:0700", "-c", "4:NEXDATA", device])
+            .args([
+                "sgdisk",
+                "-n",
+                "4:0:0",
+                "-t",
+                "4:0700",
+                "-c",
+                "4:NEXDATA",
+                device,
+            ])
             .status()
             .map(|s| s.success())
             .unwrap_or(false);
@@ -1238,7 +1338,9 @@ fn flash_to_usb(bundle_dir: &Path, iso_path: &Path, device: &str) -> Result<()> 
         if is_macos {
             // macOS needs a moment after GPT modification
             std::thread::sleep(std::time::Duration::from_secs(2));
-            let _ = Command::new("diskutil").args(["unmountDisk", device]).status();
+            let _ = Command::new("diskutil")
+                .args(["unmountDisk", device])
+                .status();
         } else {
             let _ = Command::new("sudo").args(["partprobe", device]).status();
             std::thread::sleep(std::time::Duration::from_secs(2));
@@ -1246,7 +1348,7 @@ fn flash_to_usb(bundle_dir: &Path, iso_path: &Path, device: &str) -> Result<()> 
 
         // Determine partition device name
         let part4 = if is_macos {
-            format!("{device}s4")  // macOS uses s4, not 4
+            format!("{device}s4") // macOS uses s4, not 4
         } else if device.contains("nvme") || device.contains("mmcblk") {
             format!("{device}p4")
         } else {
@@ -1286,7 +1388,9 @@ fn flash_to_usb(bundle_dir: &Path, iso_path: &Path, device: &str) -> Result<()> 
 
         if mount_ok {
             let _ = Command::new("sudo")
-                .args(["cp", "-r",
+                .args([
+                    "cp",
+                    "-r",
                     &bundle_dir.join("styrene").display().to_string(),
                     &format!("{mount_point}/"),
                 ])
@@ -1339,16 +1443,20 @@ mod tests {
 
     #[test]
     fn test_merge_toml_tables_deep() {
-        let mut base: toml::Value = toml::from_str(r#"
+        let mut base: toml::Value = toml::from_str(
+            r#"
             [meta]
             name = "base"
             [packages]
             nix = ["git", "vim"]
             [shell.aliases]
             ls = "ls -la"
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
 
-        let overlay: toml::Value = toml::from_str(r#"
+        let overlay: toml::Value = toml::from_str(
+            r#"
             [meta]
             name = "overlay"
             description = "added"
@@ -1356,7 +1464,9 @@ mod tests {
             nix = ["vim", "htop"]
             [shell.aliases]
             ll = "ls -l"
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
 
         merge_toml(&mut base, overlay);
 
@@ -1371,33 +1481,45 @@ mod tests {
         assert!(names.contains(&"vim"));
         assert!(names.contains(&"htop"));
         assert_eq!(names.iter().filter(|&&n| n == "vim").count(), 1); // no duplicates
-        // Tables merge recursively — base alias preserved, overlay added
+                                                                      // Tables merge recursively — base alias preserved, overlay added
         assert_eq!(base["shell"]["aliases"]["ls"].as_str().unwrap(), "ls -la");
         assert_eq!(base["shell"]["aliases"]["ll"].as_str().unwrap(), "ls -l");
     }
 
     #[test]
     fn test_merge_toml_overlay_alias_wins() {
-        let mut base: toml::Value = toml::from_str(r#"
+        let mut base: toml::Value = toml::from_str(
+            r#"
             [shell.aliases]
             clod = "old-command"
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
 
-        let overlay: toml::Value = toml::from_str(r#"
+        let overlay: toml::Value = toml::from_str(
+            r#"
             [shell.aliases]
             clod = "new-command"
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
 
         merge_toml(&mut base, overlay);
-        assert_eq!(base["shell"]["aliases"]["clod"].as_str().unwrap(), "new-command");
+        assert_eq!(
+            base["shell"]["aliases"]["clod"].as_str().unwrap(),
+            "new-command"
+        );
     }
 
     #[test]
     fn test_merge_toml_empty_overlay() {
-        let mut base: toml::Value = toml::from_str(r#"
+        let mut base: toml::Value = toml::from_str(
+            r#"
             [packages]
             nix = ["git"]
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
 
         let overlay: toml::Value = toml::from_str("").unwrap();
         merge_toml(&mut base, overlay);
@@ -1408,14 +1530,17 @@ mod tests {
 
     #[test]
     fn test_generate_linux_config_amd() {
-        let profile: toml::Value = toml::from_str(r#"
+        let profile: toml::Value = toml::from_str(
+            r#"
             [gpu]
             driver = "amdgpu"
             vulkan = true
             vaapi = true
             opencl = true
             32bit = true
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
 
         let mut lines = Vec::new();
         generate_linux_config(&mut lines, &profile);
@@ -1431,10 +1556,13 @@ mod tests {
 
     #[test]
     fn test_generate_linux_config_nvidia() {
-        let profile: toml::Value = toml::from_str(r#"
+        let profile: toml::Value = toml::from_str(
+            r#"
             [gpu]
             driver = "nvidia"
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
 
         let mut lines = Vec::new();
         generate_linux_config(&mut lines, &profile);
@@ -1447,11 +1575,14 @@ mod tests {
 
     #[test]
     fn test_generate_linux_config_nvidia_old_gpu() {
-        let profile: toml::Value = toml::from_str(r#"
+        let profile: toml::Value = toml::from_str(
+            r#"
             [gpu]
             driver = "nvidia"
             nvidia_open = false
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
 
         let mut lines = Vec::new();
         generate_linux_config(&mut lines, &profile);
@@ -1462,11 +1593,14 @@ mod tests {
 
     #[test]
     fn test_generate_linux_config_multi_gpu() {
-        let profile: toml::Value = toml::from_str(r#"
+        let profile: toml::Value = toml::from_str(
+            r#"
             [gpu]
             driver = "nvidia,intel"
             vaapi = true
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
 
         let mut lines = Vec::new();
         generate_linux_config(&mut lines, &profile);
@@ -1478,9 +1612,12 @@ mod tests {
 
     #[test]
     fn test_generate_linux_config_cosmic() {
-        let profile: toml::Value = toml::from_str(r#"
+        let profile: toml::Value = toml::from_str(
+            r#"
             desktop = "cosmic"
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
 
         let mut lines = Vec::new();
         generate_linux_config(&mut lines, &profile);
@@ -1492,9 +1629,12 @@ mod tests {
 
     #[test]
     fn test_generate_linux_config_gnome() {
-        let profile: toml::Value = toml::from_str(r#"
+        let profile: toml::Value = toml::from_str(
+            r#"
             desktop = "gnome"
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
 
         let mut lines = Vec::new();
         generate_linux_config(&mut lines, &profile);
@@ -1505,13 +1645,16 @@ mod tests {
 
     #[test]
     fn test_generate_linux_config_gaming() {
-        let profile: toml::Value = toml::from_str(r#"
+        let profile: toml::Value = toml::from_str(
+            r#"
             [gaming]
             steam = true
             gamemode = true
             mangohud = true
             controllers = true
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
 
         let mut lines = Vec::new();
         generate_linux_config(&mut lines, &profile);
@@ -1525,11 +1668,14 @@ mod tests {
 
     #[test]
     fn test_generate_linux_config_cosmic_dock_quoting() {
-        let profile: toml::Value = toml::from_str(r#"
+        let profile: toml::Value = toml::from_str(
+            r#"
             [cosmic]
             dark_mode = true
             dock_favorites = ["com.system76.CosmicFiles", "kitty"]
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
 
         let mut lines = Vec::new();
         generate_linux_config(&mut lines, &profile);
@@ -1563,10 +1709,13 @@ mod tests {
 
     #[test]
     fn test_generate_linux_config_nouveau() {
-        let profile: toml::Value = toml::from_str(r#"
+        let profile: toml::Value = toml::from_str(
+            r#"
             [gpu]
             driver = "nouveau"
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
         let mut lines = Vec::new();
         generate_linux_config(&mut lines, &profile);
         let output = lines.join("\n");
@@ -1576,11 +1725,14 @@ mod tests {
 
     #[test]
     fn test_generate_linux_config_intel_vaapi() {
-        let profile: toml::Value = toml::from_str(r#"
+        let profile: toml::Value = toml::from_str(
+            r#"
             [gpu]
             driver = "intel"
             vaapi = true
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
         let mut lines = Vec::new();
         generate_linux_config(&mut lines, &profile);
         let output = lines.join("\n");
@@ -1590,10 +1742,13 @@ mod tests {
 
     #[test]
     fn test_generate_linux_config_empty_driver() {
-        let profile: toml::Value = toml::from_str(r#"
+        let profile: toml::Value = toml::from_str(
+            r#"
             [gpu]
             driver = ""
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
         let mut lines = Vec::new();
         generate_linux_config(&mut lines, &profile);
         let output = lines.join("\n");
@@ -1604,10 +1759,13 @@ mod tests {
 
     #[test]
     fn test_generate_linux_config_audio_bluetooth_only() {
-        let profile: toml::Value = toml::from_str(r#"
+        let profile: toml::Value = toml::from_str(
+            r#"
             [audio]
             bluetooth = true
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
         let mut lines = Vec::new();
         generate_linux_config(&mut lines, &profile);
         let output = lines.join("\n");
@@ -1617,9 +1775,12 @@ mod tests {
 
     #[test]
     fn test_generate_linux_config_empty_gaming() {
-        let profile: toml::Value = toml::from_str(r#"
+        let profile: toml::Value = toml::from_str(
+            r#"
             [gaming]
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
         let mut lines = Vec::new();
         generate_linux_config(&mut lines, &profile);
         let output = lines.join("\n");
@@ -1640,14 +1801,20 @@ mod tests {
     #[test]
     fn test_merge_toml_base_arrays_preserved() {
         // Overlay has no packages — base packages should remain
-        let mut base: toml::Value = toml::from_str(r#"
+        let mut base: toml::Value = toml::from_str(
+            r#"
             [packages]
             nix = ["git", "vim", "eza"]
-        "#).unwrap();
-        let overlay: toml::Value = toml::from_str(r#"
+        "#,
+        )
+        .unwrap();
+        let overlay: toml::Value = toml::from_str(
+            r#"
             [meta]
             name = "overlay"
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
         merge_toml(&mut base, overlay);
         let nix = base["packages"]["nix"].as_array().unwrap();
         assert_eq!(nix.len(), 3);
@@ -1657,10 +1824,13 @@ mod tests {
     fn test_merge_toml_circular_protection() {
         // resolve_profile_chain handles circular refs via the chain.contains check.
         // We can test the merge function itself handles the same value merged twice.
-        let mut base: toml::Value = toml::from_str(r#"
+        let mut base: toml::Value = toml::from_str(
+            r#"
             [shell.aliases]
             ls = "eza"
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
         let overlay = base.clone();
         merge_toml(&mut base, overlay);
         // Should not duplicate — same value
@@ -1669,11 +1839,14 @@ mod tests {
 
     #[test]
     fn test_generate_linux_config_gnome_dark_and_favorites() {
-        let profile: toml::Value = toml::from_str(r#"
+        let profile: toml::Value = toml::from_str(
+            r#"
             [gnome]
             dark_mode = true
             favorite_apps = ["firefox.desktop", "kitty.desktop"]
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
         let mut lines = Vec::new();
         generate_linux_config(&mut lines, &profile);
         let output = lines.join("\n");
@@ -1685,11 +1858,14 @@ mod tests {
 
     #[test]
     fn test_generate_linux_config_gnome_no_dark() {
-        let profile: toml::Value = toml::from_str(r#"
+        let profile: toml::Value = toml::from_str(
+            r#"
             [gnome]
             dark_mode = false
             favorite_apps = ["kitty.desktop"]
-        "#).unwrap();
+        "#,
+        )
+        .unwrap();
         let mut lines = Vec::new();
         generate_linux_config(&mut lines, &profile);
         let output = lines.join("\n");

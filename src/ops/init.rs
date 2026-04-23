@@ -119,7 +119,10 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
                 eprintln!("    {}", style("xcode-select --install").cyan());
             } else {
                 eprintln!("  Install git, then re-run nex init:");
-                eprintln!("    {}", style("sudo apt install git  # or your distro's equivalent").cyan());
+                eprintln!(
+                    "    {}",
+                    style("sudo apt install git  # or your distro's equivalent").cyan()
+                );
             }
             eprintln!();
             bail!("git is required but not found");
@@ -228,10 +231,11 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
             );
             println!();
             // Run nex adopt to capture existing packages into the nix config
-            let adopt_status = Command::new(std::env::current_exe().unwrap_or_else(|_| "nex".into()))
-                .args(["adopt"])
-                .current_dir(&repo_path)
-                .status();
+            let adopt_status =
+                Command::new(std::env::current_exe().unwrap_or_else(|_| "nex".into()))
+                    .args(["adopt"])
+                    .current_dir(&repo_path)
+                    .status();
             if let Ok(status) = adopt_status {
                 if status.success() {
                     // Re-stage and commit the adopted packages
@@ -303,19 +307,17 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
                     .unwrap_or(false)
             }
         }
-        Platform::Linux => {
-            Command::new("sudo")
-                .args([
-                    "nixos-rebuild",
-                    "switch",
-                    "--flake",
-                    &format!(".#{hostname}"),
-                ])
-                .current_dir(&repo_path)
-                .status()
-                .map(|s| s.success())
-                .unwrap_or(false)
-        }
+        Platform::Linux => Command::new("sudo")
+            .args([
+                "nixos-rebuild",
+                "switch",
+                "--flake",
+                &format!(".#{hostname}"),
+            ])
+            .current_dir(&repo_path)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false),
     };
 
     if !switch_ok {
@@ -557,12 +559,22 @@ fn scaffold_repo(hostname: &str, dry_run: bool) -> Result<PathBuf> {
         Platform::Darwin => {
             let darwin_dir = repo_path.join("nix/modules/darwin");
             std::fs::create_dir_all(&darwin_dir)?;
-            scaffold_darwin(&repo_path, &host_dir, &darwin_dir, &lib_dir, hostname, system, &user)?;
+            scaffold_darwin(
+                &repo_path,
+                &host_dir,
+                &darwin_dir,
+                &lib_dir,
+                hostname,
+                system,
+                &user,
+            )?;
         }
         Platform::Linux => {
             let nixos_dir = repo_path.join("nix/modules/nixos");
             std::fs::create_dir_all(&nixos_dir)?;
-            scaffold_nixos(&repo_path, &host_dir, &nixos_dir, &lib_dir, hostname, system, &user)?;
+            scaffold_nixos(
+                &repo_path, &host_dir, &nixos_dir, &lib_dir, hostname, system, &user,
+            )?;
         }
     }
 
@@ -917,10 +929,8 @@ nixpkgs.lib.nixosSystem {
             .output()
             .map(|output| {
                 if output.status.success() {
-                    let _ = std::fs::write(
-                        host_dir.join("hardware-configuration.nix"),
-                        &output.stdout,
-                    );
+                    let _ =
+                        std::fs::write(host_dir.join("hardware-configuration.nix"), &output.stdout);
                 }
             });
     }

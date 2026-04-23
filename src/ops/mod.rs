@@ -7,11 +7,11 @@ pub mod doctor;
 pub mod forge;
 pub mod gc;
 // polymerize is the on-target interactive NixOS installer
-pub mod polymerize;
 pub mod init;
 pub mod install;
 pub mod list;
 pub mod migrate;
+pub mod polymerize;
 pub mod profile;
 pub mod remove;
 pub mod rollback;

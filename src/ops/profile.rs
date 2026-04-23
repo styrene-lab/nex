@@ -105,7 +105,7 @@ struct ProfileDock {
     persistent_apps: Option<Vec<String>>,
     tile_size: Option<u32>,
     position: Option<String>,        // "bottom", "left", "right"
-    minimize_effect: Option<String>,  // "genie", "scale"
+    minimize_effect: Option<String>, // "genie", "scale"
     magnification: Option<bool>,
     magnification_size: Option<u32>,
     launchanim: Option<bool>,
@@ -120,27 +120,27 @@ struct ProfileAppearance {
     accent_color: Option<String>,
     highlight_color: Option<String>,
     reduce_transparency: Option<bool>,
-    sidebar_icon_size: Option<u32>,   // 1=small, 2=medium, 3=large
+    sidebar_icon_size: Option<u32>, // 1=small, 2=medium, 3=large
 }
 
 #[derive(serde::Deserialize)]
 #[allow(dead_code)]
 struct ProfileInput {
-    key_repeat: Option<u32>,          // lower = faster (1-15, default 6)
-    initial_key_repeat: Option<u32>,  // lower = shorter delay (10-120, default 25)
-    fn_as_standard: Option<bool>,     // true = F1..F12 are standard function keys
-    press_and_hold: Option<bool>,     // false = enable key repeat instead of character picker
+    key_repeat: Option<u32>,         // lower = faster (1-15, default 6)
+    initial_key_repeat: Option<u32>, // lower = shorter delay (10-120, default 25)
+    fn_as_standard: Option<bool>,    // true = F1..F12 are standard function keys
+    press_and_hold: Option<bool>,    // false = enable key repeat instead of character picker
 }
 
 #[derive(serde::Deserialize)]
 #[allow(dead_code)]
 struct ProfileFinder {
-    default_view: Option<String>,     // "list", "icon", "column", "gallery"
+    default_view: Option<String>, // "list", "icon", "column", "gallery"
     show_path_bar: Option<bool>,
     show_status_bar: Option<bool>,
     show_tab_bar: Option<bool>,
     new_window_path: Option<String>,
-    search_scope: Option<String>,     // "current", "previous", "computer"
+    search_scope: Option<String>, // "current", "previous", "computer"
     show_extensions: Option<bool>,
     warn_on_extension_change: Option<bool>,
 }
@@ -149,14 +149,14 @@ struct ProfileFinder {
 #[allow(dead_code)]
 struct ProfileScreenshots {
     location: Option<String>,
-    format: Option<String>,           // "png", "jpg", "pdf", "tiff"
+    format: Option<String>, // "png", "jpg", "pdf", "tiff"
     disable_shadow: Option<bool>,
 }
 
 #[derive(serde::Deserialize)]
 #[allow(dead_code)]
 struct ProfileDefaultApps {
-    browser: Option<String>,          // bundle id, e.g. "com.apple.Safari"
+    browser: Option<String>, // bundle id, e.g. "com.apple.Safari"
 }
 
 // ── Linux / NixOS profile structs ────────────────────────────────────────
@@ -164,12 +164,12 @@ struct ProfileDefaultApps {
 #[derive(serde::Deserialize)]
 #[allow(dead_code)]
 struct ProfileLinux {
-    desktop: Option<String>,          // "gnome", "kde", "cosmic"
-    display_manager: Option<String>,  // "gdm", "sddm", "greetd"
+    desktop: Option<String>,         // "gnome", "kde", "cosmic"
+    display_manager: Option<String>, // "gdm", "sddm", "greetd"
     gpu: Option<ProfileGpu>,
     audio: Option<ProfileAudio>,
     gaming: Option<ProfileGaming>,
-    services: Option<Vec<String>>,    // extra NixOS services to enable
+    services: Option<Vec<String>>, // extra NixOS services to enable
     kernel_params: Option<Vec<String>>,
     gnome: Option<ProfileGnome>,
     kde: Option<ProfileKde>,
@@ -179,19 +179,19 @@ struct ProfileLinux {
 #[derive(serde::Deserialize)]
 #[allow(dead_code)]
 struct ProfileGpu {
-    driver: Option<String>,           // "amdgpu", "nvidia", "intel", "nouveau" (comma-separated for multi-GPU)
+    driver: Option<String>, // "amdgpu", "nvidia", "intel", "nouveau" (comma-separated for multi-GPU)
     vulkan: Option<bool>,
     opencl: Option<bool>,
-    vaapi: Option<bool>,              // hardware video acceleration
+    vaapi: Option<bool>, // hardware video acceleration
     #[serde(rename = "32bit")]
-    lib32: Option<bool>,              // 32-bit driver support (for Steam)
-    nvidia_open: Option<bool>,        // true for Turing+ (RTX 2000+), false for older (Kepler/Maxwell/Pascal)
+    lib32: Option<bool>, // 32-bit driver support (for Steam)
+    nvidia_open: Option<bool>, // true for Turing+ (RTX 2000+), false for older (Kepler/Maxwell/Pascal)
 }
 
 #[derive(serde::Deserialize)]
 #[allow(dead_code)]
 struct ProfileAudio {
-    backend: Option<String>,          // "pipewire", "pulseaudio"
+    backend: Option<String>, // "pipewire", "pulseaudio"
     low_latency: Option<bool>,
     bluetooth: Option<bool>,
 }
@@ -203,7 +203,7 @@ struct ProfileGaming {
     gamemode: Option<bool>,
     mangohud: Option<bool>,
     gamescope: Option<bool>,
-    controllers: Option<bool>,        // enable game controller support
+    controllers: Option<bool>, // enable game controller support
     proton_ge: Option<bool>,
 }
 
@@ -233,7 +233,7 @@ struct ProfileKde {
 #[allow(dead_code)]
 struct ProfileCosmic {
     dark_mode: Option<bool>,
-    accent_color: Option<Vec<f64>>,   // [r, g, b, a]
+    accent_color: Option<Vec<f64>>, // [r, g, b, a]
     dock_autohide: Option<bool>,
     dock_favorites: Option<Vec<String>>,
 }
@@ -800,7 +800,10 @@ fn apply_shell(config: &Config, shell: &ProfileShell, dry_run: bool) -> Result<(
     if !aliases.is_empty() {
         lines.push("  programs.bash.shellAliases = {".to_string());
         for (name, cmd) in &aliases {
-            let escaped = cmd.replace('\\', "\\\\").replace('"', "\\\"").replace("${", "\\${");
+            let escaped = cmd
+                .replace('\\', "\\\\")
+                .replace('"', "\\\"")
+                .replace("${", "\\${");
             lines.push(format!("    {name} = \"{escaped}\";"));
         }
         lines.push("  };".to_string());
@@ -829,7 +832,10 @@ fn apply_shell(config: &Config, shell: &ProfileShell, dry_run: bool) -> Result<(
     if !env_vars.is_empty() {
         lines.push("  home.sessionVariables = {".to_string());
         for (key, val) in &env_vars {
-            let escaped = val.replace('\\', "\\\\").replace('"', "\\\"").replace("${", "\\${");
+            let escaped = val
+                .replace('\\', "\\\\")
+                .replace('"', "\\\"")
+                .replace("${", "\\${");
             lines.push(format!("    {key} = \"{escaped}\";"));
         }
         lines.push("  };".to_string());
@@ -1125,11 +1131,31 @@ fn apply_macos(config: &Config, macos: &ProfileMacos, dry_run: bool) -> Result<(
 
     // ── Boolean NSGlobalDomain defaults ──────────────────────────────────
     let bool_defaults = [
-        ("NSGlobalDomain", "AppleShowAllExtensions", macos.show_all_extensions),
-        ("NSGlobalDomain", "AppleShowAllFiles", macos.show_hidden_files),
-        ("NSGlobalDomain", "NSAutomaticCapitalizationEnabled", macos.auto_capitalize),
-        ("NSGlobalDomain", "NSAutomaticSpellingCorrectionEnabled", macos.auto_correct),
-        ("NSGlobalDomain", "com.apple.swipescrolldirection", macos.natural_scroll),
+        (
+            "NSGlobalDomain",
+            "AppleShowAllExtensions",
+            macos.show_all_extensions,
+        ),
+        (
+            "NSGlobalDomain",
+            "AppleShowAllFiles",
+            macos.show_hidden_files,
+        ),
+        (
+            "NSGlobalDomain",
+            "NSAutomaticCapitalizationEnabled",
+            macos.auto_capitalize,
+        ),
+        (
+            "NSGlobalDomain",
+            "NSAutomaticSpellingCorrectionEnabled",
+            macos.auto_correct,
+        ),
+        (
+            "NSGlobalDomain",
+            "com.apple.swipescrolldirection",
+            macos.natural_scroll,
+        ),
     ];
 
     for (domain, key, value) in &bool_defaults {
@@ -1149,11 +1175,23 @@ fn apply_macos(config: &Config, macos: &ProfileMacos, dry_run: bool) -> Result<(
     // ── Trackpad ─────────────────────────────────────────────────────────
     if let Some(true) = macos.tap_to_click {
         defaults_write_bool("com.apple.AppleMultitouchTrackpad", "Clicking", true);
-        defaults_write_bool("com.apple.driver.AppleBluetoothMultitouch.trackpad", "Clicking", true);
+        defaults_write_bool(
+            "com.apple.driver.AppleBluetoothMultitouch.trackpad",
+            "Clicking",
+            true,
+        );
     }
     if let Some(true) = macos.three_finger_drag {
-        defaults_write_bool("com.apple.AppleMultitouchTrackpad", "TrackpadThreeFingerDrag", true);
-        defaults_write_bool("com.apple.driver.AppleBluetoothMultitouch.trackpad", "TrackpadThreeFingerDrag", true);
+        defaults_write_bool(
+            "com.apple.AppleMultitouchTrackpad",
+            "TrackpadThreeFingerDrag",
+            true,
+        );
+        defaults_write_bool(
+            "com.apple.driver.AppleBluetoothMultitouch.trackpad",
+            "TrackpadThreeFingerDrag",
+            true,
+        );
     }
 
     // ── Dock settings ────────────────────────────────────────────────────
@@ -1288,7 +1326,12 @@ fn apply_macos(config: &Config, macos: &ProfileMacos, dry_run: bool) -> Result<(
     if let Some(ss) = &macos.screenshots {
         if let Some(ref loc) = ss.location {
             // Expand ~ for the defaults command
-            let expanded = loc.replace('~', &dirs::home_dir().map(|h| h.display().to_string()).unwrap_or_default());
+            let expanded = loc.replace(
+                '~',
+                &dirs::home_dir()
+                    .map(|h| h.display().to_string())
+                    .unwrap_or_default(),
+            );
             defaults_write_string("com.apple.screencapture", "location", &expanded);
         }
         if let Some(ref fmt) = ss.format {
@@ -1321,9 +1364,8 @@ fn apply_macos(config: &Config, macos: &ProfileMacos, dry_run: bool) -> Result<(
     }
 
     // ── Restart affected services ────────────────────────────────────────
-    let needs_dock_restart = macos.dock.is_some()
-        || macos.dock_autohide.is_some()
-        || macos.dock_show_recents.is_some();
+    let needs_dock_restart =
+        macos.dock.is_some() || macos.dock_autohide.is_some() || macos.dock_show_recents.is_some();
     let needs_finder_restart = macos.finder.is_some();
 
     if needs_dock_restart {
@@ -1617,7 +1659,9 @@ fn write_system_defaults(config: &Config, macos: &ProfileMacos) -> Result<()> {
                 let mut patched = content[..insert_pos].to_string();
                 patched.push_str(&defaults_block);
                 patched.push('}');
-                if content.ends_with('\n') { patched.push('\n'); }
+                if content.ends_with('\n') {
+                    patched.push('\n');
+                }
                 std::fs::write(&base_nix, patched)?;
                 return Ok(());
             }
@@ -1659,7 +1703,9 @@ fn write_system_defaults(config: &Config, macos: &ProfileMacos) -> Result<()> {
             let mut patched = content[..insert_pos].to_string();
             patched.push_str(&defaults_block);
             patched.push('}');
-            if content.ends_with('\n') { patched.push('\n'); }
+            if content.ends_with('\n') {
+                patched.push('\n');
+            }
             std::fs::write(&base_nix, patched)?;
             return Ok(());
         }
@@ -1736,7 +1782,9 @@ fn apply_linux(config: &Config, linux: &ProfileLinux, dry_run: bool) -> Result<(
     if let Some(ref dm) = linux.display_manager {
         match dm.as_str() {
             "gdm" => {
-                lines.push("  services.xserver.displayManager.gdm.enable = lib.mkForce true;".to_string());
+                lines.push(
+                    "  services.xserver.displayManager.gdm.enable = lib.mkForce true;".to_string(),
+                );
             }
             "sddm" => {
                 lines.push("  services.displayManager.sddm.enable = lib.mkForce true;".to_string());
@@ -1798,7 +1846,11 @@ fn apply_linux(config: &Config, linux: &ProfileLinux, dry_run: bool) -> Result<(
             }
 
             if !video_drivers.is_empty() {
-                let vd = video_drivers.iter().map(|d| format!("\"{d}\"")).collect::<Vec<_>>().join(" ");
+                let vd = video_drivers
+                    .iter()
+                    .map(|d| format!("\"{d}\""))
+                    .collect::<Vec<_>>()
+                    .join(" ");
                 lines.push(format!("  services.xserver.videoDrivers = [ {vd} ];"));
             }
             if !extra_packages.is_empty() {
@@ -1847,7 +1899,18 @@ fn apply_linux(config: &Config, linux: &ProfileLinux, dry_run: bool) -> Result<(
         if gaming.steam == Some(true) {
             lines.push("  programs.steam = {".to_string());
             lines.push("    enable = true;".to_string());
-            lines.push("    gamescopeSession.enable = {};".replace("{}", if gaming.gamescope == Some(true) { "true" } else { "false" }).to_string());
+            lines.push(
+                "    gamescopeSession.enable = {};"
+                    .replace(
+                        "{}",
+                        if gaming.gamescope == Some(true) {
+                            "true"
+                        } else {
+                            "false"
+                        },
+                    )
+                    .to_string(),
+            );
             lines.push("  };".to_string());
         }
         if gaming.gamemode == Some(true) {
@@ -1885,7 +1948,11 @@ fn apply_linux(config: &Config, linux: &ProfileLinux, dry_run: bool) -> Result<(
     // ── Kernel parameters ────────────────────────────────────────────
     if let Some(ref params) = linux.kernel_params {
         lines.push(String::new());
-        let params_str = params.iter().map(|p| format!("\"{p}\"")).collect::<Vec<_>>().join(" ");
+        let params_str = params
+            .iter()
+            .map(|p| format!("\"{p}\""))
+            .collect::<Vec<_>>()
+            .join(" ");
         lines.push(format!("  boot.kernelParams = [ {params_str} ];"));
     }
 
@@ -1893,8 +1960,8 @@ fn apply_linux(config: &Config, linux: &ProfileLinux, dry_run: bool) -> Result<(
     lines.push(String::new());
 
     // Detect layout: scaffolded (nix/modules/nixos/) vs flat (/etc/nixos/)
-    let scaffolded = config.repo.join("nix/modules/nixos").exists()
-        || config.repo.join("nix/hosts").exists();
+    let scaffolded =
+        config.repo.join("nix/modules/nixos").exists() || config.repo.join("nix/hosts").exists();
 
     let desktop_nix = if scaffolded {
         config.repo.join("nix/modules/nixos/desktop.nix")
@@ -1911,7 +1978,9 @@ fn apply_linux(config: &Config, linux: &ProfileLinux, dry_run: bool) -> Result<(
     // Ensure the desktop module is imported by the main config
     if scaffolded {
         // Scaffolded layout: patch nix/hosts/{hostname}/default.nix
-        let host_default = config.repo.join(format!("nix/hosts/{}/default.nix", config.hostname));
+        let host_default = config
+            .repo
+            .join(format!("nix/hosts/{}/default.nix", config.hostname));
         if host_default.exists() {
             let content = std::fs::read_to_string(&host_default)?;
             if !content.contains("desktop.nix") {
@@ -1939,11 +2008,11 @@ fn apply_linux(config: &Config, linux: &ProfileLinux, dry_run: bool) -> Result<(
         }
     }
 
-    println!("  {} Linux desktop configuration written", style("✓").green());
     println!(
-        "    {}",
-        style(desktop_nix.display()).dim()
+        "  {} Linux desktop configuration written",
+        style("✓").green()
     );
+    println!("    {}", style(desktop_nix.display()).dim());
 
     Ok(())
 }
