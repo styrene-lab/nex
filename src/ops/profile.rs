@@ -55,6 +55,10 @@ struct ProfileShell {
     default: Option<String>,
     aliases: Option<std::collections::HashMap<String, String>>,
     env: Option<std::collections::HashMap<String, String>>,
+    #[serde(rename = "profileExtra")]
+    profile_extra: Option<String>,
+    #[serde(rename = "initExtra")]
+    init_extra: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -689,51 +693,111 @@ fn download_tree(
     Ok(())
 }
 
-/// Apply shell configuration via git commands (non-destructive).
+/// Apply shell configuration — writes a home-manager nix module and wires the import.
+/// Merges with any existing shell.nix so that profile overlays are additive.
 fn apply_shell(config: &Config, shell: &ProfileShell, dry_run: bool) -> Result<()> {
+    let has_content = shell.default.is_some()
+        || shell.aliases.is_some()
+        || shell.env.is_some()
+        || shell.profile_extra.is_some()
+        || shell.init_extra.is_some();
+
+    if !has_content {
+        return Ok(());
+    }
+
     if dry_run {
-        if shell.default.is_some() || shell.aliases.is_some() || shell.env.is_some() {
-            output::dry_run("would apply shell configuration");
-        }
+        output::dry_run("would apply shell configuration");
         return Ok(());
     }
 
     // Write shell config to a nix module that home-manager can import
-    let shell_nix = if config.repo.join("nix/modules/home").exists() {
+    let scaffolded = config.repo.join("nix/modules/home").exists();
+    let shell_nix = if scaffolded {
         config.repo.join("nix/modules/home/shell.nix")
     } else {
         config.repo.join("shell.nix")
     };
 
+    // Load existing shell.nix state so overlay profiles merge rather than replace
+    let existing = if shell_nix.exists() {
+        std::fs::read_to_string(&shell_nix).unwrap_or_default()
+    } else {
+        String::new()
+    };
+
+    // Merge aliases: parse existing + overlay new ones (overlay wins on conflict)
+    let mut aliases: std::collections::BTreeMap<String, String> =
+        parse_nix_attrset(&existing, "shellAliases");
+    if let Some(ref new_aliases) = shell.aliases {
+        for (k, v) in new_aliases {
+            aliases.insert(k.clone(), v.clone());
+        }
+    }
+
+    // Merge env vars: same strategy
+    let mut env_vars: std::collections::BTreeMap<String, String> =
+        parse_nix_attrset(&existing, "sessionVariables");
+    if let Some(ref new_env) = shell.env {
+        for (k, v) in new_env {
+            env_vars.insert(k.clone(), v.clone());
+        }
+    }
+
+    // Merge multiline strings: append overlay after base (with blank line separator)
+    let profile_extra = merge_nix_multiline(
+        &parse_nix_multiline(&existing, "profileExtra"),
+        shell.profile_extra.as_deref(),
+    );
+    let init_extra = merge_nix_multiline(
+        &parse_nix_multiline(&existing, "initExtra"),
+        shell.init_extra.as_deref(),
+    );
+
+    // Generate the merged shell.nix
     let mut lines = Vec::new();
     lines.push("{ pkgs, ... }:".to_string());
     lines.push(String::new());
     lines.push("{".to_string());
 
-    // Shell aliases → programs.bash.shellAliases
-    if let Some(ref aliases) = shell.aliases {
-        if !aliases.is_empty() {
-            lines.push("  programs.bash.enable = true;".to_string());
-            lines.push("  programs.bash.shellAliases = {".to_string());
-            for (name, cmd) in aliases {
-                // Escape double quotes in the command
-                let escaped = cmd.replace('\\', "\\\\").replace('"', "\\\"").replace("${", "\\${");
-                lines.push(format!("    {name} = \"{escaped}\";"));
-            }
-            lines.push("  };".to_string());
+    lines.push("  programs.bash.enable = true;".to_string());
+
+    if !aliases.is_empty() {
+        lines.push("  programs.bash.shellAliases = {".to_string());
+        for (name, cmd) in &aliases {
+            let escaped = cmd.replace('\\', "\\\\").replace('"', "\\\"").replace("${", "\\${");
+            lines.push(format!("    {name} = \"{escaped}\";"));
+        }
+        lines.push("  };".to_string());
+    }
+
+    if let Some(ref pe) = profile_extra {
+        let trimmed = pe.trim();
+        if !trimmed.is_empty() {
+            lines.push(format!(
+                "  programs.bash.profileExtra = ''\n{}\n  '';",
+                indent_nix_multiline(trimmed, 4)
+            ));
         }
     }
 
-    // Environment variables → home.sessionVariables
-    if let Some(ref env) = shell.env {
-        if !env.is_empty() {
-            lines.push("  home.sessionVariables = {".to_string());
-            for (key, val) in env {
-                let escaped = val.replace('\\', "\\\\").replace('"', "\\\"").replace("${", "\\${");
-                lines.push(format!("    {key} = \"{escaped}\";"));
-            }
-            lines.push("  };".to_string());
+    if let Some(ref ie) = init_extra {
+        let trimmed = ie.trim();
+        if !trimmed.is_empty() {
+            lines.push(format!(
+                "  programs.bash.initExtra = ''\n{}\n  '';",
+                indent_nix_multiline(trimmed, 4)
+            ));
         }
+    }
+
+    if !env_vars.is_empty() {
+        lines.push("  home.sessionVariables = {".to_string());
+        for (key, val) in &env_vars {
+            let escaped = val.replace('\\', "\\\\").replace('"', "\\\"").replace("${", "\\${");
+            lines.push(format!("    {key} = \"{escaped}\";"));
+        }
+        lines.push("  };".to_string());
     }
 
     lines.push("}".to_string());
@@ -744,10 +808,172 @@ fn apply_shell(config: &Config, shell: &ProfileShell, dry_run: bool) -> Result<(
     }
     std::fs::write(&shell_nix, lines.join("\n"))?;
 
+    // Wire the import into the home-manager config
+    wire_shell_import(config, scaffolded)?;
+
     println!("  {} shell config written", style("✓").green());
     println!("    {}", style(shell_nix.display()).dim());
 
     Ok(())
+}
+
+/// Parse a nix attrset block like `shellAliases = { key = "val"; ... };` from file content.
+/// Returns key-value pairs. Lightweight parser — handles the output we generate, not arbitrary nix.
+fn parse_nix_attrset(content: &str, attr_name: &str) -> std::collections::BTreeMap<String, String> {
+    let mut map = std::collections::BTreeMap::new();
+    let marker = format!("{attr_name} = {{");
+    let block_start = match content.find(&marker) {
+        Some(pos) => pos + marker.len(),
+        None => return map,
+    };
+    let block_end = match content[block_start..].find("};") {
+        Some(pos) => block_start + pos,
+        None => return map,
+    };
+    for line in content[block_start..block_end].lines() {
+        let trimmed = line.trim();
+        // Match: key = "value";
+        if let Some(eq_pos) = trimmed.find(" = \"") {
+            let key = trimmed[..eq_pos].trim();
+            let val_start = eq_pos + 4; // skip ` = "`
+            if let Some(val_end) = trimmed[val_start..].rfind("\";") {
+                let val = &trimmed[val_start..val_start + val_end];
+                // Unescape nix string escapes
+                let unescaped = val
+                    .replace("\\\"", "\"")
+                    .replace("\\\\", "\\")
+                    .replace("\\${", "${");
+                map.insert(key.to_string(), unescaped);
+            }
+        }
+    }
+    map
+}
+
+/// Parse a nix multiline string like `profileExtra = '' ... '';` from file content.
+/// Strips common leading indentation so the result can be re-indented cleanly.
+fn parse_nix_multiline(content: &str, attr_name: &str) -> Option<String> {
+    let marker = format!("{attr_name} = ''");
+    let start = content.find(&marker)?;
+    let after_marker = start + marker.len();
+    // Find the closing `'';` — skip the opening line
+    let close = content[after_marker..].find("'';")?;
+    let inner = &content[after_marker..after_marker + close];
+
+    // Dedent: find minimum indentation of non-empty lines, then strip it
+    let lines: Vec<&str> = inner.lines().collect();
+    let min_indent = lines
+        .iter()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| l.len() - l.trim_start().len())
+        .min()
+        .unwrap_or(0);
+
+    let dedented: Vec<&str> = lines
+        .iter()
+        .map(|l| {
+            if l.trim().is_empty() {
+                ""
+            } else if l.len() >= min_indent {
+                &l[min_indent..]
+            } else {
+                l.trim()
+            }
+        })
+        .collect();
+
+    let result = dedented.join("\n");
+    let trimmed = result.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+/// Merge two optional multiline shell script strings. Overlay appends after base.
+fn merge_nix_multiline(base: &Option<String>, overlay: Option<&str>) -> Option<String> {
+    let base_trimmed = base.as_deref().map(|s| s.trim()).filter(|s| !s.is_empty());
+    let overlay_trimmed = overlay.map(|s| s.trim()).filter(|s| !s.is_empty());
+
+    match (base_trimmed, overlay_trimmed) {
+        (Some(b), Some(o)) => Some(format!("{b}\n\n{o}")),
+        (Some(b), None) => Some(b.to_string()),
+        (None, Some(o)) => Some(o.to_string()),
+        (None, None) => None,
+    }
+}
+
+/// Ensure shell.nix is imported by the home-manager configuration.
+///
+/// The host default.nix typically assigns home-manager.users.<user> to
+/// `import ../../modules/home/base.nix`.  Since `import` yields an attrset
+/// (not a module), we cannot put `imports = [...]` inside base.nix.
+///
+/// Instead, convert the home-manager user config to a module list:
+///   home-manager.users.<user> = { imports = [ ./base.nix ./shell.nix ]; };
+///
+/// For flat layouts (home.nix), the file IS a module, so `imports` works directly.
+fn wire_shell_import(config: &Config, scaffolded: bool) -> Result<()> {
+    if scaffolded {
+        // Find the host default.nix and patch the home-manager.users assignment
+        let host_default = config
+            .repo
+            .join(format!("nix/hosts/{}/default.nix", config.hostname));
+        if host_default.exists() {
+            let content = std::fs::read_to_string(&host_default)?;
+            if !content.contains("shell.nix") {
+                // Current form: home-manager.users.${username} = import ../../modules/home/base.nix;
+                // Target form:  home-manager.users.${username} = { imports = [ ... ]; };
+                let patched = if content.contains("import ../../modules/home/base.nix") {
+                    content.replace(
+                        "import ../../modules/home/base.nix;",
+                        "{\n    imports = [\n      ../../modules/home/base.nix\n      ../../modules/home/shell.nix\n    ];\n  };",
+                    )
+                } else if content.contains("../../modules/home/base.nix") {
+                    // Already uses imports list form — add shell.nix
+                    content.replace(
+                        "../../modules/home/base.nix",
+                        "../../modules/home/base.nix\n      ../../modules/home/shell.nix",
+                    )
+                } else {
+                    content
+                };
+                std::fs::write(&host_default, patched)?;
+            }
+        }
+    } else {
+        // Flat layout: home.nix is a proper module, so imports work directly
+        let home_nix = config.repo.join("home.nix");
+        if home_nix.exists() {
+            let content = std::fs::read_to_string(&home_nix)?;
+            if !content.contains("shell.nix") {
+                let patched = if content.contains("imports = [") {
+                    content.replace("imports = [", "imports = [\n    ./shell.nix")
+                } else {
+                    content.replace("{\n", "{\n  imports = [ ./shell.nix ];\n\n")
+                };
+                std::fs::write(&home_nix, patched)?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Indent each line of a multiline string for embedding in a nix '' string.
+fn indent_nix_multiline(s: &str, spaces: usize) -> String {
+    let indent = " ".repeat(spaces);
+    s.lines()
+        .map(|line| {
+            if line.trim().is_empty() {
+                String::new()
+            } else {
+                format!("{indent}{line}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// Apply git config via git commands.
