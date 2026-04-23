@@ -936,7 +936,9 @@ pub fn generate_linux_config(lines: &mut Vec<String>, linux: &toml::Value) {
                 // a dconf profile that gets applied on login.
                 lines.push("  # GNOME favorite apps — written as dconf db override".to_string());
                 let apps_str = apps.join(", ");
-                lines.push("  environment.etc.\"dconf/db/local.d/01-nex-favorites\".text = ''".to_string());
+                lines.push(
+                    "  environment.etc.\"dconf/db/local.d/01-nex-favorites\".text = ''".to_string(),
+                );
                 lines.push("    [org/gnome/shell]".to_string());
                 lines.push(format!("    favorite-apps=[{apps_str}]"));
                 if dark {
