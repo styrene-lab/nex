@@ -107,6 +107,24 @@ pub enum Command {
         #[arg(long)]
         bundle: Option<PathBuf>,
     },
+    /// Build an OCI container image from a profile
+    BuildImage {
+        /// Nex profile (GitHub user/repo) or local path to profile.toml
+        #[arg(value_name = "PROFILE")]
+        profile: String,
+
+        /// Image name (default: derived from profile name)
+        #[arg(long)]
+        name: Option<String>,
+
+        /// Image tag (default: "latest")
+        #[arg(long, default_value = "latest")]
+        tag: String,
+
+        /// Output format: "docker" (tarball) or "oci" (OCI layout)
+        #[arg(long, default_value = "docker")]
+        format: String,
+    },
     /// Enter a dev shell from a flake (wraps nix develop)
     Develop {
         /// Flake reference (e.g. github:styrene-lab/nex, ., ./path/to/flake)
