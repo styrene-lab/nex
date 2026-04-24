@@ -2,11 +2,7 @@
 
 All notable changes to nex are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/).
 
-## [0.13.0] - 2026-04-24
-
-### Added
-- `nex relocate` command -- moves a system-owned config (e.g. `/etc/nixos`) into a user-writable directory so nex no longer needs sudo to read or edit it
-- Alias expansion for `nex install` -- more shorthand names resolve correctly
+## [0.13.1] - 2026-04-24
 
 ### Changed
 - **Security hardening** across the codebase:
@@ -27,6 +23,13 @@ All notable changes to nex are documented here. Format follows [Keep a Changelog
   - Module discovery now globs `nix/modules/home/*.nix` instead of hardcoding `kubernetes.nix`
 - `is_already_declared` reads each file once via `contains_any()` instead of N times per alias
 - Critical `let _ =` patterns in forge/polymerize (nix copy, mkfs, cp, umount) now warn on failure
+- Release workflow now generates and attaches `checksums.sha256` to GitHub releases
+
+## [0.13.0] - 2026-04-24
+
+### Added
+- `nex relocate` command -- moves a system-owned config (e.g. `/etc/nixos`) into a user-writable directory so nex no longer needs sudo to read or edit it
+- Alias expansion for `nex install` -- more shorthand names resolve correctly
 
 ### Fixed
 - `home.sessionPath` now includes cargo, nix-profile, and homebrew paths
@@ -131,6 +134,7 @@ All notable changes to nex are documented here. Format follows [Keep a Changelog
 - Cross-platform prebuilt binaries (aarch64-darwin, x86_64-darwin, aarch64-linux, x86_64-linux)
 - Published to crates.io as `nex-pkg`
 
+[0.13.1]: https://github.com/styrene-lab/nex/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/styrene-lab/nex/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/styrene-lab/nex/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/styrene-lab/nex/compare/v0.10.2...v0.11.0
