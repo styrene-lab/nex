@@ -50,7 +50,10 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
                     existing.display(),
                     hostname
                 );
-                std::fs::write(config_dir.join("config.toml"), &config_content)?;
+                crate::edit::atomic_write_bytes(
+                    &config_dir.join("config.toml"),
+                    config_content.as_bytes(),
+                )?;
             }
 
             ok("config repo", &existing.display().to_string());
@@ -166,7 +169,10 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
             repo_path.display(),
             hostname
         );
-        std::fs::write(config_dir.join("config.toml"), config_content)?;
+        crate::edit::atomic_write_bytes(
+            &config_dir.join("config.toml"),
+            config_content.as_bytes(),
+        )?;
     }
     ok(
         "config",
@@ -582,8 +588,8 @@ fn scaffold_repo(hostname: &str, dry_run: bool) -> Result<PathBuf> {
         Platform::Darwin => "/Users/${username}",
         Platform::Linux => "/home/${username}",
     };
-    std::fs::write(
-        home_dir.join("base.nix"),
+    crate::edit::atomic_write_bytes(
+        &home_dir.join("base.nix"),
         format!(
             "{{ pkgs, username, ... }}:\n\
              \n\
@@ -610,7 +616,8 @@ fn scaffold_repo(hostname: &str, dry_run: bool) -> Result<PathBuf> {
              \x20 programs.bash.enable = true;\n\
              \x20 programs.home-manager.enable = true;\n\
              }}\n"
-        ),
+        )
+        .as_bytes(),
     )?;
 
     // Init git repo — nix flakes require files to be tracked by git
@@ -706,8 +713,8 @@ fn scaffold_darwin(
     };
 
     // flake.nix
-    std::fs::write(
-        repo_path.join("flake.nix"),
+    crate::edit::atomic_write_bytes(
+        &repo_path.join("flake.nix"),
         format!(
             r#"{{
   description = "macOS workstation management — nix-darwin + home-manager";
@@ -755,12 +762,13 @@ fn scaffold_darwin(
     }};
 }}
 "#
-        ),
+        )
+        .as_bytes(),
     )?;
 
     // mkHost.nix
-    std::fs::write(
-        lib_dir.join("mkHost.nix"),
+    crate::edit::atomic_write_bytes(
+        &lib_dir.join("mkHost.nix"),
         r#"{ nixpkgs, nix-darwin, home-manager, mac-app-util,
     nix-homebrew, homebrew-core, homebrew-cask }:
 
@@ -790,12 +798,13 @@ nix-darwin.lib.darwinSystem {
     }
   ];
 }
-"#,
+"#
+        .as_bytes(),
     )?;
 
     // Host default.nix
-    std::fs::write(
-        host_dir.join("default.nix"),
+    crate::edit::atomic_write_bytes(
+        &host_dir.join("default.nix"),
         r#"{ pkgs, hostname, username, ... }:
 
 {
@@ -811,7 +820,8 @@ nix-darwin.lib.darwinSystem {
 
   system.stateVersion = 6;
 }
-"#,
+"#
+        .as_bytes(),
     )?;
 
     // darwin/base.nix
@@ -826,8 +836,8 @@ nix-darwin.lib.darwinSystem {
          nix.package = pkgs.nix;\n"
     };
 
-    std::fs::write(
-        darwin_dir.join("base.nix"),
+    crate::edit::atomic_write_bytes(
+        &darwin_dir.join("base.nix"),
         format!(
             r#"{{ pkgs, username, ... }}:
 
@@ -846,12 +856,13 @@ nix-darwin.lib.darwinSystem {
   security.pam.services.sudo_local.touchIdAuth = true;
 }}
 "#
-        ),
+        )
+        .as_bytes(),
     )?;
 
     // darwin/homebrew.nix
-    std::fs::write(
-        darwin_dir.join("homebrew.nix"),
+    crate::edit::atomic_write_bytes(
+        &darwin_dir.join("homebrew.nix"),
         format!(
             r#"{{ config, username, homebrew-core, homebrew-cask, ... }}:
 
@@ -888,7 +899,8 @@ nix-darwin.lib.darwinSystem {
   }};
 }}
 "#
-        ),
+        )
+        .as_bytes(),
     )?;
 
     Ok(())
@@ -906,8 +918,8 @@ fn scaffold_nixos(
     user: &str,
 ) -> Result<()> {
     // flake.nix
-    std::fs::write(
-        repo_path.join("flake.nix"),
+    crate::edit::atomic_write_bytes(
+        &repo_path.join("flake.nix"),
         format!(
             r#"{{
   description = "NixOS workstation management — NixOS + home-manager";
@@ -934,12 +946,13 @@ fn scaffold_nixos(
     }};
 }}
 "#
-        ),
+        )
+        .as_bytes(),
     )?;
 
     // mkHost.nix
-    std::fs::write(
-        lib_dir.join("mkHost.nix"),
+    crate::edit::atomic_write_bytes(
+        &lib_dir.join("mkHost.nix"),
         r#"{ nixpkgs, home-manager }:
 
 { hostname, system, username, hostModule }:
@@ -960,12 +973,13 @@ nixpkgs.lib.nixosSystem {
     }
   ];
 }
-"#,
+"#
+        .as_bytes(),
     )?;
 
     // Host default.nix
-    std::fs::write(
-        host_dir.join("default.nix"),
+    crate::edit::atomic_write_bytes(
+        &host_dir.join("default.nix"),
         r#"{ pkgs, hostname, username, ... }:
 
 {
@@ -980,7 +994,8 @@ nixpkgs.lib.nixosSystem {
 
   system.stateVersion = "25.05";
 }
-"#,
+"#
+        .as_bytes(),
     )?;
 
     // Generate hardware-configuration.nix if nixos-generate-config is available
@@ -990,15 +1005,17 @@ nixpkgs.lib.nixosSystem {
             .output()
             .map(|output| {
                 if output.status.success() {
-                    let _ =
-                        std::fs::write(host_dir.join("hardware-configuration.nix"), &output.stdout);
+                    let _ = crate::edit::atomic_write_bytes(
+                        &host_dir.join("hardware-configuration.nix"),
+                        &output.stdout,
+                    );
                 }
             });
     }
     // If hardware-configuration.nix doesn't exist, create a placeholder
     if !host_dir.join("hardware-configuration.nix").exists() {
-        std::fs::write(
-            host_dir.join("hardware-configuration.nix"),
+        crate::edit::atomic_write_bytes(
+            &host_dir.join("hardware-configuration.nix"),
             r#"# Auto-generated hardware configuration.
 # Replace with output of: nixos-generate-config --show-hardware-config
 { config, lib, pkgs, modulesPath, ... }:
@@ -1011,7 +1028,8 @@ nixpkgs.lib.nixosSystem {
   boot.loader.systemd-boot.enable = true;
   boot.loader.efi.canTouchEfiVariables = true;
 }
-"#,
+"#
+            .as_bytes(),
         )?;
     }
 
@@ -1026,8 +1044,8 @@ nixpkgs.lib.nixosSystem {
         "  nix.settings.experimental-features = [ \"nix-command\" \"flakes\" ];\n"
     };
 
-    std::fs::write(
-        nixos_dir.join("base.nix"),
+    crate::edit::atomic_write_bytes(
+        &nixos_dir.join("base.nix"),
         format!(
             r#"{{ pkgs, username, ... }}:
 
@@ -1060,7 +1078,8 @@ nixpkgs.lib.nixosSystem {
   i18n.defaultLocale = "en_US.UTF-8";
 }}
 "#
-        ),
+        )
+        .as_bytes(),
     )?;
 
     Ok(())

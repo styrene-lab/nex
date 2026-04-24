@@ -61,36 +61,64 @@ fn check_mac_app_util(config: &Config, fixed: &mut usize) -> Result<bool> {
         "not configured — nix apps won't appear in Spotlight",
     );
 
-    // Patch flake.nix: add input
-    let patched_flake = flake
-        .replace(
-            "home-manager = {\n      url = \"github:nix-community/home-manager\";\n      inputs.nixpkgs.follows = \"nixpkgs\";\n    };\n  };",
-            "home-manager = {\n      url = \"github:nix-community/home-manager\";\n      inputs.nixpkgs.follows = \"nixpkgs\";\n    };\n\n    mac-app-util.url = \"github:hraban/mac-app-util\";\n  };"
-        )
-        // Also handle the variant with different spacing
-        .replace(
-            "home-manager = {\n      url = \"github:nix-community/home-manager\";\n      inputs.nixpkgs.follows = \"nixpkgs\";\n    };\n  };\n\n  outputs = { self, nixpkgs, nix-darwin, home-manager }:",
-            "home-manager = {\n      url = \"github:nix-community/home-manager\";\n      inputs.nixpkgs.follows = \"nixpkgs\";\n    };\n\n    mac-app-util.url = \"github:hraban/mac-app-util\";\n  };\n\n  outputs = { self, nixpkgs, nix-darwin, home-manager, mac-app-util }:"
-        );
+    // Patch flake.nix using line-by-line insertion logic
+    let lines: Vec<&str> = flake.lines().collect();
+    let mut result_lines: Vec<String> = Vec::new();
+    let mut added_input = false;
+    let mut patched_outputs = false;
+    let mut patched_inherit = false;
 
-    // If the outputs line wasn't caught by the combined replace, handle it separately
-    let patched_flake = if patched_flake.contains("mac-app-util")
-        && !patched_flake
-            .contains("outputs = { self, nixpkgs, nix-darwin, home-manager, mac-app-util }")
-    {
-        patched_flake.replace(
-            "outputs = { self, nixpkgs, nix-darwin, home-manager }:",
-            "outputs = { self, nixpkgs, nix-darwin, home-manager, mac-app-util }:",
-        )
-    } else {
-        patched_flake
-    };
+    for (i, line) in lines.iter().enumerate() {
+        let trimmed = line.trim();
 
-    // Also update mkHost.nix reference
-    let patched_flake = patched_flake.replace(
-        "inherit nixpkgs nix-darwin home-manager;",
-        "inherit nixpkgs nix-darwin home-manager mac-app-util;",
-    );
+        // Find the `};` that closes the inputs block (it precedes the outputs line)
+        if !added_input && trimmed == "};" {
+            // Check if a subsequent line starts with "outputs"
+            let is_inputs_close = lines[i + 1..]
+                .iter()
+                .take(3)
+                .any(|l| l.trim().starts_with("outputs"));
+            if is_inputs_close {
+                // Insert the mac-app-util input before this closing `};`
+                result_lines
+                    .push("    mac-app-util.url = \"github:hraban/mac-app-util\";".to_string());
+                added_input = true;
+            }
+        }
+
+        // Patch the outputs line to include mac-app-util
+        if !patched_outputs
+            && trimmed.starts_with("outputs")
+            && trimmed.contains("home-manager")
+            && !trimmed.contains("mac-app-util")
+        {
+            let patched = line.replace("home-manager }", "home-manager, mac-app-util }");
+            let patched = patched.replace("home-manager }:", "home-manager, mac-app-util }:");
+            result_lines.push(patched);
+            patched_outputs = true;
+            continue;
+        }
+
+        // Patch the inherit line
+        if !patched_inherit
+            && trimmed.starts_with("inherit")
+            && trimmed.contains("home-manager")
+            && !trimmed.contains("mac-app-util")
+        {
+            let patched = line.replace("home-manager;", "home-manager mac-app-util;");
+            result_lines.push(patched);
+            patched_inherit = true;
+            continue;
+        }
+
+        result_lines.push(line.to_string());
+    }
+
+    let mut patched_flake = result_lines.join("\n");
+    // Add trailing newline if original had one
+    if flake.ends_with('\n') && !patched_flake.ends_with('\n') {
+        patched_flake.push('\n');
+    }
 
     if !patched_flake.contains("mac-app-util") {
         output::warn("could not auto-patch flake.nix — manual edit required");
