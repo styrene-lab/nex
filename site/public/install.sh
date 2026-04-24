@@ -93,6 +93,36 @@ try_prebuilt() {
     return 1
   fi
 
+  # ── Checksum verification ──
+  checksum_url=$(echo "$url" | sed 's|/nex-[^/]*\.tar\.gz$|/checksums.sha256|')
+  if curl -fsSL "$checksum_url" -o "$_TMPDIR/checksums.sha256" 2>/dev/null; then
+    tarball_name=$(basename "$url")
+    if command -v sha256sum >/dev/null 2>&1; then
+      sha_cmd="sha256sum"
+    elif command -v shasum >/dev/null 2>&1; then
+      sha_cmd="shasum -a 256"
+    else
+      sha_cmd=""
+    fi
+    if [ -n "$sha_cmd" ]; then
+      # Extract the expected hash for our tarball
+      expected=$(grep "  ${tarball_name}\$" "$_TMPDIR/checksums.sha256" | awk '{print $1}')
+      if [ -n "$expected" ]; then
+        actual=$($sha_cmd "$_TMPDIR/nex.tar.gz" | awk '{print $1}')
+        if [ "$expected" != "$actual" ]; then
+          fail "SHA256 checksum mismatch for ${tarball_name} (expected ${expected}, got ${actual})"
+        fi
+        ok "checksum verified"
+      else
+        warn "tarball not found in checksums file, skipping verification"
+      fi
+    else
+      warn "no sha256sum or shasum available, skipping checksum verification"
+    fi
+  else
+    warn "checksums file not available for this release, skipping verification"
+  fi
+
   if ! tar -xzf "$_TMPDIR/nex.tar.gz" -C "$_TMPDIR"; then
     warn "archive extraction failed"
     return 1

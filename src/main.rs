@@ -16,6 +16,18 @@ use cli::{Cli, Command};
 use config::Config;
 
 fn main() -> Result<()> {
+    // Initialize tracing subscriber. Controlled by NEX_LOG env var.
+    // Examples: NEX_LOG=debug, NEX_LOG=nex=trace, NEX_LOG=nex::edit=debug
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_env("NEX_LOG")
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("off")),
+        )
+        .with_target(true)
+        .with_writer(std::io::stderr)
+        .without_time()
+        .init();
+
     let cli = Cli::parse();
 
     // Commands that don't need config resolution

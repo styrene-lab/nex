@@ -6,6 +6,7 @@ use crate::edit;
 use crate::nixfile;
 
 pub fn run(config: &Config) -> Result<()> {
+    tracing::debug!("listing packages");
     // Nix packages from base.nix
     println!("{}", style("Nix packages").green().bold());
     let pkgs = edit::list_packages(&config.nix_packages_file, &nixfile::NIX_PACKAGES)?;

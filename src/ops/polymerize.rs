@@ -784,7 +784,16 @@ fn exec_partition(disk: &str) -> Result<()> {
             ],
         )?;
 
-        std::thread::sleep(std::time::Duration::from_secs(1));
+        // Wait for partition device nodes to appear (kernel may take a moment)
+        let part2 = format!("{part_prefix}2");
+        let mut waited = 0;
+        while !std::path::Path::new(&part2).exists() && waited < 10 {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            waited += 1;
+        }
+        if !std::path::Path::new(&part2).exists() {
+            bail!("partition device {} did not appear after 10 seconds", part2);
+        }
 
         run_cmd("mkfs.fat", &["-F32", &format!("{part_prefix}1")])?;
         run_cmd("mkfs.ext4", &["-F", &format!("{part_prefix}2")])?;
@@ -798,7 +807,16 @@ fn exec_partition(disk: &str) -> Result<()> {
             ],
         )?;
 
-        std::thread::sleep(std::time::Duration::from_secs(1));
+        // Wait for partition device nodes to appear (kernel may take a moment)
+        let part1 = format!("{part_prefix}1");
+        let mut waited = 0;
+        while !std::path::Path::new(&part1).exists() && waited < 10 {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            waited += 1;
+        }
+        if !std::path::Path::new(&part1).exists() {
+            bail!("partition device {} did not appear after 10 seconds", part1);
+        }
 
         run_cmd("mkfs.ext4", &["-F", &format!("{part_prefix}1")])?;
     }
@@ -815,7 +833,10 @@ fn exec_mount(disk: &str) -> Result<()> {
     println!("  {} Mounting filesystems...", style(">>>").bold());
 
     // Clean up any pre-existing mounts from a previous failed attempt
-    let _ = Command::new("umount").args(["-R", "/mnt"]).status();
+    let umount = Command::new("umount").args(["-R", "/mnt"]).status();
+    if !umount.map(|s| s.success()).unwrap_or(false) {
+        tracing::warn!("umount -R /mnt failed — stale mounts may interfere");
+    }
 
     let is_efi = Path::new("/sys/firmware/efi").exists();
 

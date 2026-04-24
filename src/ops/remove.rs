@@ -19,6 +19,7 @@ pub enum RemoveMode {
 }
 
 pub fn run(config: &Config, mode: RemoveMode, packages: &[String], dry_run: bool) -> Result<()> {
+    tracing::info!(packages = ?packages, dry_run, "remove");
     if packages.is_empty() {
         anyhow::bail!("no packages specified");
     }

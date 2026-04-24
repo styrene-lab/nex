@@ -30,7 +30,7 @@ impl NixList {
         }
         if self.quoted {
             // Match `"package-name"` possibly followed by inline comment
-            let stripped = trimmed.trim_start_matches('"');
+            let stripped = trimmed.strip_prefix('"')?;
             let end = stripped.find('"')?;
             Some(stripped[..end].to_string())
         } else {

@@ -19,6 +19,7 @@ pub enum InstallMode {
 }
 
 pub fn run(config: &Config, mode: InstallMode, packages: &[String], dry_run: bool) -> Result<()> {
+    tracing::info!(packages = ?packages, dry_run, "install");
     if packages.is_empty() {
         anyhow::bail!("no packages specified");
     }
@@ -29,6 +30,7 @@ pub fn run(config: &Config, mode: InstallMode, packages: &[String], dry_run: boo
     for pkg in packages {
         // Check if already declared anywhere
         if is_already_declared(config, pkg)? {
+            tracing::debug!(pkg, "already declared, skipping");
             output::already(pkg);
             continue;
         }
@@ -40,6 +42,8 @@ pub fn run(config: &Config, mode: InstallMode, packages: &[String], dry_run: boo
             InstallMode::Brew => Source::BrewFormula,
             InstallMode::Auto => resolve_source(pkg, dry_run, config.prefer_nix_on_equal)?,
         };
+
+        tracing::debug!(pkg, source = %source, "resolved install source");
 
         if dry_run {
             let target = target_description(&source, config);

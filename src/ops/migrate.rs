@@ -27,6 +27,7 @@ struct MigrateCandidate {
 }
 
 pub fn run(config: &Config) -> Result<()> {
+    tracing::debug!("checking migration candidates");
     if !exec::brew_available() {
         output::error("brew not found — nothing to migrate");
         return Ok(());

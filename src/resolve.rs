@@ -53,6 +53,7 @@ pub struct ResolveResult {
 
 /// Resolve a package across nixpkgs, brew casks, and brew formulae.
 pub fn resolve(pkg: &str) -> Result<ResolveResult> {
+    tracing::debug!(%pkg, "resolving package");
     let mut candidates = Vec::new();
     let brew_checked = exec::brew_available();
 
@@ -64,6 +65,7 @@ pub fn resolve(pkg: &str) -> Result<ResolveResult> {
         None
     });
     if let Some(version) = nix_version {
+        tracing::debug!(%pkg, version = %version, "found in nixpkgs");
         candidates.push(Candidate {
             source: Source::Nix,
             version,
@@ -78,6 +80,7 @@ pub fn resolve(pkg: &str) -> Result<ResolveResult> {
                 _ => None,
             });
         if let Some(version) = cask_version {
+            tracing::debug!(%pkg, version = %version, "found as brew cask");
             candidates.push(Candidate {
                 source: Source::BrewCask,
                 version,
@@ -87,6 +90,7 @@ pub fn resolve(pkg: &str) -> Result<ResolveResult> {
         // Check brew formula (only if not found as cask — formulae and casks rarely overlap)
         if !candidates.iter().any(|c| c.source == Source::BrewCask) {
             if let Some(version) = exec::brew_formula_info(pkg)? {
+                tracing::debug!(%pkg, version = %version, "found as brew formula");
                 candidates.push(Candidate {
                     source: Source::BrewFormula,
                     version,
@@ -123,17 +127,19 @@ pub fn resolve(pkg: &str) -> Result<ResolveResult> {
 /// Compare two version strings with semantic version awareness.
 /// Falls back to string equality when both versions fail to parse as semver.
 fn versions_equal(a: &str, b: &str) -> bool {
-    if a == b {
-        return true;
-    }
-    // Try lenient semver parse (handles versions like "1.0" -> "1.0.0")
-    if let (Ok(va), Ok(vb)) = (
+    let result = if a == b {
+        true
+    } else if let (Ok(va), Ok(vb)) = (
         semver::Version::parse(a).or_else(|_| lenient_semver_parse(a)),
         semver::Version::parse(b).or_else(|_| lenient_semver_parse(b)),
     ) {
-        return va == vb;
-    }
-    false
+        // Try lenient semver parse (handles versions like "1.0" -> "1.0.0")
+        va == vb
+    } else {
+        false
+    };
+    tracing::trace!(%a, %b, equal = %result, "version comparison");
+    result
 }
 
 /// Try to parse a version string that may be missing patch/minor components.
@@ -153,6 +159,8 @@ fn recommend(candidates: &[Candidate]) -> (Source, String, bool) {
     let brew = candidates
         .iter()
         .find(|c| c.source == Source::BrewCask || c.source == Source::BrewFormula);
+
+    tracing::debug!(nix_ver = ?nix.map(|n| &n.version), brew_ver = ?brew.map(|b| &b.version), "comparing versions");
 
     if let (Some(n), Some(b)) = (nix, brew) {
         let eq = versions_equal(&n.version, &b.version);

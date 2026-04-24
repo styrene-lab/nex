@@ -6,6 +6,7 @@ use crate::output;
 
 /// Check and fix common issues with the nex-managed config repo.
 pub fn run(config: &Config) -> Result<()> {
+    tracing::info!("running doctor checks");
     println!();
     println!("  {} — checking configuration", style("nex doctor").bold());
     println!();
@@ -138,6 +139,7 @@ fn check_mac_app_util(config: &Config, fixed: &mut usize) -> Result<bool> {
         }
     }
 
+    tracing::info!(fix = "mac-app-util", "applied fix");
     *fixed += 1;
     Ok(true)
 }
@@ -187,6 +189,7 @@ fn check_allow_unfree(config: &Config, fixed: &mut usize) -> Result<bool> {
         .with_context(|| format!("writing {}", base_path.display()))?;
     info("patched", &base_path.display().to_string());
 
+    tracing::info!(fix = "allow-unfree", "applied fix");
     *fixed += 1;
     Ok(true)
 }
@@ -240,6 +243,7 @@ fn check_session_path(config: &Config, fixed: &mut usize) -> Result<bool> {
         .with_context(|| format!("writing {}", base_path.display()))?;
     info("patched", &base_path.display().to_string());
 
+    tracing::info!(fix = "session-path", "applied fix");
     *fixed += 1;
     Ok(true)
 }

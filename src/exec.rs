@@ -4,15 +4,9 @@ use std::process::Command;
 use anyhow::{bail, Context, Result};
 
 /// Resolve the path to the `nix` binary.
-/// Checks PATH first, then well-known locations for freshly installed nix.
+/// Checks well-known locations first, then falls back to PATH-based lookup.
+/// Preferring hardcoded paths prevents PATH-based binary injection.
 pub fn find_nix() -> String {
-    // Test if nix is directly available in PATH
-    if let Ok(output) = Command::new("nix").arg("--version").output() {
-        if output.status.success() {
-            return "nix".to_string();
-        }
-    }
-
     let candidates = [
         "/nix/var/nix/profiles/default/bin/nix",
         "/run/current-system/sw/bin/nix",
@@ -20,23 +14,37 @@ pub fn find_nix() -> String {
     ];
     for path in &candidates {
         if Path::new(path).exists() {
+            tracing::debug!(path, "resolved nix binary");
             return path.to_string();
         }
     }
 
+    // Fall back to PATH-based lookup if no well-known path exists
+    if let Ok(output) = Command::new("nix").arg("--version").output() {
+        if output.status.success() {
+            tracing::debug!(path = "nix", "resolved nix binary");
+            return "nix".to_string();
+        }
+    }
+
     // Fall back to bare name — will produce a clear "not found" error
+    tracing::debug!(path = "nix", "resolved nix binary");
     "nix".to_string()
 }
 
 /// Run a command, inheriting stdout/stderr. Returns Ok if exit code 0.
 fn run(cmd: &mut Command) -> Result<()> {
     let program = cmd.get_program().to_string_lossy().to_string();
+    tracing::debug!(program = %program, "running command");
     match cmd.status() {
         Ok(status) if status.success() => Ok(()),
-        Ok(status) => bail!(
-            "{program} failed with exit code {}",
-            status.code().unwrap_or(-1)
-        ),
+        Ok(status) => {
+            tracing::error!(program = %program, code = ?status.code(), "command failed");
+            bail!(
+                "{program} failed with exit code {}",
+                status.code().unwrap_or(-1)
+            )
+        }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             bail!(
                 "{program} not found — is it installed and in your PATH?\n\
@@ -50,6 +58,7 @@ fn run(cmd: &mut Command) -> Result<()> {
 /// Stage all changes and commit in a git repo. Warns on failure instead of
 /// returning an error, since git may not be configured in all environments.
 pub fn git_commit(repo: &Path, message: &str) {
+    tracing::debug!(repo = %repo.display(), %message, "git commit");
     let add = Command::new("git")
         .args(["add", "-A"])
         .current_dir(repo)
@@ -58,15 +67,15 @@ pub fn git_commit(repo: &Path, message: &str) {
     match add {
         Ok(o) if o.status.success() => {}
         Ok(o) => {
-            eprintln!(
-                "  warning: git add failed (exit {}): {}",
-                o.status.code().unwrap_or(-1),
-                String::from_utf8_lossy(&o.stderr).trim()
+            tracing::warn!(
+                exit_code = o.status.code().unwrap_or(-1),
+                stderr = %String::from_utf8_lossy(&o.stderr).trim(),
+                "git add failed"
             );
             return;
         }
         Err(e) => {
-            eprintln!("  warning: could not run git add: {e}");
+            tracing::warn!(error = %e, "could not run git add");
             return;
         }
     }
@@ -82,20 +91,21 @@ pub fn git_commit(repo: &Path, message: &str) {
             let stderr = String::from_utf8_lossy(&o.stderr);
             // "nothing to commit" is not a real failure
             if !stderr.contains("nothing to commit") {
-                eprintln!(
-                    "  warning: git commit failed — please commit manually: {}",
-                    stderr.trim()
+                tracing::warn!(
+                    stderr = %stderr.trim(),
+                    "git commit failed — please commit manually"
                 );
             }
         }
         Err(e) => {
-            eprintln!("  warning: could not run git commit: {e}");
+            tracing::warn!(error = %e, "could not run git commit");
         }
     }
 }
 
 /// Validate that a nix package attribute exists in nixpkgs.
 pub fn nix_eval_exists(pkg: &str) -> Result<bool> {
+    tracing::debug!(%pkg, "checking nixpkgs existence");
     let output = Command::new(find_nix())
         .args(["eval", &format!("nixpkgs#{pkg}.name"), "--raw"])
         .stderr(std::process::Stdio::null())
@@ -106,6 +116,7 @@ pub fn nix_eval_exists(pkg: &str) -> Result<bool> {
 
 /// Get the version of a nix package from nixpkgs. Returns None if not found.
 pub fn nix_eval_version(pkg: &str) -> Result<Option<String>> {
+    tracing::debug!(%pkg, "querying nixpkgs version");
     let output = Command::new(find_nix())
         .args(["eval", &format!("nixpkgs#{pkg}.version"), "--raw"])
         .stderr(std::process::Stdio::null())
@@ -237,14 +248,8 @@ pub fn nix_search(query: &str) -> Result<()> {
 }
 
 /// Resolve the absolute path to darwin-rebuild so sudo can find it.
+/// Checks well-known locations first to prevent PATH-based binary injection.
 fn find_darwin_rebuild() -> Result<String> {
-    // Check if darwin-rebuild is directly available in PATH
-    if let Ok(output) = Command::new("darwin-rebuild").arg("--help").output() {
-        if output.status.success() {
-            return Ok("darwin-rebuild".to_string());
-        }
-    }
-
     // Known locations after nix-darwin activation
     let candidates = [
         "/run/current-system/sw/bin/darwin-rebuild",
@@ -256,6 +261,13 @@ fn find_darwin_rebuild() -> Result<String> {
         }
     }
 
+    // Fall back to PATH-based lookup if no well-known path exists
+    if let Ok(output) = Command::new("darwin-rebuild").arg("--help").output() {
+        if output.status.success() {
+            return Ok("darwin-rebuild".to_string());
+        }
+    }
+
     bail!(
         "darwin-rebuild not found — is nix-darwin activated?\n\
          hint: run `nex init` first, or see nex.styrene.io"
@@ -263,13 +275,8 @@ fn find_darwin_rebuild() -> Result<String> {
 }
 
 /// Resolve the absolute path to nixos-rebuild.
+/// Checks well-known locations first to prevent PATH-based binary injection.
 fn find_nixos_rebuild() -> Result<String> {
-    if let Ok(output) = Command::new("nixos-rebuild").arg("--help").output() {
-        if output.status.success() {
-            return Ok("nixos-rebuild".to_string());
-        }
-    }
-
     let candidates = [
         "/run/current-system/sw/bin/nixos-rebuild",
         "/nix/var/nix/profiles/system/sw/bin/nixos-rebuild",
@@ -277,6 +284,13 @@ fn find_nixos_rebuild() -> Result<String> {
     for path in &candidates {
         if std::path::Path::new(path).exists() {
             return Ok(path.to_string());
+        }
+    }
+
+    // Fall back to PATH-based lookup if no well-known path exists
+    if let Ok(output) = Command::new("nixos-rebuild").arg("--help").output() {
+        if output.status.success() {
+            return Ok("nixos-rebuild".to_string());
         }
     }
 
@@ -290,6 +304,7 @@ fn find_nixos_rebuild() -> Result<String> {
 /// After a successful switch, re-registers nix .app bundles with LaunchServices
 /// so Spotlight displays correct icons.
 pub fn darwin_rebuild_switch(repo: &Path, hostname: &str) -> Result<()> {
+    tracing::info!(repo = %repo.display(), %hostname, "system rebuild switch");
     ensure_profile_dirs();
     let dr = find_darwin_rebuild()?;
     run(Command::new("sudo")
@@ -301,6 +316,7 @@ pub fn darwin_rebuild_switch(repo: &Path, hostname: &str) -> Result<()> {
 
 /// Run nixos-rebuild switch (requires sudo for system activation).
 pub fn nixos_rebuild_switch(repo: &Path, hostname: &str) -> Result<()> {
+    tracing::info!(repo = %repo.display(), %hostname, "system rebuild switch");
     ensure_profile_dirs();
     let nr = find_nixos_rebuild()?;
     run(Command::new("sudo")
@@ -325,6 +341,7 @@ pub fn system_rebuild_switch(
 /// which causes home-manager to fail with "Could not find suitable profile directory".
 /// Also fixes ~/.local ownership if the install script created it as root.
 pub fn ensure_profile_dirs() {
+    tracing::debug!("ensuring profile directories");
     let user = std::env::var("USER")
         .or_else(|_| std::env::var("LOGNAME"))
         .unwrap_or_default();

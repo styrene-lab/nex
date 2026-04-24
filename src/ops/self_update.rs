@@ -10,6 +10,7 @@ const REPO: &str = "https://github.com/styrene-lab/nex";
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub fn run() -> Result<()> {
+    tracing::info!("self-update check");
     let target = detect_target()?;
     let current = CURRENT_VERSION;
 
@@ -18,6 +19,7 @@ pub fn run() -> Result<()> {
     let latest = fetch_latest_version()?;
 
     if latest == current {
+        tracing::debug!(version = %current, "already latest");
         println!(
             "  {} nex {} is already the latest",
             style("✓").green().bold(),
@@ -26,6 +28,7 @@ pub fn run() -> Result<()> {
         return Ok(());
     }
 
+    tracing::info!(from = %current, to = %latest, "updating");
     println!(
         "  nex {} -> {}",
         style(current).yellow(),
@@ -54,17 +57,22 @@ pub fn run() -> Result<()> {
         bail!("download failed — release may not exist for {target}");
     }
 
-    // Verify SHA256 checksum if available
+    // Verify SHA256 checksum — mandatory for integrity
     let checksum_file = tmpdir.path().join("checksums.sha256");
     let checksum_dl = Command::new("curl")
         .args(["-fsSL", &checksum_url, "-o"])
         .arg(&checksum_file)
         .status();
-    if let Ok(status) = checksum_dl {
-        if status.success() {
+    match checksum_dl {
+        Ok(status) if status.success() => {
             verify_checksum(&tarball, &checksum_file, &format!("nex-{target}.tar.gz"))?;
-        } else {
-            output::warn("checksum file not available — skipping verification");
+            tracing::debug!("checksum verified");
+        }
+        _ => {
+            bail!(
+                "could not download checksum file — cannot verify binary integrity.\n\
+                 Download manually from: {REPO}/releases"
+            );
         }
     }
 
@@ -212,15 +220,16 @@ fn verify_checksum(
             "no checksum found for {expected_name} in checksum file"
         ))?;
 
-    // Compute actual hash using shasum (available on macOS and most Linux)
+    // Compute actual hash — try shasum (macOS/Perl), fall back to sha256sum (GNU coreutils)
     let output = Command::new("shasum")
         .args(["-a", "256"])
         .arg(file)
         .output()
-        .context("failed to run shasum")?;
+        .or_else(|_| Command::new("sha256sum").arg(file).output())
+        .context("neither shasum nor sha256sum available")?;
 
     if !output.status.success() {
-        bail!("shasum failed");
+        bail!("checksum computation failed");
     }
 
     let actual_hash = String::from_utf8_lossy(&output.stdout)

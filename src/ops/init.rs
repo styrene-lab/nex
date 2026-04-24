@@ -9,6 +9,7 @@ use crate::output;
 
 /// Run `nex init` — bootstrap nix (+ homebrew on macOS) and a system config.
 pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
+    tracing::info!(from = ?from, dry_run, "init");
     let platform = discover::detect_platform();
 
     println!();

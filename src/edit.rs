@@ -8,6 +8,7 @@ use crate::nixfile::NixList;
 
 /// Find the line range (start inclusive, end inclusive) of a NixList in the file lines.
 fn find_list_range(lines: &[String], list: &NixList) -> Result<(usize, usize)> {
+    tracing::trace!(open_line = list.open_line, "searching for list range");
     let open = lines
         .iter()
         .position(|l| l.trim_start().starts_with(list.open_line))
@@ -62,10 +63,10 @@ fn validate_pkg_name(pkg: &str) -> Result<()> {
         anyhow::bail!("package name cannot be empty");
     }
     for ch in pkg.chars() {
-        if !(ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' || ch == '.') {
+        if !(ch.is_ascii_alphanumeric() || ch == '-' || ch == '_') {
             anyhow::bail!(
                 "invalid character '{}' in package name \"{}\": \
-                 only alphanumeric, hyphen, underscore, and period are allowed",
+                 only alphanumeric, hyphen, and underscore are allowed",
                 ch,
                 pkg
             );
@@ -77,6 +78,7 @@ fn validate_pkg_name(pkg: &str) -> Result<()> {
 /// Insert a package into a list. Returns true if inserted, false if already present.
 pub fn insert(path: &Path, list: &NixList, pkg: &str) -> Result<bool> {
     validate_pkg_name(pkg)?;
+    tracing::debug!(path = %path.display(), pkg, "inserting package");
     let content =
         fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     let mut lines: Vec<String> = content.lines().map(String::from).collect();
@@ -87,6 +89,7 @@ pub fn insert(path: &Path, list: &NixList, pkg: &str) -> Result<bool> {
     for line in &lines[open + 1..close] {
         if let Some(name) = list.parse_item(line) {
             if name == pkg {
+                tracing::debug!(pkg, "duplicate detected, skipping insert");
                 return Ok(false);
             }
         }
@@ -103,6 +106,8 @@ pub fn insert(path: &Path, list: &NixList, pkg: &str) -> Result<bool> {
 
 /// Remove a package from a list. Returns true if removed, false if not found.
 pub fn remove(path: &Path, list: &NixList, pkg: &str) -> Result<bool> {
+    validate_pkg_name(pkg)?;
+    tracing::debug!(path = %path.display(), pkg, "removing package");
     let content =
         fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     let mut lines: Vec<String> = content.lines().map(String::from).collect();
@@ -167,6 +172,7 @@ pub fn list_packages(path: &Path, list: &NixList) -> Result<Vec<String>> {
 
 /// Write lines to a file atomically (temp file + fsync + rename).
 fn atomic_write(path: &Path, lines: &[String]) -> Result<()> {
+    tracing::trace!(path = %path.display(), "atomic write");
     let dir = path.parent().context("file has no parent directory")?;
     let content = lines.join("\n") + "\n";
 
@@ -180,6 +186,7 @@ fn atomic_write(path: &Path, lines: &[String]) -> Result<()> {
 /// Write bytes to a file atomically (temp file + fsync + rename).
 /// Use this instead of `std::fs::write` for any file that must survive power loss.
 pub fn atomic_write_bytes(path: &Path, content: &[u8]) -> Result<()> {
+    tracing::trace!(path = %path.display(), "atomic write bytes");
     let dir = path.parent().context("file has no parent directory")?;
     let mut tmp = NamedTempFile::new_in(dir)?;
     std::io::Write::write_all(&mut tmp, content)?;
@@ -191,6 +198,7 @@ pub fn atomic_write_bytes(path: &Path, content: &[u8]) -> Result<()> {
 /// Back up a file before editing. Returns the backup path.
 pub fn backup(path: &Path) -> Result<std::path::PathBuf> {
     let backup_path = path.with_extension("nix.nex-backup");
+    tracing::debug!(path = %path.display(), backup = %backup_path.display(), "backing up file");
     let dir = path.parent().context("file has no parent directory")?;
     let content = fs::read(path).with_context(|| format!("reading {}", path.display()))?;
     let mut tmp = NamedTempFile::new_in(dir)?;
@@ -203,6 +211,7 @@ pub fn backup(path: &Path) -> Result<std::path::PathBuf> {
 
 /// Restore a file from its backup. Returns an error if the backup file is missing.
 pub fn restore(path: &Path, backup_path: &Path) -> Result<()> {
+    tracing::debug!(path = %path.display(), backup = %backup_path.display(), "restoring from backup");
     if !backup_path.exists() {
         anyhow::bail!(
             "backup file missing for {}: expected {}",
@@ -246,6 +255,7 @@ impl EditSession {
 
     /// Revert all edits by restoring backups.
     pub fn revert_all(&self) -> Result<()> {
+        tracing::warn!(count = self.backups.len(), "reverting all edits");
         let mut errors = Vec::new();
         for (original, bp) in &self.backups {
             if let Err(e) = restore(original, bp) {
@@ -261,6 +271,7 @@ impl EditSession {
 
     /// Commit all edits by deleting backups.
     pub fn commit_all(&self) -> Result<()> {
+        tracing::debug!(count = self.backups.len(), "committing all edits");
         for (_, bp) in &self.backups {
             delete_backup(bp)?;
         }

@@ -25,6 +25,7 @@ fn confirm_or_default(prompt: &str, default: bool) -> Result<bool> {
 /// `nex switch` doesn't zap anything. This is the safe onboarding path for
 /// existing Macs.
 pub fn run(config: &Config, dry_run: bool) -> Result<()> {
+    tracing::info!("adopting brew packages");
     if !exec::brew_available() {
         output::error("brew not found — nothing to adopt");
         return Ok(());

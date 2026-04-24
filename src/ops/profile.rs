@@ -909,6 +909,13 @@ fn apply_taps(config: &Config, pkgs: &ProfilePackages, dry_run: bool) -> Result<
         let tap_lines: Vec<String> = taps.iter().map(|t| format!("      \"{t}\"")).collect();
         let tap_block = format!("\n    taps = [\n{}\n    ];\n", tap_lines.join("\n"));
         let patched = content.replace("    brews = [", &format!("{tap_block}    brews = ["));
+        if patched == content {
+            tracing::warn!(
+                pattern = "    brews = [",
+                "replacement had no effect — manual edit may be required"
+            );
+            crate::output::warn("could not insert taps block — 'brews = [' pattern not found in homebrew.nix; manual edit may be required");
+        }
         crate::edit::atomic_write_bytes(&config.homebrew_file, patched.as_bytes())?;
     }
 
@@ -1115,9 +1122,25 @@ fn wire_shell_import(config: &Config, scaffolded: bool) -> Result<()> {
             let content = std::fs::read_to_string(&home_nix)?;
             if !content.contains("shell.nix") {
                 let patched = if content.contains("imports = [") {
-                    content.replace("imports = [", "imports = [\n    ./shell.nix")
+                    let p = content.replace("imports = [", "imports = [\n    ./shell.nix");
+                    if p == content {
+                        tracing::warn!(
+                            pattern = "imports = [",
+                            "replacement had no effect — manual edit may be required"
+                        );
+                        crate::output::warn("could not wire shell.nix import — 'imports = [' pattern not found in home.nix; manual edit may be required");
+                    }
+                    p
                 } else {
-                    content.replace("{\n", "{\n  imports = [ ./shell.nix ];\n\n")
+                    let p = content.replace("{\n", "{\n  imports = [ ./shell.nix ];\n\n");
+                    if p == content {
+                        tracing::warn!(
+                            pattern = "{\\n",
+                            "replacement had no effect — manual edit may be required"
+                        );
+                        crate::output::warn("could not wire shell.nix import — opening brace pattern not found in home.nix; manual edit may be required");
+                    }
+                    p
                 };
                 crate::edit::atomic_write_bytes(&home_nix, patched.as_bytes())?;
             }
@@ -2049,6 +2072,13 @@ fn apply_linux(config: &Config, linux: &ProfileLinux, dry_run: bool) -> Result<(
                     "../../modules/nixos/base.nix",
                     "../../modules/nixos/base.nix\n    ../../modules/nixos/desktop.nix",
                 );
+                if patched == content {
+                    tracing::warn!(
+                        pattern = "../../modules/nixos/base.nix",
+                        "replacement had no effect — manual edit may be required"
+                    );
+                    crate::output::warn("could not wire desktop.nix import — 'base.nix' import pattern not found in host default.nix; manual edit may be required");
+                }
                 crate::edit::atomic_write_bytes(&host_default, patched.as_bytes())?;
             }
         }
@@ -2064,6 +2094,12 @@ fn apply_linux(config: &Config, linux: &ProfileLinux, dry_run: bool) -> Result<(
                     patched.push_str("\n  imports = [ ./desktop.nix ];");
                     patched.push_str(&content[brace_pos + 1..]);
                     crate::edit::atomic_write_bytes(&config_nix, patched.as_bytes())?;
+                } else {
+                    tracing::warn!(file = %config_nix.display(), "no opening brace found — cannot insert desktop.nix import");
+                    crate::output::warn(&format!(
+                        "could not wire desktop.nix import — no opening '{{' found in {}; manual edit may be required",
+                        config_nix.display()
+                    ));
                 }
             }
         }

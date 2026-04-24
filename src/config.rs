@@ -34,6 +34,7 @@ struct FileConfig {
 impl Config {
     /// Resolve configuration from CLI args, env vars, config file, and auto-discovery.
     pub fn resolve(cli_repo: Option<PathBuf>, cli_hostname: Option<String>) -> Result<Self> {
+        tracing::debug!(cli_repo = ?cli_repo, cli_hostname = ?cli_hostname, "resolving config");
         let file_config = load_file_config().unwrap_or_default();
         let platform = discover::detect_platform();
 
@@ -53,10 +54,14 @@ impl Config {
             .or_else(|| discover::find_repo().ok())
             .context(not_found_msg)?;
 
+        tracing::debug!(repo = %repo.display(), "config repo resolved");
+
         let hostname = cli_hostname
             .or(file_config.hostname)
             .or_else(|| discover::hostname().ok())
             .context("Could not detect hostname. Set NEX_HOSTNAME.")?;
+
+        tracing::debug!(%hostname, "hostname resolved");
 
         // Validate hostname: alphanumeric and hyphens only, no leading/trailing hyphen
         if hostname.is_empty()
@@ -113,6 +118,7 @@ impl Config {
                     if stem == "base" || stem == "default" {
                         continue;
                     }
+                    tracing::debug!(module = %stem, path = %path.display(), "discovered module");
                     module_files.push((stem, path));
                 }
             }
@@ -144,45 +150,38 @@ impl Config {
 
 /// Persist a key=value into the config file, preserving existing content.
 pub fn set_preference(key: &str, value: &str) -> Result<()> {
+    tracing::debug!(%key, %value, "setting preference");
     let path = config_dir()?.join("config.toml");
-    let mut content = if path.exists() {
+    let content = if path.exists() {
         std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?
     } else {
         String::new()
     };
 
-    // Replace existing key or append
-    let line = format!("{key} = {value}");
-    let mut found = false;
-    let updated: Vec<String> = content
-        .lines()
-        .map(|l| {
-            let trimmed = l.trim_start();
-            let is_match = trimmed
-                .split('=')
-                .next()
-                .map(|k| k.trim() == key)
-                .unwrap_or(false);
-            if is_match {
-                found = true;
-                line.clone()
-            } else {
-                l.to_string()
-            }
-        })
-        .collect();
+    // Parse existing config as a TOML table
+    let mut table: toml::map::Map<String, toml::Value> = if content.is_empty() {
+        toml::map::Map::new()
+    } else {
+        toml::from_str(&content).with_context(|| format!("parsing {}", path.display()))?
+    };
 
-    content = updated.join("\n");
-    if !found {
-        if !content.ends_with('\n') && !content.is_empty() {
-            content.push('\n');
-        }
-        content.push_str(&line);
-        content.push('\n');
-    }
+    // Parse the value string as a TOML value
+    let parsed_value: toml::Value =
+        toml::from_str::<toml::map::Map<String, toml::Value>>(&format!("v = {value}"))
+            .with_context(|| format!("invalid TOML value: {value}"))
+            .and_then(|t| {
+                t.into_iter()
+                    .next()
+                    .map(|(_, v)| v)
+                    .context("empty TOML parse result")
+            })?;
+
+    table.insert(key.to_string(), parsed_value);
+
+    let serialized = toml::to_string(&table).context("serializing config")?;
 
     std::fs::create_dir_all(config_dir()?)?;
-    crate::edit::atomic_write_bytes(&path, content.as_bytes())
+    crate::edit::atomic_write_bytes(&path, serialized.as_bytes())
         .with_context(|| format!("writing {}", path.display()))?;
     Ok(())
 }
@@ -197,6 +196,7 @@ fn load_file_config() -> Result<FileConfig> {
     // Primary: ~/.config/nex/config.toml (documented, discoverable)
     let primary = config_dir()?.join("config.toml");
     if primary.exists() {
+        tracing::debug!(path = %primary.display(), "loaded config file");
         let content = std::fs::read_to_string(&primary)
             .with_context(|| format!("reading {}", primary.display()))?;
         return toml::from_str(&content)
