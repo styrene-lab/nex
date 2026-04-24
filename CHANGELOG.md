@@ -2,6 +2,29 @@
 
 All notable changes to nex are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.13.2] - 2026-04-24
+
+### Added
+- **Structured tracing** via `tracing` crate -- set `NEX_LOG=debug` (or `NEX_LOG=nex::edit=trace`) for full diagnostic output across config resolution, package resolution, file editing, and command execution
+- Checksum verification in `install.sh` -- first-time installs now verify SHA256 before extracting
+
+### Changed
+- Checksum verification in `nex self-update` is now **mandatory** (was optional/warn-only)
+- `shasum` falls back to `sha256sum` for Alpine/musl/NixOS compatibility
+- `find_nix`, `find_darwin_rebuild`, `find_nixos_rebuild` now check well-known paths before PATH (prevents PATH injection)
+- Release workflow GitHub Actions pinned to commit SHAs
+- `set_preference` uses `toml` crate for proper parse/modify/serialize instead of hand-rolled line splitting
+- Doctor mac-app-util patching uses line-by-line insertion instead of brittle multi-line string replacement
+- Profile string replacements detect and warn on silent no-ops instead of writing unchanged files
+- All `std::fs::write` calls in `init.rs` scaffold replaced with `atomic_write_bytes`
+- Polymerize partition sequence polls for device readiness (10s timeout) instead of fixed `sleep(1)`
+
+### Fixed
+- `parse_item` quote parsing: `strip_prefix('"')` replaces `trim_start_matches('"')` (no longer eats all leading quotes)
+- `validate_pkg_name` no longer allows dots (consistent with `parse_item` rejection of dotted identifiers)
+- `validate_pkg_name` now called on `remove()` too, not just `insert()`
+- Polymerize `umount` failures now warned instead of silently ignored
+
 ## [0.13.1] - 2026-04-24
 
 ### Changed
@@ -134,6 +157,7 @@ All notable changes to nex are documented here. Format follows [Keep a Changelog
 - Cross-platform prebuilt binaries (aarch64-darwin, x86_64-darwin, aarch64-linux, x86_64-linux)
 - Published to crates.io as `nex-pkg`
 
+[0.13.2]: https://github.com/styrene-lab/nex/compare/v0.13.1...v0.13.2
 [0.13.1]: https://github.com/styrene-lab/nex/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/styrene-lab/nex/compare/v0.12.0...v0.13.0
 [0.12.0]: https://github.com/styrene-lab/nex/compare/v0.11.0...v0.12.0
