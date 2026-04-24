@@ -27,3 +27,18 @@ jobs:
 
       - name: Test
         run: cargo test
+
+      - name: Version consistency
+        run: |
+          CARGO_VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
+          # CHANGELOG must have an entry for the current version
+          if ! grep -q "## \[${CARGO_VERSION}\]" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no entry for v${CARGO_VERSION} (from Cargo.toml)"
+            exit 1
+          fi
+          # Flake reads version from Cargo.toml at eval time — verify with a quick grep
+          if grep -q 'version = "' flake.nix && ! grep -q 'cargoToml.package.version' flake.nix; then
+            echo "::error::flake.nix has a hardcoded version — use cargoToml.package.version"
+            exit 1
+          fi
+          echo "Version ${CARGO_VERSION} is consistent across Cargo.toml, CHANGELOG.md, and flake.nix"
