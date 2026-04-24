@@ -18,8 +18,8 @@
         {
           default = pkgs.rustPlatform.buildRustPackage {
             pname = "nex";
-            version = "0.10.0";
-            src = ./.;
+            version = "0.13.2";
+            src = pkgs.lib.cleanSource ./.;
             cargoLock.lockFile = ./Cargo.lock;
             meta = with pkgs.lib; {
               description = "Package manager UX for nix-darwin + homebrew";
