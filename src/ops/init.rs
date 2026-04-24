@@ -80,14 +80,28 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
     }
 
     // 2. Check / install Homebrew (macOS only)
+    //
+    // Scaffolded configs declare nix-homebrew, which installs and pins brew
+    // during the first `darwin-rebuild switch` — no imperative install needed.
+    // For --from clones we don't know what's in the user's flake, so fall back
+    // to the shell installer if brew is missing.
     let _has_brew = if platform == Platform::Darwin {
         let has_brew = check_cmd("brew");
         if has_brew {
             ok("homebrew", &capture_version("brew", &["--version"]));
         } else if dry_run {
-            output::dry_run("would install Homebrew");
-        } else {
+            if from.is_some() {
+                output::dry_run("would install Homebrew (clone path)");
+            } else {
+                output::dry_run("Homebrew will be installed by nix-homebrew on first switch");
+            }
+        } else if from.is_some() {
             install_homebrew()?;
+        } else {
+            info(
+                "homebrew",
+                "deferred — nix-homebrew will install on first switch",
+            );
         }
         has_brew || !dry_run
     } else {
@@ -687,6 +701,12 @@ fn scaffold_darwin(
     system: &str,
     user: &str,
 ) -> Result<()> {
+    let enable_rosetta = if system == "aarch64-darwin" {
+        "true"
+    } else {
+        "false"
+    };
+
     // flake.nix
     std::fs::write(
         repo_path.join("flake.nix"),
@@ -705,11 +725,27 @@ fn scaffold_darwin(
       inputs.nixpkgs.follows = "nixpkgs";
     }};
     mac-app-util.url = "github:hraban/mac-app-util";
+
+    # Declarative Homebrew installation (the brew binary itself + taps).
+    # Package lists live in nix-darwin's homebrew.brews/casks options.
+    nix-homebrew.url = "github:zhaofengli/nix-homebrew";
+    homebrew-core = {{
+      url = "github:homebrew/homebrew-core";
+      flake = false;
+    }};
+    homebrew-cask = {{
+      url = "github:homebrew/homebrew-cask";
+      flake = false;
+    }};
   }};
 
-  outputs = {{ self, nixpkgs, nix-darwin, home-manager, mac-app-util }}:
+  outputs = {{ self, nixpkgs, nix-darwin, home-manager, mac-app-util,
+              nix-homebrew, homebrew-core, homebrew-cask }}:
     let
-      mkHost = import ./nix/lib/mkHost.nix {{ inherit nixpkgs nix-darwin home-manager mac-app-util; }};
+      mkHost = import ./nix/lib/mkHost.nix {{
+        inherit nixpkgs nix-darwin home-manager mac-app-util
+                nix-homebrew homebrew-core homebrew-cask;
+      }};
     in
     {{
       darwinConfigurations."{hostname}" = mkHost {{
@@ -727,16 +763,21 @@ fn scaffold_darwin(
     // mkHost.nix
     std::fs::write(
         lib_dir.join("mkHost.nix"),
-        r#"{ nixpkgs, nix-darwin, home-manager, mac-app-util }:
+        r#"{ nixpkgs, nix-darwin, home-manager, mac-app-util,
+    nix-homebrew, homebrew-core, homebrew-cask }:
 
 { hostname, system, username, hostModule }:
 
 nix-darwin.lib.darwinSystem {
   inherit system;
-  specialArgs = { inherit hostname username; };
+  specialArgs = {
+    inherit hostname username;
+    inherit homebrew-core homebrew-cask;
+  };
   modules = [
     hostModule
     mac-app-util.darwinModules.default
+    nix-homebrew.darwinModules.nix-homebrew
     home-manager.darwinModules.home-manager
     {
       home-manager = {
@@ -813,23 +854,43 @@ nix-darwin.lib.darwinSystem {
     // darwin/homebrew.nix
     std::fs::write(
         darwin_dir.join("homebrew.nix"),
-        r#"{ ... }:
+        format!(
+            r#"{{ config, username, homebrew-core, homebrew-cask, ... }}:
 
-{
-  homebrew = {
+{{
+  # nix-homebrew installs and pins Homebrew itself + the core/cask taps.
+  # It does NOT install packages — that's still done by the homebrew.* options below.
+  nix-homebrew = {{
     enable = true;
-    onActivation = {
-      autoUpdate = true;
+    enableRosetta = {enable_rosetta};
+    user = username;
+    taps = {{
+      "homebrew/homebrew-core" = homebrew-core;
+      "homebrew/homebrew-cask" = homebrew-cask;
+    }};
+    mutableTaps = false;
+  }};
+
+  homebrew = {{
+    enable = true;
+    # Keep nix-darwin's tap list aligned with nix-homebrew's pinned taps.
+    taps = builtins.attrNames config.nix-homebrew.taps;
+    onActivation = {{
+      # Taps are pinned via flake inputs and live in the read-only /nix/store,
+      # so `brew update` (which does git fetch+reset inside the tap dir) fails.
+      # Run `nex update` to bump the pinned tap content instead.
+      autoUpdate = false;
       upgrade = true;
       cleanup = "zap";
-    };
+    }};
     brews = [
     ];
     casks = [
     ];
-  };
-}
-"#,
+  }};
+}}
+"#
+        ),
     )?;
 
     Ok(())

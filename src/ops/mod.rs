@@ -13,6 +13,7 @@ pub mod list;
 pub mod migrate;
 pub mod polymerize;
 pub mod profile;
+pub mod relocate;
 pub mod remove;
 pub mod rollback;
 pub mod search;

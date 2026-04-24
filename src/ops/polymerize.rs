@@ -186,7 +186,7 @@ pub fn run(bundle: Option<&Path>) -> Result<()> {
     println!();
     exec_partition(&disk)?;
     exec_mount(&disk)?;
-    exec_generate_hardware()?;
+    exec_generate_hardware(&username)?;
     exec_write_config(
         &hostname,
         &username,
@@ -194,7 +194,8 @@ pub fn run(bundle: Option<&Path>) -> Result<()> {
         &disk,
         profile_toml.as_deref(),
     )?;
-    exec_install(&hostname)?;
+    exec_install(&hostname, &username)?;
+    exec_chown_config(&username)?;
     exec_set_passwords(&username)?;
 
     // Write nex config so future `nex` commands find the installed repo
@@ -796,7 +797,14 @@ fn exec_mount(disk: &str) -> Result<()> {
     Ok(())
 }
 
-fn exec_generate_hardware() -> Result<()> {
+/// Path on the live ISO that maps to the installed system's user-owned config
+/// directory. Writing here means the config lives at ~/nix-config after reboot,
+/// which avoids the /etc/nixos sudo trap.
+fn config_dir_for(username: &str) -> String {
+    format!("/mnt/home/{username}/nix-config")
+}
+
+fn exec_generate_hardware(username: &str) -> Result<()> {
     println!(
         "  {} Generating hardware-configuration.nix...",
         style(">>>").bold()
@@ -811,8 +819,12 @@ fn exec_generate_hardware() -> Result<()> {
         bail!("nixos-generate-config failed");
     }
 
-    std::fs::create_dir_all("/mnt/etc/nixos")?;
-    std::fs::write("/mnt/etc/nixos/hardware-configuration.nix", &output.stdout)?;
+    let config_dir = config_dir_for(username);
+    std::fs::create_dir_all(&config_dir)?;
+    std::fs::write(
+        format!("{config_dir}/hardware-configuration.nix"),
+        &output.stdout,
+    )?;
 
     println!("  {} Hardware detected", style("✓").green().bold());
     Ok(())
@@ -827,7 +839,9 @@ fn exec_write_config(
 ) -> Result<()> {
     println!("  {} Writing NixOS configuration...", style(">>>").bold());
 
-    let config_dir = Path::new("/mnt/etc/nixos");
+    let config_dir_string = config_dir_for(username);
+    let config_dir = Path::new(&config_dir_string);
+    std::fs::create_dir_all(config_dir)?;
 
     // Parse profile for [linux] section if available
     let profile: Option<toml::Value> = profile_toml.and_then(|t| toml::from_str(t).ok());
@@ -1057,7 +1071,7 @@ fn exec_write_config(
     Ok(())
 }
 
-fn exec_install(hostname: &str) -> Result<()> {
+fn exec_install(hostname: &str, username: &str) -> Result<()> {
     // Set generous download buffer to avoid pressure warnings on large installs
     std::env::set_var("NIX_DOWNLOAD_BUFFER_SIZE", "1073741824");
 
@@ -1105,10 +1119,11 @@ fn exec_install(hostname: &str) -> Result<()> {
         style(">>>").bold()
     );
 
+    let config_dir = config_dir_for(username);
     let status = Command::new("nixos-install")
         .args([
             "--flake",
-            &format!("/mnt/etc/nixos#{hostname}"),
+            &format!("{config_dir}#{hostname}"),
             "--no-root-passwd",
         ])
         .env("NIX_DOWNLOAD_BUFFER_SIZE", "1073741824")
@@ -1118,13 +1133,47 @@ fn exec_install(hostname: &str) -> Result<()> {
 
     if !status.success() {
         bail!(
-            "nixos-install failed. Check the configuration at /mnt/etc/nixos/\n\
-             You can fix issues and re-run: nixos-install --flake /mnt/etc/nixos#{}",
-            hostname
+            "nixos-install failed. Check the configuration at {config_dir}/\n\
+             You can fix issues and re-run: nixos-install --flake {config_dir}#{hostname}"
         );
     }
 
     println!("  {} NixOS installed", style("✓").green().bold());
+    Ok(())
+}
+
+/// Hand the config directory to the target user. We wrote it as root from the
+/// live ISO, so without this it would land at /home/<user>/nix-config owned by
+/// root — defeating the whole point of moving off /etc/nixos.
+fn exec_chown_config(username: &str) -> Result<()> {
+    println!(
+        "  {} Chowning /home/{username}/nix-config to {username}...",
+        style(">>>").bold(),
+    );
+
+    let status = Command::new("nixos-enter")
+        .args([
+            "--root",
+            "/mnt",
+            "--",
+            "chown",
+            "-R",
+            &format!("{username}:users"),
+            &format!("/home/{username}/nix-config"),
+        ])
+        .status()
+        .context("nixos-enter chown failed")?;
+
+    if !status.success() {
+        // Non-fatal: user can re-chown after first boot.
+        println!(
+            "  {} chown failed — run after reboot: \
+             sudo chown -R {username}:users ~/nix-config",
+            style("!").yellow()
+        );
+    } else {
+        println!("  {} Config owned by {username}", style("✓").green().bold());
+    }
     Ok(())
 }
 
@@ -1179,7 +1228,8 @@ fn exec_write_nex_config(hostname: &str, username: &str) -> Result<()> {
     let nex_config_dir = format!("/mnt/home/{username}/.config/nex");
     std::fs::create_dir_all(&nex_config_dir)?;
 
-    let config_content = format!("repo_path = \"/etc/nixos\"\nhostname = \"{hostname}\"\n");
+    let config_content =
+        format!("repo_path = \"/home/{username}/nix-config\"\nhostname = \"{hostname}\"\n");
     std::fs::write(format!("{nex_config_dir}/config.toml"), &config_content)?;
 
     // Fix ownership — nixos-enter resolves the username inside the installed system

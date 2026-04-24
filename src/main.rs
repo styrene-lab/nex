@@ -21,6 +21,7 @@ fn main() -> Result<()> {
     // Commands that don't need config resolution
     match cli.command {
         Command::Init { from } => return ops::init::run(from, cli.dry_run),
+        Command::Relocate { ref to } => return ops::relocate::run(to.as_deref(), cli.dry_run),
         Command::Search { query } => return ops::search::run(&query),
         Command::SelfUpdate => return ops::self_update::run(),
         Command::Gc => return ops::gc::run(cli.dry_run),
@@ -95,6 +96,7 @@ fn main() -> Result<()> {
         Command::Diff => ops::diff::run(&config),
         // Already handled above
         Command::Init { .. }
+        | Command::Relocate { .. }
         | Command::Search { .. }
         | Command::SelfUpdate
         | Command::Gc

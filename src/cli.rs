@@ -33,6 +33,13 @@ pub enum Command {
         #[arg(long)]
         from: Option<String>,
     },
+    /// Move a system-owned config (e.g. /etc/nixos) into a user-writable
+    /// directory so nex no longer needs sudo to read or edit it.
+    Relocate {
+        /// Target path. Defaults to ~/nix-config.
+        #[arg(long)]
+        to: Option<PathBuf>,
+    },
     /// Capture all installed brew packages into the nex config
     Adopt,
     /// Install packages

@@ -149,7 +149,9 @@ pub fn find_repo() -> Result<PathBuf> {
             home.join("nix-config"),
             home.join(".config/nix-darwin"),
             home.join(".config/nixos"),
-            // System-level NixOS config (written by polymerize)
+            // Legacy: NixOS configs were dropped in /etc/nixos by older polymerize
+            // runs and the upstream nixos-install installer. nex relocate moves
+            // these into ~/nix-config; the path stays here for back-compat.
             PathBuf::from("/etc/nixos"),
         ];
         for path in &candidates {

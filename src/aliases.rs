@@ -5,30 +5,72 @@
 /// paths both consult this table.
 /// (input_name, nixpkgs_attr)
 const ALIASES: &[(&str, &str)] = &[
-    // Binary name -> nixpkgs attr
+    // ── CLI tools: binary name -> nixpkgs attr ─────────────────────────────
     ("rg", "ripgrep"),
     ("fd", "fd"),
     ("bat", "bat"),
     ("lg", "lazygit"),
     ("hx", "helix"),
-    // Common name -> nixpkgs attr (where they differ)
+    ("gh", "gh"),
+    ("jq", "jq"),
+    ("yq", "yq-go"),
+    ("htop", "htop"),
+    ("btop", "btop"),
+    ("tmux", "tmux"),
+    ("direnv", "direnv"),
+    ("kubectl", "kubectl"),
+    ("k9s", "k9s"),
+    ("helm", "kubernetes-helm"),
+    // ── Editors / IDEs ─────────────────────────────────────────────────────
     ("zed", "zed-editor"),
     ("neovim", "neovim"),
     ("nvim", "neovim"),
     ("code", "vscode"),
     ("visual-studio-code", "vscode"),
-    ("1password", "_1password-gui"),
-    ("1password-cli", "_1password"),
-    ("docker", "docker"),
-    ("docker-desktop", "docker"),
-    ("zoom", "zoom-us"),
     ("sublime", "sublime4"),
     ("sublime-text", "sublime4"),
+    // ── Communication ──────────────────────────────────────────────────────
+    ("signal", "signal-desktop"),
+    ("telegram", "telegram-desktop"),
+    ("element", "element-desktop"),
+    ("whatsapp", "whatsapp-for-linux"),
+    ("slack", "slack"),
+    ("discord", "discord"),
+    ("thunderbird", "thunderbird"),
+    ("zoom", "zoom-us"),
+    // ── Browsers ───────────────────────────────────────────────────────────
+    ("firefox", "firefox"),
+    ("brave", "brave"),
+    ("chrome", "google-chrome"),
+    ("google-chrome", "google-chrome"),
+    ("edge", "microsoft-edge"),
+    // ── Media / creative ───────────────────────────────────────────────────
+    ("vlc", "vlc"),
+    ("mpv", "mpv"),
+    ("obs", "obs-studio"),
+    ("gimp", "gimp"),
+    ("inkscape", "inkscape"),
+    ("blender", "blender"),
+    ("krita", "krita"),
+    ("audacity", "audacity"),
+    // ── Productivity ───────────────────────────────────────────────────────
+    ("obsidian", "obsidian"),
+    ("libreoffice", "libreoffice"),
+    ("bitwarden", "bitwarden-desktop"),
+    ("joplin", "joplin-desktop"),
+    // ── Dev tools / runtimes ───────────────────────────────────────────────
+    ("docker", "docker"),
+    ("docker-desktop", "docker"),
+    ("node", "nodejs"),
+    ("nodejs", "nodejs"),
     ("terraform", "terraform"),
     ("hashicorp-terraform", "terraform"),
     ("vault", "vault"),
     ("hashicorp-vault", "vault"),
-    // Python version aliases
+    // ── Identity ───────────────────────────────────────────────────────────
+    ("1password", "_1password-gui"),
+    ("1password-cli", "_1password"),
+    // ── Python version aliases ─────────────────────────────────────────────
     ("python3", "python3"),
     ("python", "python3"),
 ];
@@ -37,34 +79,57 @@ const ALIASES: &[(&str, &str)] = &[
 /// Used by the resolver to check casks under the correct name when the
 /// user types a shorthand or nixpkgs attr name.
 const BREW_CASK_ALIASES: &[(&str, &str)] = &[
-    // Editors
+    // ── Editors ────────────────────────────────────────────────────────────
     ("vscode", "visual-studio-code"),
     ("code", "visual-studio-code"),
     ("zed", "zed"),
     ("zed-editor", "zed"),
     ("sublime", "sublime-text"),
     ("sublime4", "sublime-text"),
-    // Communication
+    // ── Communication ──────────────────────────────────────────────────────
     ("slack", "slack"),
     ("discord", "discord"),
     ("zoom", "zoom"),
     ("zoom-us", "zoom"),
     ("spotify", "spotify"),
     ("postman", "postman"),
-    // Browsers
+    ("signal", "signal"),
+    ("signal-desktop", "signal"),
+    ("telegram", "telegram"),
+    ("telegram-desktop", "telegram"),
+    ("element", "element"),
+    ("element-desktop", "element"),
+    ("whatsapp", "whatsapp"),
+    ("thunderbird", "thunderbird"),
+    // ── Browsers ───────────────────────────────────────────────────────────
     ("firefox", "firefox"),
     ("chrome", "google-chrome"),
     ("google-chrome", "google-chrome"),
     ("brave", "brave-browser"),
-    // Dev tools
+    ("edge", "microsoft-edge"),
+    ("microsoft-edge", "microsoft-edge"),
+    // ── Media / creative ───────────────────────────────────────────────────
+    ("vlc", "vlc"),
+    ("obs", "obs"),
+    ("obs-studio", "obs"),
+    ("gimp", "gimp"),
+    ("inkscape", "inkscape"),
+    ("blender", "blender"),
+    ("krita", "krita"),
+    ("audacity", "audacity"),
+    // ── Productivity ───────────────────────────────────────────────────────
+    ("obsidian", "obsidian"),
+    ("libreoffice", "libreoffice"),
+    ("bitwarden", "bitwarden"),
+    ("bitwarden-desktop", "bitwarden"),
+    // ── Dev tools ──────────────────────────────────────────────────────────
     ("docker", "docker"),
     ("docker-desktop", "docker"),
     ("iterm2", "iterm2"),
     ("wezterm", "wezterm"),
-    ("obsidian", "obsidian"),
     ("1password", "1password"),
     ("_1password-gui", "1password"),
-    // Hashicorp
+    // ── Hashicorp ──────────────────────────────────────────────────────────
     ("terraform", "hashicorp-terraform"),
     ("vault", "hashicorp-vault"),
 ];
@@ -145,5 +210,23 @@ mod tests {
         assert!(names.contains(&"code"));
         assert!(names.contains(&"visual-studio-code"));
         assert!(names.contains(&"vscode"));
+    }
+
+    #[test]
+    fn test_common_app_aliases() {
+        assert_eq!(nixpkgs_attr("signal"), "signal-desktop");
+        assert_eq!(nixpkgs_attr("chrome"), "google-chrome");
+        assert_eq!(nixpkgs_attr("node"), "nodejs");
+        assert_eq!(nixpkgs_attr("yq"), "yq-go");
+        assert_eq!(nixpkgs_attr("helm"), "kubernetes-helm");
+        assert_eq!(nixpkgs_attr("obs"), "obs-studio");
+    }
+
+    #[test]
+    fn test_brew_cask_common() {
+        assert_eq!(brew_cask_name("signal"), Some("signal"));
+        assert_eq!(brew_cask_name("signal-desktop"), Some("signal"));
+        assert_eq!(brew_cask_name("edge"), Some("microsoft-edge"));
+        assert_eq!(brew_cask_name("bitwarden-desktop"), Some("bitwarden"));
     }
 }
