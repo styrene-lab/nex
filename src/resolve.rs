@@ -120,6 +120,32 @@ pub fn resolve(pkg: &str) -> Result<ResolveResult> {
     })
 }
 
+/// Compare two version strings with semantic version awareness.
+/// Falls back to string equality when both versions fail to parse as semver.
+fn versions_equal(a: &str, b: &str) -> bool {
+    if a == b {
+        return true;
+    }
+    // Try lenient semver parse (handles versions like "1.0" -> "1.0.0")
+    if let (Ok(va), Ok(vb)) = (
+        semver::Version::parse(a).or_else(|_| lenient_semver_parse(a)),
+        semver::Version::parse(b).or_else(|_| lenient_semver_parse(b)),
+    ) {
+        return va == vb;
+    }
+    false
+}
+
+/// Try to parse a version string that may be missing patch/minor components.
+fn lenient_semver_parse(s: &str) -> Result<semver::Version, semver::Error> {
+    let parts: Vec<&str> = s.split('.').collect();
+    match parts.len() {
+        1 => semver::Version::parse(&format!("{}.0.0", s)),
+        2 => semver::Version::parse(&format!("{}.0", s)),
+        _ => semver::Version::parse(s),
+    }
+}
+
 /// Decide which source to recommend when there's a conflict.
 /// Returns (recommended_source, reason, versions_equal).
 fn recommend(candidates: &[Candidate]) -> (Source, String, bool) {
@@ -129,7 +155,7 @@ fn recommend(candidates: &[Candidate]) -> (Source, String, bool) {
         .find(|c| c.source == Source::BrewCask || c.source == Source::BrewFormula);
 
     if let (Some(n), Some(b)) = (nix, brew) {
-        let eq = n.version == b.version;
+        let eq = versions_equal(&n.version, &b.version);
 
         if eq {
             // Same version — recommend nix (declarative, reproducible)

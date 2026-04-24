@@ -47,6 +47,53 @@ fn run(cmd: &mut Command) -> Result<()> {
     }
 }
 
+/// Stage all changes and commit in a git repo. Warns on failure instead of
+/// returning an error, since git may not be configured in all environments.
+pub fn git_commit(repo: &Path, message: &str) {
+    let add = Command::new("git")
+        .args(["add", "-A"])
+        .current_dir(repo)
+        .output();
+
+    match add {
+        Ok(o) if o.status.success() => {}
+        Ok(o) => {
+            eprintln!(
+                "  warning: git add failed (exit {}): {}",
+                o.status.code().unwrap_or(-1),
+                String::from_utf8_lossy(&o.stderr).trim()
+            );
+            return;
+        }
+        Err(e) => {
+            eprintln!("  warning: could not run git add: {e}");
+            return;
+        }
+    }
+
+    let commit = Command::new("git")
+        .args(["commit", "-m", message])
+        .current_dir(repo)
+        .output();
+
+    match commit {
+        Ok(o) if o.status.success() => {}
+        Ok(o) => {
+            let stderr = String::from_utf8_lossy(&o.stderr);
+            // "nothing to commit" is not a real failure
+            if !stderr.contains("nothing to commit") {
+                eprintln!(
+                    "  warning: git commit failed — please commit manually: {}",
+                    stderr.trim()
+                );
+            }
+        }
+        Err(e) => {
+            eprintln!("  warning: could not run git commit: {e}");
+        }
+    }
+}
+
 /// Validate that a nix package attribute exists in nixpkgs.
 pub fn nix_eval_exists(pkg: &str) -> Result<bool> {
     let output = Command::new(find_nix())

@@ -378,6 +378,7 @@ dependencies = [
  "dialoguer",
  "dirs",
  "predicates",
+ "semver",
  "serde",
  "serde_json",
  "tempfile",

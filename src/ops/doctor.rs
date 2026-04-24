@@ -25,15 +25,7 @@ pub fn run(config: &Config) -> Result<()> {
 
     if fixed > 0 {
         // Commit the changes so nix doesn't complain about dirty tree
-        let repo = &config.repo;
-        let _ = std::process::Command::new("git")
-            .args(["add", "-A"])
-            .current_dir(repo)
-            .output();
-        let _ = std::process::Command::new("git")
-            .args(["commit", "-m", "nex doctor: apply fixes"])
-            .current_dir(repo)
-            .output();
+        crate::exec::git_commit(&config.repo, "nex doctor: apply fixes");
 
         println!();
         println!(
@@ -116,7 +108,7 @@ fn check_mac_app_util(config: &Config, fixed: &mut usize) -> Result<bool> {
         return Ok(false);
     }
 
-    std::fs::write(&flake_path, &patched_flake)
+    crate::edit::atomic_write_bytes(&flake_path, patched_flake.as_bytes())
         .with_context(|| format!("writing {}", flake_path.display()))?;
     info("patched", &flake_path.display().to_string());
 
@@ -140,7 +132,7 @@ fn check_mac_app_util(config: &Config, fixed: &mut usize) -> Result<bool> {
                     "        extraSpecialArgs = { inherit hostname username; };\n        sharedModules = [\n          mac-app-util.homeManagerModules.default\n        ];\n      };",
                 );
 
-            std::fs::write(&mkhost_path, patched)
+            crate::edit::atomic_write_bytes(&mkhost_path, patched.as_bytes())
                 .with_context(|| format!("writing {}", mkhost_path.display()))?;
             info("patched", &mkhost_path.display().to_string());
         }
@@ -191,7 +183,7 @@ fn check_allow_unfree(config: &Config, fixed: &mut usize) -> Result<bool> {
         return Ok(false);
     };
 
-    std::fs::write(&base_path, patched)
+    crate::edit::atomic_write_bytes(&base_path, patched.as_bytes())
         .with_context(|| format!("writing {}", base_path.display()))?;
     info("patched", &base_path.display().to_string());
 
@@ -244,7 +236,7 @@ fn check_session_path(config: &Config, fixed: &mut usize) -> Result<bool> {
         return Ok(false);
     };
 
-    std::fs::write(base_path, patched)
+    crate::edit::atomic_write_bytes(base_path, patched.as_bytes())
         .with_context(|| format!("writing {}", base_path.display()))?;
     info("patched", &base_path.display().to_string());
 

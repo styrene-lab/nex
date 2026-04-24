@@ -186,19 +186,7 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
     // Ensure git tree is clean so nix doesn't refuse to build.
     // scaffold_repo already does git init + add + commit + identity setup,
     // but clone_repo or an adopted repo may have dirty state.
-    let _ = Command::new("git")
-        .args(["add", "-A"])
-        .current_dir(&repo_path)
-        .output();
-    let commit_status = Command::new("git")
-        .args(["commit", "-m", "nex init"])
-        .current_dir(&repo_path)
-        .output();
-    if let Err(e) = commit_status {
-        output::error(&format!(
-            "git commit failed: {e} — nix build may warn about dirty tree"
-        ));
-    }
+    crate::exec::git_commit(&repo_path, "nex init");
 
     println!();
     output::status("building (this takes a few minutes on first run)...");
@@ -253,14 +241,10 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
             if let Ok(status) = adopt_status {
                 if status.success() {
                     // Re-stage and commit the adopted packages
-                    let _ = Command::new("git")
-                        .args(["add", "-A"])
-                        .current_dir(&repo_path)
-                        .output();
-                    let _ = Command::new("git")
-                        .args(["commit", "-m", "nex adopt: capture existing brew packages"])
-                        .current_dir(&repo_path)
-                        .output();
+                    crate::exec::git_commit(
+                        &repo_path,
+                        "nex adopt: capture existing brew packages",
+                    );
                     // Rebuild with the adopted packages
                     output::status("rebuilding with adopted packages...");
                     let _ = Command::new(&nix)
@@ -682,10 +666,23 @@ fn scaffold_repo(hostname: &str, dry_run: bool) -> Result<PathBuf> {
             .output();
     }
 
-    let _ = Command::new("git")
+    let commit_out = Command::new("git")
         .args(["commit", "-m", "init: nex scaffold"])
         .current_dir(&repo_path)
         .output();
+    match commit_out {
+        Ok(o) if !o.status.success() => {
+            let stderr = String::from_utf8_lossy(&o.stderr);
+            if !stderr.contains("nothing to commit") {
+                output::warn(&format!(
+                    "git commit failed — please commit manually: {}",
+                    stderr.trim()
+                ));
+            }
+        }
+        Err(e) => output::warn(&format!("could not run git commit: {e}")),
+        _ => {}
+    }
 
     Ok(repo_path)
 }

@@ -58,6 +58,20 @@ impl Config {
             .or_else(|| discover::hostname().ok())
             .context("Could not detect hostname. Set NEX_HOSTNAME.")?;
 
+        // Validate hostname: alphanumeric and hyphens only, no leading/trailing hyphen
+        if hostname.is_empty()
+            || hostname.starts_with('-')
+            || hostname.ends_with('-')
+            || !hostname
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-')
+        {
+            anyhow::bail!(
+                "invalid hostname \"{hostname}\": must be alphanumeric with hyphens, \
+                 no leading/trailing hyphen"
+            );
+        }
+
         // Standard file locations — detect scaffolded vs flat layout
         let scaffolded = repo.join("nix/modules/home").exists();
 
@@ -82,9 +96,27 @@ impl Config {
 
         // Discover additional module files with home.packages
         let mut module_files = Vec::new();
-        let k8s_path = repo.join("nix/modules/home/kubernetes.nix");
-        if k8s_path.exists() {
-            module_files.push(("kubernetes".to_string(), k8s_path));
+        let home_modules_dir = repo.join("nix/modules/home");
+        if home_modules_dir.is_dir() {
+            if let Ok(entries) = std::fs::read_dir(&home_modules_dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.extension().and_then(|e| e.to_str()) != Some("nix") {
+                        continue;
+                    }
+                    let stem = path
+                        .file_stem()
+                        .and_then(|s| s.to_str())
+                        .unwrap_or("")
+                        .to_string();
+                    // Skip the primary packages file and module entry points
+                    if stem == "base" || stem == "default" {
+                        continue;
+                    }
+                    module_files.push((stem, path));
+                }
+            }
+            module_files.sort_by(|a, b| a.0.cmp(&b.0));
         }
 
         let prefer_nix_on_equal = file_config.prefer_nix_on_equal.unwrap_or(false);
@@ -150,7 +182,8 @@ pub fn set_preference(key: &str, value: &str) -> Result<()> {
     }
 
     std::fs::create_dir_all(config_dir()?)?;
-    std::fs::write(&path, content)?;
+    crate::edit::atomic_write_bytes(&path, content.as_bytes())
+        .with_context(|| format!("writing {}", path.display()))?;
     Ok(())
 }
 

@@ -443,7 +443,7 @@ fn fetch_nex_binary(dest: &Path) -> Result<()> {
                         // Export the nix closure so it works on target
                         let bundle_dir = dest.parent().unwrap_or(Path::new("/tmp"));
                         let cache_dir = bundle_dir.join("nix-cache");
-                        let _ = Command::new("nix")
+                        let nix_copy_status = Command::new("nix")
                             .args([
                                 "copy",
                                 "--to",
@@ -451,6 +451,9 @@ fn fetch_nex_binary(dest: &Path) -> Result<()> {
                                 &store_path,
                             ])
                             .status();
+                        if !nix_copy_status.map(|s| s.success()).unwrap_or(false) {
+                            eprintln!("  warning: nix copy failed — the bundled nex binary may not work on the target without network");
+                        }
 
                         // Write a bootstrap script as the "nex" entry point
                         let script = format!(
@@ -1276,7 +1279,10 @@ fn flash_to_usb(bundle_dir: &Path, iso_path: &Path, device: &str) -> Result<()> 
         if !dd_status.success() {
             bail!("failed to write ISO to {device}");
         }
-        let _ = Command::new("sync").status();
+        let sync_status = Command::new("sync").status();
+        if !sync_status.map(|s| s.success()).unwrap_or(false) {
+            eprintln!("  warning: sync failed — data may not be fully flushed to disk");
+        }
 
         // Check for sgdisk (gptfdisk) — required for the data partition
         let has_sgdisk = Command::new("which")
@@ -1307,7 +1313,10 @@ fn flash_to_usb(bundle_dir: &Path, iso_path: &Path, device: &str) -> Result<()> 
 
         // Move the backup GPT header to the true end of the disk
         output::status("extending partition table...");
-        let _ = Command::new("sudo").args(["sgdisk", "-e", device]).status();
+        let sgdisk_extend = Command::new("sudo").args(["sgdisk", "-e", device]).status();
+        if !sgdisk_extend.map(|s| s.success()).unwrap_or(false) {
+            eprintln!("  warning: sgdisk -e failed — data partition may not be creatable");
+        }
 
         // Add a FAT32 data partition in the free space after the ISO
         output::status("creating data partition for installer files...");
@@ -1357,14 +1366,23 @@ fn flash_to_usb(bundle_dir: &Path, iso_path: &Path, device: &str) -> Result<()> 
 
         // Format the data partition
         output::status("formatting data partition...");
-        if is_macos {
-            let _ = Command::new("sudo")
+        let mkfs_ok = if is_macos {
+            Command::new("sudo")
                 .args(["newfs_msdos", "-F", "32", "-v", "NEXDATA", &part4])
-                .status();
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false)
         } else {
-            let _ = Command::new("sudo")
+            Command::new("sudo")
                 .args(["mkfs.vfat", "-F", "32", "-n", "NEXDATA", &part4])
-                .status();
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false)
+        };
+        if !mkfs_ok {
+            eprintln!(
+                "  warning: formatting data partition failed — installer files may not be copyable"
+            );
         }
 
         // Mount and copy styrene files
@@ -1387,7 +1405,7 @@ fn flash_to_usb(bundle_dir: &Path, iso_path: &Path, device: &str) -> Result<()> 
         };
 
         if mount_ok {
-            let _ = Command::new("sudo")
+            let cp_status = Command::new("sudo")
                 .args([
                     "cp",
                     "-r",
@@ -1395,12 +1413,21 @@ fn flash_to_usb(bundle_dir: &Path, iso_path: &Path, device: &str) -> Result<()> 
                     &format!("{mount_point}/"),
                 ])
                 .status();
+            if !cp_status.map(|s| s.success()).unwrap_or(false) {
+                eprintln!("  warning: failed to copy installer files to USB data partition");
+            }
 
             if is_macos {
-                let _ = Command::new("sudo").args(["umount", mount_point]).status();
+                let umount_status = Command::new("sudo").args(["umount", mount_point]).status();
+                if !umount_status.map(|s| s.success()).unwrap_or(false) {
+                    eprintln!("  warning: failed to unmount data partition");
+                }
                 let _ = Command::new("diskutil").args(["eject", device]).status();
             } else {
-                let _ = Command::new("sudo").args(["umount", mount_point]).status();
+                let umount_status = Command::new("sudo").args(["umount", mount_point]).status();
+                if !umount_status.map(|s| s.success()).unwrap_or(false) {
+                    eprintln!("  warning: failed to unmount data partition");
+                }
             }
 
             println!();

@@ -87,36 +87,29 @@ pub fn run(config: &Config, mode: InstallMode, packages: &[String], dry_run: boo
 
 /// Check if a package is already declared in any config file.
 /// Also checks known aliases (e.g. "rg" matches "ripgrep").
+/// Uses `contains_any` to read each file at most once per list type.
 fn is_already_declared(config: &Config, pkg: &str) -> Result<bool> {
-    let names_to_check = crate::aliases::all_names_for(pkg);
+    let alias_list = crate::aliases::all_names_for(pkg);
+    // Build a combined list of names: the package itself + all aliases
+    let mut all_names: Vec<&str> = vec![pkg];
+    for alias in &alias_list {
+        if *alias != pkg {
+            all_names.push(alias);
+        }
+    }
 
-    // Check nix package lists against all known aliases
+    // Check nix package lists (one read per file)
     for nix_file in config.all_nix_package_files() {
-        if edit::contains(nix_file, &nixfile::NIX_PACKAGES, pkg)? {
+        if edit::contains_any(nix_file, &nixfile::NIX_PACKAGES, &all_names)?.is_some() {
             return Ok(true);
         }
-        for alias in &names_to_check {
-            if *alias != pkg && edit::contains(nix_file, &nixfile::NIX_PACKAGES, alias)? {
-                return Ok(true);
-            }
-        }
     }
-    // Check homebrew lists
-    if edit::contains(&config.homebrew_file, &nixfile::HOMEBREW_CASKS, pkg)? {
+    // Check homebrew lists (one read per list type)
+    if edit::contains_any(&config.homebrew_file, &nixfile::HOMEBREW_CASKS, &all_names)?.is_some() {
         return Ok(true);
     }
-    if edit::contains(&config.homebrew_file, &nixfile::HOMEBREW_BREWS, pkg)? {
+    if edit::contains_any(&config.homebrew_file, &nixfile::HOMEBREW_BREWS, &all_names)?.is_some() {
         return Ok(true);
-    }
-    for alias in &names_to_check {
-        if *alias != pkg {
-            if edit::contains(&config.homebrew_file, &nixfile::HOMEBREW_CASKS, alias)? {
-                return Ok(true);
-            }
-            if edit::contains(&config.homebrew_file, &nixfile::HOMEBREW_BREWS, alias)? {
-                return Ok(true);
-            }
-        }
     }
     Ok(false)
 }

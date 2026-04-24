@@ -14,7 +14,7 @@ fn find_list_range(lines: &[String], list: &NixList) -> Result<(usize, usize)> {
         .context(format!("could not find list opening: {}", list.open_line))?;
 
     // Walk forward from open to find the matching close.
-    // We need to match the close at the same or lesser indentation depth.
+    // The close must be at the same or lesser indentation as the open line.
     let open_indent = lines[open].len() - lines[open].trim_start().len();
     let close = lines
         .iter()
@@ -23,7 +23,7 @@ fn find_list_range(lines: &[String], list: &NixList) -> Result<(usize, usize)> {
         .find(|(_, l)| {
             let trimmed = l.trim_start();
             let indent = l.len() - trimmed.len();
-            trimmed.starts_with(list.close_line) && indent <= open_indent + 2
+            trimmed.starts_with(list.close_line) && indent <= open_indent
         })
         .map(|(i, _)| i)
         .context(format!(
@@ -55,8 +55,28 @@ pub fn contains(path: &Path, list: &NixList, pkg: &str) -> Result<bool> {
     Ok(false)
 }
 
+/// Validate that a package name is safe to insert into a nix file.
+/// Rejects names with characters that could break nix syntax or enable injection.
+fn validate_pkg_name(pkg: &str) -> Result<()> {
+    if pkg.is_empty() {
+        anyhow::bail!("package name cannot be empty");
+    }
+    for ch in pkg.chars() {
+        if !(ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' || ch == '.') {
+            anyhow::bail!(
+                "invalid character '{}' in package name \"{}\": \
+                 only alphanumeric, hyphen, underscore, and period are allowed",
+                ch,
+                pkg
+            );
+        }
+    }
+    Ok(())
+}
+
 /// Insert a package into a list. Returns true if inserted, false if already present.
 pub fn insert(path: &Path, list: &NixList, pkg: &str) -> Result<bool> {
+    validate_pkg_name(pkg)?;
     let content =
         fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     let mut lines: Vec<String> = content.lines().map(String::from).collect();
@@ -105,6 +125,29 @@ pub fn remove(path: &Path, list: &NixList, pkg: &str) -> Result<bool> {
     }
 }
 
+/// Check whether any of the given package names is present in a list.
+/// Reads the file once and checks all names in a single pass.
+/// Returns the matched name, or None if no match.
+pub fn contains_any(path: &Path, list: &NixList, names: &[&str]) -> Result<Option<String>> {
+    let content =
+        fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    let lines: Vec<String> = content.lines().map(String::from).collect();
+
+    let (open, close) = match find_list_range(&lines, list) {
+        Ok(range) => range,
+        Err(_) => return Ok(None),
+    };
+
+    for line in &lines[open + 1..close] {
+        if let Some(name) = list.parse_item(line) {
+            if names.contains(&name.as_str()) {
+                return Ok(Some(name));
+            }
+        }
+    }
+    Ok(None)
+}
+
 /// List all package names in a list within the given file.
 pub fn list_packages(path: &Path, list: &NixList) -> Result<Vec<String>> {
     let content =
@@ -122,13 +165,25 @@ pub fn list_packages(path: &Path, list: &NixList) -> Result<Vec<String>> {
     Ok(pkgs)
 }
 
-/// Write lines to a file atomically (temp file + rename).
+/// Write lines to a file atomically (temp file + fsync + rename).
 fn atomic_write(path: &Path, lines: &[String]) -> Result<()> {
     let dir = path.parent().context("file has no parent directory")?;
     let content = lines.join("\n") + "\n";
 
     let mut tmp = NamedTempFile::new_in(dir)?;
     std::io::Write::write_all(&mut tmp, content.as_bytes())?;
+    tmp.as_file().sync_all()?;
+    tmp.persist(path)?;
+    Ok(())
+}
+
+/// Write bytes to a file atomically (temp file + fsync + rename).
+/// Use this instead of `std::fs::write` for any file that must survive power loss.
+pub fn atomic_write_bytes(path: &Path, content: &[u8]) -> Result<()> {
+    let dir = path.parent().context("file has no parent directory")?;
+    let mut tmp = NamedTempFile::new_in(dir)?;
+    std::io::Write::write_all(&mut tmp, content)?;
+    tmp.as_file().sync_all()?;
     tmp.persist(path)?;
     Ok(())
 }
@@ -140,16 +195,22 @@ pub fn backup(path: &Path) -> Result<std::path::PathBuf> {
     let content = fs::read(path).with_context(|| format!("reading {}", path.display()))?;
     let mut tmp = NamedTempFile::new_in(dir)?;
     std::io::Write::write_all(&mut tmp, &content)?;
+    tmp.as_file().sync_all()?;
     tmp.persist(&backup_path)
         .with_context(|| format!("backing up {}", path.display()))?;
     Ok(backup_path)
 }
 
-/// Restore a file from its backup.
+/// Restore a file from its backup. Returns an error if the backup file is missing.
 pub fn restore(path: &Path, backup_path: &Path) -> Result<()> {
-    if backup_path.exists() {
-        fs::rename(backup_path, path).with_context(|| format!("restoring {}", path.display()))?;
+    if !backup_path.exists() {
+        anyhow::bail!(
+            "backup file missing for {}: expected {}",
+            path.display(),
+            backup_path.display()
+        );
     }
+    fs::rename(backup_path, path).with_context(|| format!("restoring {}", path.display()))?;
     Ok(())
 }
 

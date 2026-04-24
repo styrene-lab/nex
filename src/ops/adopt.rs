@@ -140,14 +140,7 @@ pub fn run(config: &Config, dry_run: bool) -> Result<()> {
     session.commit_all()?;
 
     // Commit so nix doesn't complain about dirty tree
-    let _ = std::process::Command::new("git")
-        .args(["add", "-A"])
-        .current_dir(&config.repo)
-        .output();
-    let _ = std::process::Command::new("git")
-        .args(["commit", "-m", "nex adopt: capture existing brew packages"])
-        .current_dir(&config.repo)
-        .output();
+    crate::exec::git_commit(&config.repo, "nex adopt: capture existing brew packages");
 
     println!();
     println!(
@@ -208,14 +201,7 @@ pub fn run(config: &Config, dry_run: bool) -> Result<()> {
 
         if pinned > 0 {
             // Re-commit after pins
-            let _ = std::process::Command::new("git")
-                .args(["add", "-A"])
-                .current_dir(&config.repo)
-                .output();
-            let _ = std::process::Command::new("git")
-                .args(["commit", "-m", "nex adopt: pin existing binaries"])
-                .current_dir(&config.repo)
-                .output();
+            crate::exec::git_commit(&config.repo, "nex adopt: pin existing binaries");
         }
     }
 

@@ -658,7 +658,7 @@ pub fn run(config: &Config, repo_ref: &str, dry_run: bool) -> Result<()> {
             if let Some(parent) = shell_nix.parent() {
                 std::fs::create_dir_all(parent)?;
             }
-            std::fs::write(&shell_nix, content)?;
+            crate::edit::atomic_write_bytes(&shell_nix, content.as_bytes())?;
             wire_shell_import(config, scaffolded)?;
 
             println!("  {} shell config written", style("✓").green());
@@ -698,14 +698,7 @@ pub fn run(config: &Config, repo_ref: &str, dry_run: bool) -> Result<()> {
 
     if changes > 0 {
         session.commit_all()?;
-        let _ = Command::new("git")
-            .args(["add", "-A"])
-            .current_dir(&config.repo)
-            .output();
-        let _ = Command::new("git")
-            .args(["commit", "-m", &format!("nex profile apply: {repo_ref}")])
-            .current_dir(&config.repo)
-            .output();
+        crate::exec::git_commit(&config.repo, &format!("nex profile apply: {repo_ref}"));
     }
 
     let _ = crate::config::set_preference("profile", &format!("\"{repo_ref}\""));
@@ -916,7 +909,7 @@ fn apply_taps(config: &Config, pkgs: &ProfilePackages, dry_run: bool) -> Result<
         let tap_lines: Vec<String> = taps.iter().map(|t| format!("      \"{t}\"")).collect();
         let tap_block = format!("\n    taps = [\n{}\n    ];\n", tap_lines.join("\n"));
         let patched = content.replace("    brews = [", &format!("{tap_block}    brews = ["));
-        std::fs::write(&config.homebrew_file, patched)?;
+        crate::edit::atomic_write_bytes(&config.homebrew_file, patched.as_bytes())?;
     }
 
     Ok(())
@@ -1113,7 +1106,7 @@ fn wire_shell_import(config: &Config, scaffolded: bool) -> Result<()> {
                 );
                 content
             };
-            std::fs::write(&host_default, patched)?;
+            crate::edit::atomic_write_bytes(&host_default, patched.as_bytes())?;
         }
     } else {
         // Flat layout: home.nix is a proper module, so imports work directly
@@ -1126,7 +1119,7 @@ fn wire_shell_import(config: &Config, scaffolded: bool) -> Result<()> {
                 } else {
                     content.replace("{\n", "{\n  imports = [ ./shell.nix ];\n\n")
                 };
-                std::fs::write(&home_nix, patched)?;
+                crate::edit::atomic_write_bytes(&home_nix, patched.as_bytes())?;
             }
         }
     }
@@ -1732,7 +1725,7 @@ fn write_system_defaults(config: &Config, macos: &ProfileMacos) -> Result<()> {
                 if content.ends_with('\n') {
                     patched.push('\n');
                 }
-                std::fs::write(&base_nix, patched)?;
+                crate::edit::atomic_write_bytes(&base_nix, patched.as_bytes())?;
                 return Ok(());
             }
         };
@@ -1774,7 +1767,7 @@ fn write_system_defaults(config: &Config, macos: &ProfileMacos) -> Result<()> {
             if content.ends_with('\n') {
                 patched.push('\n');
             }
-            std::fs::write(&base_nix, patched)?;
+            crate::edit::atomic_write_bytes(&base_nix, patched.as_bytes())?;
             return Ok(());
         }
 
@@ -1784,7 +1777,7 @@ fn write_system_defaults(config: &Config, macos: &ProfileMacos) -> Result<()> {
             defaults_lines.join("\n")
         ));
         patched.push_str(&content[end..]);
-        std::fs::write(&base_nix, patched)?;
+        crate::edit::atomic_write_bytes(&base_nix, patched.as_bytes())?;
     } else {
         // Insert before the closing "}" of the module
         let insert_pos = content.rfind('}').unwrap_or(content.len());
@@ -1794,7 +1787,7 @@ fn write_system_defaults(config: &Config, macos: &ProfileMacos) -> Result<()> {
         if content.ends_with('\n') {
             patched.push('\n');
         }
-        std::fs::write(&base_nix, patched)?;
+        crate::edit::atomic_write_bytes(&base_nix, patched.as_bytes())?;
     }
 
     Ok(())
@@ -2041,7 +2034,7 @@ fn apply_linux(config: &Config, linux: &ProfileLinux, dry_run: bool) -> Result<(
     if let Some(parent) = desktop_nix.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    std::fs::write(&desktop_nix, lines.join("\n"))?;
+    crate::edit::atomic_write_bytes(&desktop_nix, lines.join("\n").as_bytes())?;
 
     // Ensure the desktop module is imported by the main config
     if scaffolded {
@@ -2056,7 +2049,7 @@ fn apply_linux(config: &Config, linux: &ProfileLinux, dry_run: bool) -> Result<(
                     "../../modules/nixos/base.nix",
                     "../../modules/nixos/base.nix\n    ../../modules/nixos/desktop.nix",
                 );
-                std::fs::write(&host_default, patched)?;
+                crate::edit::atomic_write_bytes(&host_default, patched.as_bytes())?;
             }
         }
     } else {
@@ -2070,7 +2063,7 @@ fn apply_linux(config: &Config, linux: &ProfileLinux, dry_run: bool) -> Result<(
                     let mut patched = content[..=brace_pos].to_string();
                     patched.push_str("\n  imports = [ ./desktop.nix ];");
                     patched.push_str(&content[brace_pos + 1..]);
-                    std::fs::write(&config_nix, patched)?;
+                    crate::edit::atomic_write_bytes(&config_nix, patched.as_bytes())?;
                 }
             }
         }

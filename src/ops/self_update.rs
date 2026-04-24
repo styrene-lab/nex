@@ -33,6 +33,12 @@ pub fn run() -> Result<()> {
     );
 
     let url = format!("{REPO}/releases/download/v{latest}/nex-{target}.tar.gz");
+    let checksum_url = format!("{REPO}/releases/download/v{latest}/checksums.sha256");
+
+    // Validate URL points to expected domain
+    if !url.starts_with("https://github.com/styrene-lab/nex/") {
+        bail!("unexpected download URL: {url}");
+    }
 
     output::status(&format!("downloading nex {latest}..."));
 
@@ -48,10 +54,25 @@ pub fn run() -> Result<()> {
         bail!("download failed — release may not exist for {target}");
     }
 
+    // Verify SHA256 checksum if available
+    let checksum_file = tmpdir.path().join("checksums.sha256");
+    let checksum_dl = Command::new("curl")
+        .args(["-fsSL", &checksum_url, "-o"])
+        .arg(&checksum_file)
+        .status();
+    if let Ok(status) = checksum_dl {
+        if status.success() {
+            verify_checksum(&tarball, &checksum_file, &format!("nex-{target}.tar.gz"))?;
+        } else {
+            output::warn("checksum file not available — skipping verification");
+        }
+    }
+
+    // Extract with --strip-components to prevent path traversal attacks
     let extract = Command::new("tar")
         .args(["-xzf"])
         .arg(&tarball)
-        .args(["-C"])
+        .args(["--strip-components=0", "-C"])
         .arg(tmpdir.path())
         .status()
         .context("failed to extract archive")?;
@@ -62,6 +83,18 @@ pub fn run() -> Result<()> {
     let new_binary = tmpdir.path().join("nex");
     if !new_binary.exists() {
         bail!("binary not found in release archive");
+    }
+
+    // Verify extracted binary is inside tmpdir (no symlink escape)
+    let resolved =
+        fs::canonicalize(&new_binary).with_context(|| "failed to resolve extracted binary path")?;
+    let resolved_tmp =
+        fs::canonicalize(tmpdir.path()).with_context(|| "failed to resolve tmpdir path")?;
+    if !resolved.starts_with(&resolved_tmp) {
+        bail!(
+            "extracted binary escapes tmpdir — possible path traversal: {}",
+            resolved.display()
+        );
     }
 
     // Find where the current binary lives and replace it
@@ -154,6 +187,55 @@ fn detect_target() -> Result<String> {
     };
 
     Ok(target.to_string())
+}
+
+/// Verify a file's SHA256 against a checksums file (one-hash-per-line format: `hash  filename`).
+fn verify_checksum(
+    file: &std::path::Path,
+    checksum_file: &std::path::Path,
+    expected_name: &str,
+) -> Result<()> {
+    let checksums = fs::read_to_string(checksum_file).context("reading checksum file")?;
+    let expected_hash = checksums
+        .lines()
+        .find_map(|line| {
+            let mut parts = line.split_whitespace();
+            let hash = parts.next()?;
+            let name = parts.next()?;
+            if name == expected_name || name.ends_with(expected_name) {
+                Some(hash.to_string())
+            } else {
+                None
+            }
+        })
+        .context(format!(
+            "no checksum found for {expected_name} in checksum file"
+        ))?;
+
+    // Compute actual hash using shasum (available on macOS and most Linux)
+    let output = Command::new("shasum")
+        .args(["-a", "256"])
+        .arg(file)
+        .output()
+        .context("failed to run shasum")?;
+
+    if !output.status.success() {
+        bail!("shasum failed");
+    }
+
+    let actual_hash = String::from_utf8_lossy(&output.stdout)
+        .split_whitespace()
+        .next()
+        .unwrap_or("")
+        .to_string();
+
+    if actual_hash != expected_hash {
+        bail!(
+            "checksum mismatch for {expected_name}:\n  expected: {expected_hash}\n  actual:   {actual_hash}"
+        );
+    }
+
+    Ok(())
 }
 
 fn fetch_latest_version() -> Result<String> {

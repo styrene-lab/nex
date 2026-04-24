@@ -45,13 +45,13 @@ pub enum Command {
     /// Install packages
     Install {
         /// Force install as a Nix package (skip auto-resolution)
-        #[arg(long)]
+        #[arg(long, conflicts_with_all = ["cask", "brew"])]
         nix: bool,
         /// Install as a Homebrew cask (GUI app)
-        #[arg(long)]
+        #[arg(long, conflicts_with_all = ["nix", "brew"])]
         cask: bool,
         /// Install as a Homebrew formula
-        #[arg(long)]
+        #[arg(long, conflicts_with_all = ["nix", "cask"])]
         brew: bool,
         /// Package names
         packages: Vec<String>,

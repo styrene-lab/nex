@@ -15,6 +15,19 @@ use std::process::Command;
 use anyhow::{bail, Context, Result};
 use console::style;
 
+// ── Drop guard for WiFi credential cleanup ──────────────────────────────
+
+mod scopeguard {
+    /// Ensures a file is removed when dropped, even on early return or panic.
+    pub struct WpaCleanup<'a>(pub &'a std::path::Path);
+
+    impl Drop for WpaCleanup<'_> {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(self.0);
+        }
+    }
+}
+
 // ── Bundle defaults (written by `nex forge`) ─────────────────────────────
 
 #[derive(Default)]
@@ -341,15 +354,37 @@ fn step_network() -> Result<()> {
             if !connected {
                 // wpa_supplicant fallback for environments without NetworkManager
                 println!("  nmcli unavailable, trying wpa_supplicant...");
-                let wpa_conf = format!("network={{\n  ssid=\"{ssid}\"\n  psk=\"{password}\"\n}}\n");
-                let wpa_path = "/tmp/wpa_supplicant.conf";
-                let _ = std::fs::write(wpa_path, &wpa_conf);
+                // Escape quotes in SSID/PSK to prevent wpa_supplicant config injection
+                let safe_ssid = ssid.replace('\\', "\\\\").replace('"', "\\\"");
+                let safe_password = password.replace('\\', "\\\\").replace('"', "\\\"");
+                let wpa_conf =
+                    format!("network={{\n  ssid=\"{safe_ssid}\"\n  psk=\"{safe_password}\"\n}}\n");
+                let wpa_path = std::path::Path::new("/tmp/wpa_supplicant.conf");
+                // Write with restrictive permissions (0600) to protect credentials
+                {
+                    use std::os::unix::fs::OpenOptionsExt;
+                    let mut f = std::fs::OpenOptions::new()
+                        .write(true)
+                        .create(true)
+                        .truncate(true)
+                        .mode(0o600)
+                        .open(wpa_path)?;
+                    std::io::Write::write_all(&mut f, wpa_conf.as_bytes())?;
+                }
+                // Ensure cleanup on all exit paths
+                let _wpa_cleanup = scopeguard::WpaCleanup(wpa_path);
                 // Find the wireless interface
                 let iface = find_wifi_interface().unwrap_or_else(|| "wlan0".to_string());
-                let _ = Command::new("wpa_supplicant")
-                    .args(["-B", "-i", &iface, "-c", wpa_path])
+                let wpa_status = Command::new("wpa_supplicant")
+                    .args(["-B", "-i", &iface, "-c", &wpa_path.to_string_lossy()])
                     .status();
-                let _ = Command::new("dhcpcd").arg(&iface).status();
+                if !wpa_status.map(|s| s.success()).unwrap_or(false) {
+                    eprintln!("  warning: wpa_supplicant failed to start");
+                }
+                let dhcp_status = Command::new("dhcpcd").arg(&iface).status();
+                if !dhcp_status.map(|s| s.success()).unwrap_or(false) {
+                    eprintln!("  warning: dhcpcd failed — may not get an IP address");
+                }
             }
 
             // Wait briefly for connection
@@ -379,17 +414,23 @@ fn step_network() -> Result<()> {
 
         if sec.is_empty() || sec.contains("--") {
             // Open network
-            let _ = Command::new("nmcli")
+            let nmcli_status = Command::new("nmcli")
                 .args(["device", "wifi", "connect", ssid])
                 .status();
+            if !nmcli_status.map(|s| s.success()).unwrap_or(false) {
+                eprintln!("  warning: nmcli failed to connect to {ssid}");
+            }
         } else {
             let password: String = dialoguer::Password::new()
                 .with_prompt(format!("  Password for {ssid}"))
                 .interact()?;
 
-            let _ = Command::new("nmcli")
+            let nmcli_status = Command::new("nmcli")
                 .args(["device", "wifi", "connect", ssid, "password", &password])
                 .status();
+            if !nmcli_status.map(|s| s.success()).unwrap_or(false) {
+                eprintln!("  warning: nmcli failed to connect to {ssid}");
+            }
         }
 
         // Wait for connection
@@ -414,8 +455,7 @@ fn step_network() -> Result<()> {
         );
     }
 
-    // Clean up WiFi credentials from disk
-    let _ = std::fs::remove_file("/tmp/wpa_supplicant.conf");
+    // WiFi credentials cleaned up by WpaCleanup drop guard if wpa_supplicant was used
     println!();
 
     Ok(())
@@ -1234,7 +1274,7 @@ fn exec_write_nex_config(hostname: &str, username: &str) -> Result<()> {
 
     // Fix ownership — nixos-enter resolves the username inside the installed system
     // where the user account actually exists (created by nixos-install).
-    let _ = Command::new("nixos-enter")
+    let chown_status = Command::new("nixos-enter")
         .args([
             "--root",
             "/mnt",
@@ -1245,6 +1285,9 @@ fn exec_write_nex_config(hostname: &str, username: &str) -> Result<()> {
             &format!("/home/{username}/.config"),
         ])
         .status();
+    if !chown_status.map(|s| s.success()).unwrap_or(false) {
+        eprintln!("  warning: failed to fix ownership of ~/.config/nex — user may need to run: sudo chown -R {username}:users ~/.config");
+    }
 
     Ok(())
 }
