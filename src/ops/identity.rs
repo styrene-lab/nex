@@ -179,7 +179,8 @@ pub fn run_link(url: &str, code: Option<&str>, path: Option<PathBuf>) -> Result<
             eprintln!();
             eprintln!(
                 "  {}",
-                console::style("You can now sign in to hub services with your mesh identity.").dim()
+                console::style("You can now sign in to hub services with your mesh identity.")
+                    .dim()
             );
         } else {
             let status = resp.status();
@@ -200,11 +201,15 @@ pub fn run_link(url: &str, code: Option<&str>, path: Option<PathBuf>) -> Result<
         eprintln!();
         eprintln!(
             "  {}",
-            console::style("Paste the pubkey into the hub's admin UI (Existing Identity tab),").dim()
+            console::style("Paste the pubkey into the hub's admin UI (Existing Identity tab),")
+                .dim()
         );
         eprintln!(
             "  {}",
-            console::style("or ask an admin for an invite code: nex identity link <url> --code <CODE>").dim()
+            console::style(
+                "or ask an admin for an invite code: nex identity link <url> --code <CODE>"
+            )
+            .dim()
         );
         eprintln!();
 
