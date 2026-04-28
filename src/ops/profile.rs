@@ -58,6 +58,7 @@ struct ProfileShell {
     default: Option<String>,
     aliases: Option<std::collections::HashMap<String, String>>,
     env: Option<std::collections::HashMap<String, String>>,
+    paths: Option<Vec<String>>,
     #[serde(rename = "profileExtra")]
     profile_extra: Option<String>,
     #[serde(rename = "initExtra")]
@@ -258,6 +259,7 @@ struct ProfileLayer {
 struct MergedShell {
     aliases: BTreeMap<String, String>,
     env: BTreeMap<String, String>,
+    paths: Vec<String>,
     profile_extra: Option<String>,
     init_extra: Option<String>,
     history_size: Option<u64>,
@@ -457,6 +459,9 @@ impl MergedShell {
             self.history_control = Some(val.split(':').map(|s| s.to_string()).collect());
         }
 
+        // Paths: union with dedup, preserving order
+        union_dedup(&mut self.paths, shell.paths.as_deref());
+
         // profileExtra/initExtra: append if genuinely new
         Self::merge_multiline(&mut self.profile_extra, shell.profile_extra.as_deref());
         Self::merge_multiline(&mut self.init_extra, shell.init_extra.as_deref());
@@ -529,12 +534,14 @@ fn render_shell_nix(shell: &MergedShell) -> String {
         lines.push("  };".to_string());
     }
 
-    // Ensure critical PATH directories are always present
+    // Infrastructure path always present; profile-declared paths follow
     lines.push("  home.sessionPath = [".to_string());
     lines.push("    \"$HOME/.local/bin\"".to_string());
-    lines.push("    \"$HOME/.cargo/bin\"".to_string());
-    lines.push("    \"$HOME/.nix-profile/bin\"".to_string());
-    lines.push("    \"/opt/homebrew/bin\"".to_string());
+    for path in &shell.paths {
+        if path != "$HOME/.local/bin" && path != "~/.local/bin" {
+            lines.push(format!("    \"{path}\""));
+        }
+    }
     lines.push("  ];".to_string());
 
     lines.push("}".to_string());
@@ -639,6 +646,7 @@ pub fn run(config: &Config, repo_ref: &str, dry_run: bool) -> Result<()> {
     // Shell — render once from merged data
     let has_shell = !merged.shell.aliases.is_empty()
         || !merged.shell.env.is_empty()
+        || !merged.shell.paths.is_empty()
         || merged.shell.profile_extra.is_some()
         || merged.shell.init_extra.is_some()
         || merged.shell.history_size.is_some();

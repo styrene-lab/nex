@@ -42,3 +42,10 @@ jobs:
             exit 1
           fi
           echo "Version ${CARGO_VERSION} is consistent across Cargo.toml, CHANGELOG.md, and flake.nix"
+
+  lipstyk:
+    name: lipstyk
+    uses: styrene-lab/lipstyk/.github/workflows/lipstyk.yml@main
+    with:
+      paths: "src/"
+      threshold: 50

@@ -679,7 +679,22 @@ fn scaffold_nixos_config(config_dir: &Path, hostname: &str, profile_toml: &str) 
     ];
     home_lines.push("  };".to_string());
     home_lines.push(String::new());
-    home_lines.push("  home.sessionPath = [ \"$HOME/.local/bin\" ];".to_string());
+    home_lines.push("  home.sessionPath = [".to_string());
+    home_lines.push("    \"$HOME/.local/bin\"".to_string());
+    if let Some(paths) = profile
+        .get("shell")
+        .and_then(|s| s.get("paths"))
+        .and_then(|p| p.as_array())
+    {
+        for path in paths {
+            if let Some(path_str) = path.as_str() {
+                if path_str != "$HOME/.local/bin" && path_str != "~/.local/bin" {
+                    home_lines.push(format!("    \"{path_str}\""));
+                }
+            }
+        }
+    }
+    home_lines.push("  ];".to_string());
     home_lines.push(String::new());
 
     // Packages from profile

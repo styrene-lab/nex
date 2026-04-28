@@ -26,10 +26,6 @@ fn signum_identity(root: &styrene_identity::signer::RootSecret) -> (String, Stri
     (pubkey_hex, hash)
 }
 
-/// Identity hash: first 16 bytes (32 hex chars) of SHA-256(git-signing-pubkey).
-/// Truncated for human readability while retaining 128 bits of collision resistance.
-const IDENTITY_HASH_HEX_LEN: usize = 32;
-
 fn default_path() -> PathBuf {
     FileSigner::default_path()
 }
@@ -53,18 +49,15 @@ fn signer_with_passphrase(path: &PathBuf, passphrase: &[u8]) -> FileSigner {
     FileSigner::new(path, provider)
 }
 
-/// Compute the identity hash from a root secret.
-/// SHA-256(git-signing-Ed25519-pubkey), truncated to 32 hex chars.
+/// Compute the canonical identity hash from a root secret.
+/// SHA-256(RNS-signing-Ed25519-pubkey)[:16], 32 hex chars.
+///
+/// The RNS signing key is the canonical identity — it's the mesh identity
+/// used by Signum, styrened, and all mesh operations. Git signing, SSH,
+/// and other keys derive from the same root but are purpose-specific.
 fn identity_hash(root: &styrene_identity::signer::RootSecret) -> String {
-    use sha2::{Digest, Sha256};
-
-    let deriver = KeyDeriver::new(root.as_bytes());
-    let mut seed = deriver.derive(KeyPurpose::GitSigning);
-    let vk = ed25519_verifying_key(&seed);
-    seed.zeroize();
-
-    let digest = Sha256::digest(vk.as_bytes());
-    hex::encode(&digest[..IDENTITY_HASH_HEX_LEN / 2])
+    let (_, hash) = signum_identity(root);
+    hash
 }
 
 /// `nex identity init` — generate a new StyreneIdentity.
@@ -146,13 +139,16 @@ pub fn run_link(url: String, code: Option<String>, path: Option<PathBuf>) -> Res
     };
 
     let (pubkey_hex, hash) = signum_identity(&root);
+    // RootSecret implements Drop+Zeroize via the styrene-identity crate.
+    // Explicit drop here ends the borrow; zeroization happens in Drop.
     drop(root);
 
-    // Normalize the URL
     let base_url = url.trim_end_matches('/');
 
     if let Some(invite_code) = code {
-        // With invite code: register directly via API — no browser needed
+        // With invite code: register directly via API — no browser needed.
+        // NOTE: The invite code is visible in shell history and process listing.
+        // For sensitive environments, pipe it: echo <code> | xargs -I{} nex identity link <url> --code {}
         output::status("linking identity to hub...");
 
         let body = serde_json::json!({
@@ -160,13 +156,16 @@ pub fn run_link(url: String, code: Option<String>, path: Option<PathBuf>) -> Res
             "pubkey_hex": pubkey_hex,
         });
 
-        let client = reqwest::blocking::Client::new();
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .context("failed to build HTTP client")?;
+
         let resp = client
             .post(format!("{base_url}/enroll"))
-            .header("Content-Type", "application/json")
             .json(&body)
             .send()
-            .context("failed to connect to hub")?;
+            .context("failed to connect to hub — check the URL and your network")?;
 
         if resp.status().is_success() {
             let data: serde_json::Value = resp.json().context("invalid response")?;
@@ -191,27 +190,27 @@ pub fn run_link(url: String, code: Option<String>, path: Option<PathBuf>) -> Res
             bail!("hub returned {status}: {msg}");
         }
     } else {
-        // No invite code: open browser with pubkey for easy paste
-        let enroll_url = format!(
-            "{base_url}/admin#pubkey={}",
-            pubkey_hex
-        );
-
+        // No invite code: display pubkey for the user to register via admin UI.
+        // Open the hub's admin page in the browser for convenience.
         eprintln!();
-        output::status("opening hub in browser");
-        eprintln!("  pubkey  {pubkey_hex}");
-        eprintln!("  hash    {hash}");
+        output::status("identity ready to link");
+        eprintln!("  hub       {base_url}");
+        eprintln!("  pubkey    {pubkey_hex}");
+        eprintln!("  hash      {hash}");
         eprintln!();
         eprintln!(
             "  {}",
-            console::style("Paste the pubkey above into the hub's admin UI to register.").dim()
+            console::style("Paste the pubkey into the hub's admin UI (Existing Identity tab),").dim()
+        );
+        eprintln!(
+            "  {}",
+            console::style("or ask an admin for an invite code: nex identity link <url> --code <CODE>").dim()
         );
         eprintln!();
 
-        // Try to open the browser
-        if let Err(_) = open::that(&enroll_url) {
-            eprintln!("  Could not open browser. Visit this URL manually:");
-            eprintln!("  {enroll_url}");
+        let admin_url = format!("{base_url}/admin");
+        if open::that(&admin_url).is_err() {
+            eprintln!("  Open manually: {admin_url}");
         }
     }
 
@@ -248,7 +247,7 @@ pub fn run_show(path: Option<PathBuf>) -> Result<()> {
     };
 
     let deriver = KeyDeriver::new(root.as_bytes());
-    let hash = identity_hash(&root);
+    let (rns_pubkey_hex, hash) = signum_identity(&root);
 
     let mut git_seed = deriver.derive(KeyPurpose::GitSigning);
     let git_vk = ed25519_verifying_key(&git_seed);
@@ -266,6 +265,7 @@ pub fn run_show(path: Option<PathBuf>) -> Result<()> {
     output::status("styrene identity");
     eprintln!("  path       {}", path.display());
     eprintln!("  hash       {hash}");
+    eprintln!("  mesh key   {rns_pubkey_hex}");
     eprintln!("  git key    {}", hex::encode(git_vk.as_bytes()));
     eprintln!("  ssh key    {}", hex::encode(ssh_vk.as_bytes()));
     eprintln!("  age key    {}", hex::encode(age_pk.as_bytes()));

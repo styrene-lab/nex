@@ -6,6 +6,7 @@ pub mod diff;
 pub mod doctor;
 pub mod forge;
 pub mod gc;
+pub mod identity;
 // polymerize is the on-target interactive NixOS installer
 pub mod init;
 pub mod install;
