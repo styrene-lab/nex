@@ -16,7 +16,7 @@ fn signum_identity(root: &styrene_identity::signer::RootSecret) -> (String, Stri
     use sha2::{Digest, Sha256};
 
     let deriver = KeyDeriver::new(root.as_bytes());
-    let mut seed = deriver.derive(KeyPurpose::RnsSigning);
+    let mut seed = deriver.derive(KeyPurpose::Signing);
     let vk = ed25519_verifying_key(&seed);
     seed.zeroize();
 
@@ -110,7 +110,7 @@ pub fn run_init(path: Option<PathBuf>) -> Result<()> {
 }
 
 /// `nex identity link` — link this identity to a Signum hub.
-pub fn run_link(url: String, code: Option<String>, path: Option<PathBuf>) -> Result<()> {
+pub fn run_link(url: &str, code: Option<&str>, path: Option<PathBuf>) -> Result<()> {
     let path = path.unwrap_or_else(default_path);
 
     if !path.exists() {
@@ -183,7 +183,7 @@ pub fn run_link(url: String, code: Option<String>, path: Option<PathBuf>) -> Res
             );
         } else {
             let status = resp.status();
-            let body = resp.text().unwrap_or_default();
+            let body = resp.text().context("failed to read error response")?;
             let error: serde_json::Value =
                 serde_json::from_str(&body).unwrap_or(serde_json::json!({"error": body}));
             let msg = error["error"].as_str().unwrap_or("unknown error");
@@ -247,11 +247,7 @@ pub fn run_show(path: Option<PathBuf>) -> Result<()> {
     };
 
     let deriver = KeyDeriver::new(root.as_bytes());
-    let (rns_pubkey_hex, hash) = signum_identity(&root);
-
-    let mut git_seed = deriver.derive(KeyPurpose::GitSigning);
-    let git_vk = ed25519_verifying_key(&git_seed);
-    git_seed.zeroize();
+    let (pubkey_hex, hash) = signum_identity(&root);
 
     let mut ssh_seed = deriver.derive(KeyPurpose::SshHost);
     let ssh_vk = ed25519_verifying_key(&ssh_seed);
@@ -265,9 +261,8 @@ pub fn run_show(path: Option<PathBuf>) -> Result<()> {
     output::status("styrene identity");
     eprintln!("  path       {}", path.display());
     eprintln!("  hash       {hash}");
-    eprintln!("  mesh key   {rns_pubkey_hex}");
-    eprintln!("  git key    {}", hex::encode(git_vk.as_bytes()));
-    eprintln!("  ssh key    {}", hex::encode(ssh_vk.as_bytes()));
+    eprintln!("  pubkey     {pubkey_hex}");
+    eprintln!("  ssh host   {}", hex::encode(ssh_vk.as_bytes()));
     eprintln!("  age key    {}", hex::encode(age_pk.as_bytes()));
 
     Ok(())

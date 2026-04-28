@@ -64,7 +64,7 @@ fn main() -> Result<()> {
                 cli::IdentityAction::Init { path } => ops::identity::run_init(path.clone()),
                 cli::IdentityAction::Show { path } => ops::identity::run_show(path.clone()),
                 cli::IdentityAction::Link { url, code, path } => {
-                    ops::identity::run_link(url.clone(), code.clone(), path.clone())
+                    ops::identity::run_link(url, code.as_deref(), path.clone())
                 }
             }
         }

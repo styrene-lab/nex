@@ -67,9 +67,23 @@ const ALIASES: &[(&str, &str)] = &[
     ("hashicorp-terraform", "terraform"),
     ("vault", "vault"),
     ("hashicorp-vault", "vault"),
-    // ── Identity ───────────────────────────────────────────────────────────
+    // ── Identity / security hardware ────────────────────────────────────────
     ("1password", "_1password-gui"),
     ("1password-cli", "_1password"),
+    ("ykman", "yubikey-manager"),
+    ("yubikey-manager", "yubikey-manager"),
+    ("ykpers", "yubikey-personalization"),
+    ("yubikey-personalization", "yubikey-personalization"),
+    ("piv-tool", "yubico-piv-tool"),
+    ("yubico-piv-tool", "yubico-piv-tool"),
+    ("fido2", "libfido2"),
+    ("libfido2", "libfido2"),
+    ("opensc", "opensc"),
+    ("pkcs11-tool", "opensc"),
+    ("pcsc-lite", "pcsclite"),
+    ("pcscd", "pcsclite"),
+    ("pcsc-tools", "pcsc-tools"),
+    ("pcsc_scan", "pcsc-tools"),
     // ── Python version aliases ─────────────────────────────────────────────
     ("python3", "python3"),
     ("python", "python3"),
@@ -220,6 +234,58 @@ mod tests {
         assert_eq!(nixpkgs_attr("yq"), "yq-go");
         assert_eq!(nixpkgs_attr("helm"), "kubernetes-helm");
         assert_eq!(nixpkgs_attr("obs"), "obs-studio");
+    }
+
+    #[test]
+    fn test_security_hardware_aliases() {
+        assert_eq!(nixpkgs_attr("ykman"), "yubikey-manager");
+        assert_eq!(nixpkgs_attr("ykpers"), "yubikey-personalization");
+        assert_eq!(nixpkgs_attr("piv-tool"), "yubico-piv-tool");
+        assert_eq!(nixpkgs_attr("fido2"), "libfido2");
+        assert_eq!(nixpkgs_attr("opensc"), "opensc");
+        assert_eq!(nixpkgs_attr("pkcs11-tool"), "opensc");
+        assert_eq!(nixpkgs_attr("pcsc_scan"), "pcsc-tools");
+    }
+
+    #[test]
+    fn test_ykman_duplicate_detection() {
+        let names = all_names_for("ykman");
+        assert!(names.contains(&"ykman"));
+        assert!(names.contains(&"yubikey-manager"));
+    }
+
+    #[test]
+    fn test_adopt_install_cross_detection() {
+        // Scenario: adopt captures brew formula name, later install uses
+        // the nix attr or shorthand. Duplicate detection must find it
+        // across all alias variants.
+
+        // ykman (brew) <-> yubikey-manager (nix)
+        let names = all_names_for("yubikey-manager");
+        assert!(names.contains(&"ykman"), "yubikey-manager must find ykman");
+        assert!(names.contains(&"yubikey-manager"));
+
+        // ykpers (brew) <-> yubikey-personalization (nix)
+        let names = all_names_for("ykpers");
+        assert!(names.contains(&"yubikey-personalization"));
+        let names = all_names_for("yubikey-personalization");
+        assert!(names.contains(&"ykpers"));
+
+        // opensc is the same name in both brew and nix
+        let names = all_names_for("opensc");
+        assert!(names.contains(&"opensc"));
+        assert!(names.contains(&"pkcs11-tool"));
+
+        // libfido2 is the same name in both brew and nix
+        let names = all_names_for("fido2");
+        assert!(names.contains(&"libfido2"));
+        let names = all_names_for("libfido2");
+        assert!(names.contains(&"fido2"));
+
+        // pcsc-lite (brew) <-> pcsclite (nix)
+        let names = all_names_for("pcsc-lite");
+        assert!(names.contains(&"pcscd"));
+        assert!(names.contains(&"pcsc-lite"));
     }
 
     #[test]

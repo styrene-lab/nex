@@ -1114,7 +1114,7 @@ dependencies = [
 
 [[package]]
 name = "nex-pkg"
-version = "0.13.2"
+version = "0.14.0"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -1731,9 +1731,9 @@ checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 
 [[package]]
 name = "styrene-identity"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c4e2bbfd52d3d80e6c008cace947f0c43df52bdf5b6b2912a6ccf92142d09d8d"
+checksum = "682a50685aed4eb173bf86998ccb814080b9a82d156459a1570dee368b848ec3"
 dependencies = [
  "argon2",
  "async-trait",
