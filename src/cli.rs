@@ -143,6 +143,11 @@ pub enum Command {
         #[arg(value_name = "PROJECT")]
         project: String,
     },
+    /// Manage Styrene identity (key generation, display)
+    Identity {
+        #[command(subcommand)]
+        action: IdentityAction,
+    },
     /// Check and fix common configuration issues
     Doctor,
     /// Update nex itself to the latest release
@@ -151,4 +156,31 @@ pub enum Command {
     Diff,
     /// Garbage collect nix store
     Gc,
+}
+
+#[derive(Subcommand)]
+pub enum IdentityAction {
+    /// Generate a new Styrene identity
+    Init {
+        /// Path to the identity file (default: ~/.config/styrene/identity.key)
+        #[arg(long)]
+        path: Option<PathBuf>,
+    },
+    /// Display identity hash and derived public keys
+    Show {
+        /// Path to the identity file (default: ~/.config/styrene/identity.key)
+        #[arg(long)]
+        path: Option<PathBuf>,
+    },
+    /// Link this identity to a Signum hub for SSO
+    Link {
+        /// Signum instance URL (e.g. https://signum.styrene.io)
+        url: String,
+        /// Enrollment invite code (if required by the hub)
+        #[arg(long)]
+        code: Option<String>,
+        /// Path to the identity file (default: ~/.config/styrene/identity.key)
+        #[arg(long)]
+        path: Option<PathBuf>,
+    },
 }

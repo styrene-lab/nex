@@ -59,6 +59,15 @@ fn main() -> Result<()> {
         } => return ops::build_image::run(profile, name.as_deref(), tag, cli.dry_run),
         Command::Develop { ref flake } => return ops::develop::run(flake),
         Command::Dev { ref project } => return ops::dev::run(project),
+        Command::Identity { ref action } => {
+            return match action {
+                cli::IdentityAction::Init { path } => ops::identity::run_init(path.clone()),
+                cli::IdentityAction::Show { path } => ops::identity::run_show(path.clone()),
+                cli::IdentityAction::Link { url, code, path } => {
+                    ops::identity::run_link(url.clone(), code.clone(), path.clone())
+                }
+            }
+        }
         _ => {}
     }
 
@@ -116,7 +125,8 @@ fn main() -> Result<()> {
         | Command::Polymerize { .. }
         | Command::BuildImage { .. }
         | Command::Develop { .. }
-        | Command::Dev { .. } => {
+        | Command::Dev { .. }
+        | Command::Identity { .. } => {
             unreachable!()
         }
     }
