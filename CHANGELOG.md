@@ -2,6 +2,19 @@
 
 All notable changes to nex are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.14.0] - 2026-04-28
+
+### Added
+- **Styrene Identity integration** — `nex identity init`, `nex identity show`, `nex identity link` for creating, inspecting, and enrolling cryptographic mesh identities. Backed by `styrene-identity` 0.1.1 from crates.io (HKDF-SHA256 key hierarchy, argon2id file encryption, Ed25519/X25519 derivation).
+- **Security hardware aliases** — `nex install ykman` resolves to `yubikey-manager`, plus aliases for `ykpers`, `piv-tool`, `fido2`, `opensc`, `pkcs11-tool`, `pcsc-lite`, `pcscd`, `pcsc-tools`, `pcsc_scan`. Brew↔nix cross-detection ensures `nex adopt` then `nex install` correctly catches duplicates across package manager boundaries.
+
+### Changed
+- Identity hash uses unified `KeyPurpose::Signing` (was split across deprecated `RnsSigning`/`GitSigning`)
+- `nex identity show` displays `pubkey` + `ssh host` + `age key` (was showing redundant mesh/git keys before unification)
+- `run_link` takes `&str` parameters instead of owned `String` (lipstyk finding)
+- Error responses in `identity link` now propagate via `context()` instead of `unwrap_or_default()` (lipstyk finding)
+- All passphrase and derived key seed material is explicitly zeroized after use
+
 ## [0.13.2] - 2026-04-24
 
 ### Added

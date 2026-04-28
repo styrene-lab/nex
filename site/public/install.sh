@@ -282,7 +282,7 @@ ensure_path() {
 
 # ─── Main ────────────────────────────────────────────────────────────────────
 
-printf "\n  %bnex%b — %bnex the briw%b\n\n" "$B" "$N" "$C" "$N"
+printf "\n  %bnex%b — %bpackage manager for nix-darwin, NixOS, and homebrew%b\n\n" "$B" "$N" "$C" "$N"
 
 # Detect what's available
 has_nix=false; has_cargo=false
