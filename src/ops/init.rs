@@ -31,13 +31,13 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
         );
         eprintln!();
 
-        let adopt = dialoguer::Confirm::new()
-            .with_prompt(format!(
+        let adopt = crate::input::input().confirm(
+            &format!(
                 "  Use {} instead of creating a new config?",
                 existing.display()
-            ))
-            .default(true)
-            .interact()?;
+            ),
+            true,
+        )?;
 
         if adopt {
             let hostname = crate::discover::hostname()?;
@@ -362,10 +362,11 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
     // ── Identity setup (optional, interactive) ─────────────────────
     let identity_path = styrene_identity::file_signer::FileSigner::default_path();
     if !identity_path.exists() {
-        let setup_identity = dialoguer::Confirm::new()
-            .with_prompt("  Create a Styrene identity? (SSH keys, git signing, mesh)")
-            .default(true)
-            .interact()
+        let setup_identity = crate::input::input()
+            .confirm(
+                "  Create a Styrene identity? (SSH keys, git signing, mesh)",
+                true,
+            )
             .unwrap_or(false);
 
         if setup_identity {
@@ -380,10 +381,8 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
                 );
             } else {
                 // Offer git signing
-                let setup_git = dialoguer::Confirm::new()
-                    .with_prompt("  Configure git commit signing?")
-                    .default(true)
-                    .interact()
+                let setup_git = crate::input::input()
+                    .confirm("  Configure git commit signing?", true)
                     .unwrap_or(false);
 
                 if setup_git {
@@ -396,17 +395,13 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
                 }
 
                 // Offer SSH key registration
-                let setup_ssh = dialoguer::Confirm::new()
-                    .with_prompt("  Register an SSH key? (e.g. for GitHub)")
-                    .default(true)
-                    .interact()
+                let setup_ssh = crate::input::input()
+                    .confirm("  Register an SSH key? (e.g. for GitHub)", true)
                     .unwrap_or(false);
 
                 if setup_ssh {
-                    let label: String = dialoguer::Input::new()
-                        .with_prompt("  SSH key label")
-                        .default("github".to_string())
-                        .interact_text()
+                    let label = crate::input::input()
+                        .input_text("  SSH key label", Some("github"))
                         .unwrap_or_else(|_| "github".to_string());
 
                     if let Err(e) = crate::ops::identity::run_ssh(None, false, Some(label)) {

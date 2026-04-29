@@ -266,11 +266,10 @@ pub fn prompt_resolution(
         }));
     }
 
-    let selection = dialoguer::Select::new()
-        .with_prompt("Install as")
-        .items(&items)
-        .default(default_idx)
-        .interact_opt()?;
+    let items_str: Vec<String> = items.iter().map(|s| s.to_string()).collect();
+    let selection = crate::input::input()
+        .select("Install as", &items_str, default_idx)
+        .ok();
 
     match selection {
         Some(idx) if idx < candidates.len() => Ok(Some(PromptResult {

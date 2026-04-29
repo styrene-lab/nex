@@ -185,10 +185,10 @@ pub fn run(bundle: Option<&Path>) -> Result<()> {
 
     println!();
 
-    let confirm = dialoguer::Confirm::new()
-        .with_prompt("  Proceed with installation? (THIS WILL ERASE THE DISK)")
-        .default(false)
-        .interact()?;
+    let confirm = crate::input::input().confirm(
+        "  Proceed with installation? (THIS WILL ERASE THE DISK)",
+        false,
+    )?;
 
     if !confirm {
         println!("  Aborted.");
@@ -331,18 +331,14 @@ fn step_network() -> Result<()> {
 
     if networks.is_empty() {
         // Offer wpa_supplicant fallback
-        let setup = dialoguer::Confirm::new()
-            .with_prompt("  No WiFi networks found via nmcli. Enter WiFi credentials manually?")
-            .default(true)
-            .interact()?;
+        let setup = crate::input::input().confirm(
+            "  No WiFi networks found via nmcli. Enter WiFi credentials manually?",
+            true,
+        )?;
 
         if setup {
-            let ssid: String = dialoguer::Input::new()
-                .with_prompt("  SSID")
-                .interact_text()?;
-            let password: String = dialoguer::Password::new()
-                .with_prompt("  Password")
-                .interact()?;
+            let ssid: String = crate::input::input().input_text("  SSID", None)?;
+            let password: String = crate::input::input().password("  Password")?;
 
             // Try nmcli first, fall back to wpa_supplicant
             let connected = Command::new("nmcli")
@@ -403,11 +399,7 @@ fn step_network() -> Result<()> {
             .map(|(ssid, signal, sec)| format!("{ssid}  (signal: {signal}%  {sec})"))
             .collect();
 
-        let selection = dialoguer::Select::new()
-            .with_prompt("  Select WiFi network")
-            .items(&labels)
-            .default(0)
-            .interact()?;
+        let selection = crate::input::input().select("  Select WiFi network", &labels, 0)?;
 
         let ssid = &networks[selection].0;
         let sec = &networks[selection].2;
@@ -421,9 +413,8 @@ fn step_network() -> Result<()> {
                 eprintln!("  warning: nmcli failed to connect to {ssid}");
             }
         } else {
-            let password: String = dialoguer::Password::new()
-                .with_prompt(format!("  Password for {ssid}"))
-                .interact()?;
+            let password: String =
+                crate::input::input().password(&format!("  Password for {ssid}"))?;
 
             let nmcli_status = Command::new("nmcli")
                 .args(["device", "wifi", "connect", ssid, "password", &password])
@@ -465,15 +456,12 @@ fn step_hostname(defaults: &Defaults) -> Result<String> {
     println!("  {}", style("── Hostname ──").bold());
 
     loop {
-        let mut input = dialoguer::Input::<String>::new().with_prompt("  Hostname");
+        let default_hostname = defaults
+            .hostname
+            .clone()
+            .unwrap_or_else(|| "nixos".to_string());
 
-        if let Some(ref h) = defaults.hostname {
-            input = input.default(h.clone());
-        } else {
-            input = input.default("nixos".to_string());
-        }
-
-        let hostname = input.interact_text()?;
+        let hostname = crate::input::input().input_text("  Hostname", Some(&default_hostname))?;
 
         if let Err(msg) = validate_hostname(&hostname) {
             println!("  {} {msg}", style("!").yellow());
@@ -489,15 +477,12 @@ fn step_username(defaults: &Defaults) -> Result<String> {
     println!("  {}", style("── User account ──").bold());
 
     loop {
-        let mut input = dialoguer::Input::<String>::new().with_prompt("  Username");
+        let default_username = defaults
+            .username
+            .clone()
+            .unwrap_or_else(|| std::env::var("USER").unwrap_or_else(|_| "user".to_string()));
 
-        if let Some(ref u) = defaults.username {
-            input = input.default(u.clone());
-        } else {
-            input = input.default(std::env::var("USER").unwrap_or_else(|_| "user".to_string()));
-        }
-
-        let username = input.interact_text()?;
+        let username = crate::input::input().input_text("  Username", Some(&default_username))?;
 
         if let Err(msg) = validate_username(&username) {
             println!("  {} {msg}", style("!").yellow());
@@ -570,10 +555,7 @@ fn step_timezone(defaults: &Defaults) -> Result<String> {
         .or(detected)
         .unwrap_or_else(|| "America/New_York".to_string());
 
-    let timezone: String = dialoguer::Input::new()
-        .with_prompt("  Timezone")
-        .default(default_tz)
-        .interact_text()?;
+    let timezone: String = crate::input::input().input_text("  Timezone", Some(&default_tz))?;
 
     println!();
     Ok(timezone)
@@ -626,11 +608,9 @@ fn step_disk() -> Result<String> {
         bail!("No installable disks found. Is the target machine's storage visible?");
     }
 
-    let labels: Vec<&str> = selectable.iter().map(|(_, l, _)| l.as_str()).collect();
-    let selection = dialoguer::Select::new()
-        .with_prompt("  Select target disk (WILL BE ERASED)")
-        .items(&labels)
-        .interact()?;
+    let labels: Vec<String> = selectable.iter().map(|(_, l, _)| l.clone()).collect();
+    let selection =
+        crate::input::input().select("  Select target disk (WILL BE ERASED)", &labels, 0)?;
 
     let disk = selectable[selection].0.clone();
     println!();
@@ -700,10 +680,7 @@ fn step_profile(defaults: &Defaults) -> Result<(Option<String>, Option<String>)>
 
     if let Some(ref profile_ref) = defaults.profile_ref {
         println!("  Bundled profile: {}", style(profile_ref).cyan());
-        let use_bundled = dialoguer::Confirm::new()
-            .with_prompt("  Use this profile?")
-            .default(true)
-            .interact()?;
+        let use_bundled = crate::input::input().confirm("  Use this profile?", true)?;
 
         if use_bundled {
             println!();
@@ -711,22 +688,17 @@ fn step_profile(defaults: &Defaults) -> Result<(Option<String>, Option<String>)>
         }
     }
 
-    let options = &[
-        "Enter a nex profile (GitHub user/repo)",
-        "Skip — install base NixOS only",
+    let options: Vec<String> = vec![
+        "Enter a nex profile (GitHub user/repo)".to_string(),
+        "Skip — install base NixOS only".to_string(),
     ];
 
-    let choice = dialoguer::Select::new()
-        .with_prompt("  Profile")
-        .items(options)
-        .default(0)
-        .interact()?;
+    let choice = crate::input::input().select("  Profile", &options, 0)?;
 
     match choice {
         0 => {
-            let profile_ref: String = dialoguer::Input::new()
-                .with_prompt("  Profile (user/repo)")
-                .interact_text()?;
+            let profile_ref: String =
+                crate::input::input().input_text("  Profile (user/repo)", None)?;
 
             // Fetch and resolve extends chain
             println!("  Resolving profile chain...");
@@ -743,10 +715,8 @@ fn step_profile(defaults: &Defaults) -> Result<(Option<String>, Option<String>)>
                 }
                 Err(e) => {
                     println!("  {} Could not fetch: {e}", style("!").yellow());
-                    let cont = dialoguer::Confirm::new()
-                        .with_prompt("  Continue without profile?")
-                        .default(true)
-                        .interact()?;
+                    let cont =
+                        crate::input::input().confirm("  Continue without profile?", true)?;
                     if !cont {
                         bail!("Aborted");
                     }
@@ -1165,10 +1135,7 @@ fn exec_install(hostname: &str, username: &str) -> Result<()> {
         );
         println!("    Connect to a network and retry, or Ctrl+C to abort.");
 
-        let retry = dialoguer::Confirm::new()
-            .with_prompt("  Retry?")
-            .default(true)
-            .interact()?;
+        let retry = crate::input::input().confirm("  Retry?", true)?;
 
         if !retry {
             bail!("nixos-install requires network to fetch flake inputs");

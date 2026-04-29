@@ -5,6 +5,7 @@ use anyhow::{bail, Context, Result};
 use console::style;
 
 use crate::discover;
+use crate::input::input;
 use crate::output;
 
 const NIXOS_ISO_URL_X86: &str =
@@ -194,11 +195,11 @@ fn list_removable_disks_linux() -> Vec<DiskInfo> {
 }
 
 fn prompt_profile() -> Result<Option<String>> {
-    let input: String = dialoguer::Input::new()
-        .with_prompt("  Profile (GitHub user/repo, local path, or blank for generic)")
-        .default(String::new())
-        .allow_empty(true)
-        .interact_text()
+    let input: String = input()
+        .input_text(
+            "  Profile (GitHub user/repo, local path, or blank for generic)",
+            Some(""),
+        )
         .context("failed to read profile")?;
 
     // Strip quotes and whitespace from input
@@ -222,26 +223,22 @@ fn prompt_profile() -> Result<Option<String>> {
 }
 
 fn prompt_hostname() -> Result<String> {
-    let hostname: String = dialoguer::Input::new()
-        .with_prompt("  Hostname for target")
-        .default("nixos".to_string())
-        .validate_with(|input: &String| -> Result<(), String> {
-            let h = input.trim();
-            if h.is_empty() {
-                return Err("hostname cannot be empty".to_string());
-            }
-            if h.starts_with('-') || h.ends_with('-') {
-                return Err("hostname cannot start or end with a hyphen".to_string());
-            }
-            if !h.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
-                return Err("hostname must be alphanumeric with hyphens only".to_string());
-            }
-            Ok(())
-        })
-        .interact_text()
+    let hostname: String = input()
+        .input_text("  Hostname for target", Some("nixos"))
         .context("failed to read hostname")?;
 
-    Ok(hostname.trim().to_string())
+    let h = hostname.trim();
+    if h.is_empty() {
+        bail!("hostname cannot be empty");
+    }
+    if h.starts_with('-') || h.ends_with('-') {
+        bail!("hostname cannot start or end with a hyphen");
+    }
+    if !h.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+        bail!("hostname must be alphanumeric with hyphens only");
+    }
+
+    Ok(h.to_string())
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -274,12 +271,12 @@ impl Arch {
 }
 
 fn prompt_arch() -> Result<Arch> {
-    let items = vec!["x86_64  (Intel/AMD)", "aarch64 (Raspberry Pi, ARM)"];
-    let selection = dialoguer::Select::new()
-        .with_prompt("  Target architecture")
-        .items(&items)
-        .default(0)
-        .interact()
+    let items: Vec<String> = vec![
+        "x86_64  (Intel/AMD)".to_string(),
+        "aarch64 (Raspberry Pi, ARM)".to_string(),
+    ];
+    let selection = input()
+        .select("  Target architecture", &items, 0)
         .context("failed to select architecture")?;
 
     Ok(if selection == 0 {
@@ -303,11 +300,8 @@ fn prompt_disk() -> Result<Option<String>> {
     let mut labels: Vec<String> = disks.iter().map(|d| d.label.clone()).collect();
     labels.push("Skip (build bundle only)".to_string());
 
-    let selection = dialoguer::Select::new()
-        .with_prompt("  Flash to USB")
-        .items(&labels)
-        .default(labels.len() - 1) // default to Skip
-        .interact()
+    let selection = input()
+        .select("  Flash to USB", &labels, labels.len() - 1)
         .context("failed to select disk")?;
 
     if selection == disks.len() {
@@ -318,32 +312,24 @@ fn prompt_disk() -> Result<Option<String>> {
 }
 
 fn prompt_wifi() -> Result<Option<(String, String)>> {
-    let configure = dialoguer::Confirm::new()
-        .with_prompt("  Pre-configure WiFi for first boot?")
-        .default(false)
-        .interact()
+    let configure = input()
+        .confirm("  Pre-configure WiFi for first boot?", false)
         .context("failed to read wifi preference")?;
 
     if !configure {
         return Ok(None);
     }
 
-    let ssid: String = dialoguer::Input::new()
-        .with_prompt("  WiFi SSID")
-        .validate_with(|input: &String| -> Result<(), String> {
-            if input.trim().is_empty() {
-                Err("SSID cannot be empty".to_string())
-            } else {
-                Ok(())
-            }
-        })
-        .interact_text()
+    let ssid: String = input()
+        .input_text("  WiFi SSID", None)
         .context("failed to read SSID")?;
 
-    let psk = dialoguer::Password::new()
-        .with_prompt("  WiFi password (blank for open network)")
-        .allow_empty_password(true)
-        .interact()
+    if ssid.trim().is_empty() {
+        bail!("SSID cannot be empty");
+    }
+
+    let psk = input()
+        .password("  WiFi password (blank for open network)")
         .context("failed to read WiFi password")?;
 
     if psk.is_empty() {
@@ -380,13 +366,11 @@ fn prompt_ssh_key() -> Result<Option<String>> {
         Some(p) => p,
         None => return Ok(None),
     };
-    let bake = dialoguer::Confirm::new()
-        .with_prompt(format!(
-            "  Bake SSH key for target access? ({})",
-            path.display()
-        ))
-        .default(true)
-        .interact()
+    let bake = input()
+        .confirm(
+            &format!("  Bake SSH key for target access? ({})", path.display()),
+            true,
+        )
         .context("failed to read SSH key preference")?;
 
     if !bake {
@@ -630,10 +614,7 @@ pub fn run(
                 );
                 println!();
 
-                let cont = dialoguer::Confirm::new()
-                    .with_prompt("  Continue without working nex binary?")
-                    .default(false)
-                    .interact()?;
+                let cont = input().confirm("  Continue without working nex binary?", false)?;
                 if !cont {
                     bail!("Cannot bundle nex binary for Linux. Build it separately or run forge on a Linux machine.");
                 }
@@ -1701,10 +1682,7 @@ fn flash_to_usb(bundle_dir: &Path, iso_path: &Path, device: &str) -> Result<()> 
         style(device).bold()
     );
 
-    let confirm = dialoguer::Confirm::new()
-        .with_prompt("  Continue?")
-        .default(false)
-        .interact()?;
+    let confirm = input().confirm("  Continue?", false)?;
 
     if !confirm {
         println!("  Aborted.");

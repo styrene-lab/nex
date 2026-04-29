@@ -12,13 +12,7 @@ use crate::output;
 
 /// Check if stdin is interactive. When non-interactive, return the default.
 fn confirm_or_default(prompt: &str, default: bool) -> Result<bool> {
-    if !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
-        return Ok(default);
-    }
-    Ok(dialoguer::Confirm::new()
-        .with_prompt(prompt)
-        .default(default)
-        .interact()?)
+    crate::input::input().confirm(prompt, default)
 }
 
 /// Capture all installed brew packages into the nex config so the first
