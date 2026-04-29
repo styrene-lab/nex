@@ -4,6 +4,7 @@ mod config;
 mod discover;
 mod edit;
 mod exec;
+pub mod input;
 mod nixfile;
 mod ops;
 mod output;

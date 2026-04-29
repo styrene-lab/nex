@@ -2202,11 +2202,7 @@ pub fn run_sign(source: &str, detached: bool) -> Result<()> {
         bail!("no identity — run `nex identity init` first");
     }
 
-    let mut passphrase = dialoguer::Password::new()
-        .with_prompt("  Passphrase")
-        .interact()
-        .context("failed to read passphrase")?
-        .into_bytes();
+    let mut passphrase = crate::input::input().password("Passphrase")?.into_bytes();
 
     if passphrase.is_empty() {
         bail!("passphrase must not be empty");

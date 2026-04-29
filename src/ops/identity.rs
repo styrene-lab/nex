@@ -17,10 +17,7 @@ fn default_path() -> PathBuf {
 
 /// Read a passphrase from the terminal (no echo). Rejects empty input.
 fn read_passphrase(prompt: &str) -> Result<Vec<u8>> {
-    let passphrase = dialoguer::Password::new()
-        .with_prompt(prompt)
-        .interact()
-        .context("failed to read passphrase")?;
+    let passphrase = crate::input::input().password(prompt)?;
     if passphrase.is_empty() {
         bail!("passphrase must not be empty");
     }
@@ -63,11 +60,8 @@ pub fn run_init(path: Option<PathBuf>) -> Result<()> {
 
     output::status("creating new Styrene identity");
 
-    let mut passphrase = dialoguer::Password::new()
-        .with_prompt("Passphrase")
-        .with_confirmation("Confirm passphrase", "Passphrases do not match")
-        .interact()
-        .context("failed to read passphrase")?
+    let mut passphrase = crate::input::input()
+        .password_with_confirm("Passphrase")?
         .into_bytes();
 
     if passphrase.is_empty() {
@@ -384,10 +378,7 @@ fn run_git_configure() -> Result<()> {
     let name = match git_config.name {
         Some(n) => n,
         None => {
-            let input = dialoguer::Input::<String>::new()
-                .with_prompt("Full name for git commits")
-                .interact()
-                .context("failed to read name")?;
+            let input = crate::input::input().input_text("Full name for git commits", None)?;
             crate::config::set_nested_preference(
                 "identity.git.name",
                 toml::Value::String(input.clone()),
@@ -399,10 +390,7 @@ fn run_git_configure() -> Result<()> {
     let email = match git_config.email {
         Some(e) => e,
         None => {
-            let input = dialoguer::Input::<String>::new()
-                .with_prompt("Email for git commits")
-                .interact()
-                .context("failed to read email")?;
+            let input = crate::input::input().input_text("Email for git commits", None)?;
             crate::config::set_nested_preference(
                 "identity.git.email",
                 toml::Value::String(input.clone()),
