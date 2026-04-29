@@ -87,11 +87,10 @@ pub enum Command {
     },
     /// Identify brew packages that can migrate to nix
     Migrate,
-    /// Apply a profile from a GitHub repo
+    /// Manage and apply machine profiles
     Profile {
-        /// GitHub repo (user/repo) or URL
-        #[arg(value_name = "SOURCE")]
-        source: String,
+        #[command(subcommand)]
+        action: ProfileAction,
     },
     /// Build a bootable NixOS installer USB, optionally with a baked-in profile
     Forge {
@@ -201,5 +200,30 @@ pub enum IdentityAction {
         /// Path to the identity file (default: ~/.config/styrene/identity.key)
         #[arg(long)]
         path: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ProfileAction {
+    /// Apply a profile to this machine
+    Apply {
+        /// GitHub repo (user/repo), URL, or local path
+        #[arg(value_name = "SOURCE")]
+        source: String,
+    },
+    /// Sign a profile with your Styrene identity
+    Sign {
+        /// GitHub repo (user/repo) or local path to profile.toml
+        #[arg(value_name = "SOURCE")]
+        source: String,
+        /// Write signature to a detached .sig file instead of embedding in [meta]
+        #[arg(long)]
+        detached: bool,
+    },
+    /// Verify a signed profile
+    Verify {
+        /// GitHub repo (user/repo) or local path to profile.toml
+        #[arg(value_name = "SOURCE")]
+        source: String,
     },
 }

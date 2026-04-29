@@ -2,6 +2,29 @@
 
 All notable changes to nex are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.16.0] - 2026-04-29
+
+### Added
+- **Interactive `nex forge`** — run with no args to get walked through the entire process. Prompts for profile, hostname, target arch (x86_64/aarch64), USB device (lists removable disks), WiFi pre-config, and SSH key baking. All flags still work — if passed, they skip the corresponding prompt. Non-interactive (piped) mode falls back to current behavior.
+- **`nex profile sign <source>`** — sign a profile with your StyreneIdentity. Resolves the full extends/compose chain, canonicalizes the merged TOML, signs with Ed25519. Embeds pubkey + source ref in the signed output. Supports `--detached` for separate .sig files.
+- **`nex profile verify <source>`** — verify a signed profile using the embedded public key. No passphrase or identity file needed (public-key operation). Validates pubkey-to-hash binding and source ref match.
+- **`nex profile apply <source>`** — explicit subcommand (previously `nex profile <source>`).
+- **macOS disk discovery** — `diskutil list -plist external physical` with text fallback for forge USB picker.
+- **Linux disk discovery** — `lsblk -d -J` with rm field string/bool compatibility for forge USB picker.
+- **Arch selection** — forge now supports aarch64 targets (ARM ISO + binary).
+
+### Changed
+- `nex profile` is now a subcommand group (`apply`, `sign`, `verify`) — **breaking**: `nex profile <source>` becomes `nex profile apply <source>`.
+- Profile canonicalization includes `nex-profile-sig-v1\nsource:{ref}\n` header to bind signatures to their source and prevent rebinding attacks.
+- Signature verification uses `VerifyingKey::from_bytes()` directly (not `ed25519_verifying_key` which expects a seed).
+
+### Security
+- Profile signatures embed the signer's public key (`meta.pubkey`) — verification is a public-key operation, no private key access needed on the verifying machine.
+- Pubkey-to-hash validation prevents substituting a different pubkey while keeping the same `signed_by` hash.
+- Source ref binding prevents a signed profile from being presented as a different source.
+- `signed_source` field embedded in signed output so verify can reconstruct identical canonical bytes.
+- WiFi PSK written with 0o600 permissions in forge bundles.
+
 ## [0.15.0] - 2026-04-28
 
 ### Added

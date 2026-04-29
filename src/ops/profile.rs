@@ -1,8 +1,10 @@
 use std::collections::{BTreeMap, HashSet};
+use std::path::Path;
 use std::process::Command;
 
 use anyhow::{bail, Context, Result};
 use console::style;
+use zeroize::Zeroize;
 
 use crate::config::Config;
 use crate::discover::Platform;
@@ -2120,4 +2122,310 @@ fn apply_linux(config: &Config, linux: &ProfileLinux, dry_run: bool) -> Result<(
     println!("    {}", style(desktop_nix.display()).dim());
 
     Ok(())
+}
+
+// ── Profile signing ─────────────────────────────────────────────────────────
+
+/// Canonicalization version marker. Bump this if the canonical format changes.
+const CANON_VERSION: u8 = 1;
+
+/// Fields stripped from [meta] during canonicalization. Only these exact
+/// fields are signing metadata — all others are profile content and are
+/// covered by the signature.
+const SIGNING_META_FIELDS: &[&str] = &[
+    "signed_by",
+    "signed_at",
+    "signature",
+    "pubkey",
+    "signed_source",
+];
+
+/// Canonicalize a TOML value for signing. Produces deterministic bytes:
+/// sorted keys (BTreeMap), consistent formatting via toml::to_string_pretty.
+///
+/// The source ref is prepended so the signature binds to the profile origin.
+/// Signing metadata fields are stripped so the signature doesn't cover itself.
+fn canonicalize_for_signing(toml_str: &str, source: &str) -> Result<Vec<u8>> {
+    let mut value: toml::Value = toml::from_str(toml_str).context("invalid TOML for signing")?;
+
+    // Strip only the known signing metadata fields from [meta]
+    if let Some(meta) = value.get_mut("meta").and_then(|m| m.as_table_mut()) {
+        for field in SIGNING_META_FIELDS {
+            meta.remove(*field);
+        }
+    }
+
+    let canonical_toml = toml::to_string_pretty(&value).context("failed to canonicalize TOML")?;
+
+    // Prepend a header that binds the signature to the source and canon version.
+    // This prevents rebinding attacks (signed profile from source A presented as B).
+    let mut canonical = format!("nex-profile-sig-v{CANON_VERSION}\nsource:{source}\n").into_bytes();
+    canonical.extend_from_slice(canonical_toml.as_bytes());
+    Ok(canonical)
+}
+
+/// Sign a profile with the operator's StyreneIdentity.
+///
+/// Resolves the full profile chain, canonicalizes the merged result, and
+/// signs with KeyPurpose::Signing. The signature covers source ref + content.
+pub fn run_sign(source: &str, detached: bool) -> Result<()> {
+    use styrene_identity::derive::{KeyDeriver, KeyPurpose};
+    use styrene_identity::file_signer::FileSigner;
+    use styrene_identity::identity::{identity_hash, identity_pubkey};
+    use styrene_identity::pubkey::sign_with_seed;
+
+    eprintln!();
+    output::status("signing profile...");
+
+    // Resolve — handles both GitHub refs and local paths
+    let (resolved_toml, chain_info) = if Path::new(source).exists() {
+        let content =
+            std::fs::read_to_string(source).with_context(|| format!("reading {source}"))?;
+        (content, vec![source.to_string()])
+    } else {
+        let resolved = crate::ops::forge::resolve_profile_chain(source)?;
+        let chain = resolved.chain.clone();
+        (resolved.merged, chain)
+    };
+
+    eprintln!(
+        "  {} resolved {} layer(s)",
+        style("✓").green().bold(),
+        chain_info.len()
+    );
+
+    let canonical = canonicalize_for_signing(&resolved_toml, source)?;
+
+    // Load identity
+    let identity_path = FileSigner::default_path();
+    if !identity_path.exists() {
+        bail!("no identity — run `nex identity init` first");
+    }
+
+    let mut passphrase = dialoguer::Password::new()
+        .with_prompt("  Passphrase")
+        .interact()
+        .context("failed to read passphrase")?
+        .into_bytes();
+
+    if passphrase.is_empty() {
+        bail!("passphrase must not be empty");
+    }
+
+    let signer_file = FileSigner::with_static_passphrase(&identity_path, &passphrase);
+    let root = match signer_file.load(&passphrase) {
+        Ok(r) => {
+            passphrase.zeroize();
+            r
+        }
+        Err(styrene_identity::signer::SignerError::DecryptionFailed(_)) => {
+            passphrase.zeroize();
+            bail!("wrong passphrase");
+        }
+        Err(e) => {
+            passphrase.zeroize();
+            bail!("failed to load identity: {e}");
+        }
+    };
+
+    let hash = identity_hash(&root);
+    let pubkey = identity_pubkey(&root);
+    let pubkey_hex = hex::encode(pubkey);
+    let deriver = KeyDeriver::new(root.as_bytes());
+    let mut seed = deriver.derive(KeyPurpose::Signing);
+    let signature = sign_with_seed(&seed, &canonical);
+    seed.zeroize();
+    drop(root);
+
+    let sig_hex = hex::encode(signature);
+    let now = chrono_now();
+
+    // Sanitize output filename
+    let safe_name: String = source
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+
+    if detached {
+        let sig_content = format!(
+            "# Profile signature — generated by nex profile sign\n\
+             # Source: {source}\n\
+             # Layers: {layers}\n\
+             signed_by = \"{hash}\"\n\
+             signed_at = \"{now}\"\n\
+             signed_source = \"{source}\"\n\
+             pubkey = \"{pubkey_hex}\"\n\
+             signature = \"{sig_hex}\"\n",
+            layers = chain_info.join(" -> "),
+        );
+
+        let sig_path = format!("{safe_name}.sig");
+        std::fs::write(&sig_path, &sig_content).with_context(|| format!("writing {sig_path}"))?;
+
+        eprintln!();
+        output::status("profile signed (detached)");
+        eprintln!("  signer   {hash}");
+        eprintln!("  file     {sig_path}");
+    } else {
+        let mut value: toml::Value =
+            toml::from_str(&resolved_toml).context("invalid merged TOML")?;
+
+        let meta = value
+            .as_table_mut()
+            .context("profile is not a table")?
+            .entry("meta")
+            .or_insert_with(|| toml::Value::Table(toml::map::Map::new()))
+            .as_table_mut()
+            .context("[meta] is not a table")?;
+
+        meta.insert("signed_by".to_string(), toml::Value::String(hash.clone()));
+        meta.insert("signed_at".to_string(), toml::Value::String(now));
+        meta.insert("pubkey".to_string(), toml::Value::String(pubkey_hex));
+        meta.insert(
+            "signed_source".to_string(),
+            toml::Value::String(source.to_string()),
+        );
+        meta.insert("signature".to_string(), toml::Value::String(sig_hex));
+
+        let signed_toml = toml::to_string_pretty(&value).context("serializing signed profile")?;
+
+        let out_path = format!("{safe_name}.signed.toml");
+        std::fs::write(&out_path, &signed_toml).with_context(|| format!("writing {out_path}"))?;
+
+        eprintln!();
+        output::status("profile signed");
+        eprintln!("  signer   {hash}");
+        eprintln!("  file     {out_path}");
+    }
+
+    eprintln!();
+    Ok(())
+}
+
+/// Verify a signed profile against the embedded public key.
+///
+/// Operates on local .signed.toml files only. Verification is a public-key
+/// operation — no passphrase or identity file needed.
+pub fn run_verify(source: &str) -> Result<()> {
+    use ed25519_dalek::{Verifier, VerifyingKey};
+
+    eprintln!();
+    output::status("verifying profile signature...");
+
+    if !Path::new(source).exists() {
+        bail!(
+            "file not found: {source}\n\
+             Verify operates on .signed.toml files from `nex profile sign`.\n\
+             Fetch the signed profile first, then verify the local file."
+        );
+    }
+
+    let toml_str = std::fs::read_to_string(source).with_context(|| format!("reading {source}"))?;
+    let value: toml::Value = toml::from_str(&toml_str).context("invalid TOML")?;
+
+    let meta = value
+        .get("meta")
+        .and_then(|m| m.as_table())
+        .context("no [meta] section — profile is not signed")?;
+
+    let signer_hash = meta
+        .get("signed_by")
+        .and_then(|v| v.as_str())
+        .context("no meta.signed_by — profile is not signed")?;
+
+    let sig_hex = meta
+        .get("signature")
+        .and_then(|v| v.as_str())
+        .context("no meta.signature — profile is not signed")?;
+
+    let pubkey_hex = meta.get("pubkey").and_then(|v| v.as_str()).context(
+        "no meta.pubkey — profile was signed with an older version.\n\
+             Re-sign with `nex profile sign` to embed the public key.",
+    )?;
+
+    let signed_at = meta
+        .get("signed_at")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
+
+    // Recover the source ref used at sign time. This is embedded by run_sign
+    // so the canonical bytes can be reconstructed identically.
+    let profile_source = meta.get("signed_source").and_then(|v| v.as_str()).context(
+        "no meta.signed_source — cannot determine original source ref.\n\
+             Re-sign with `nex profile sign` to embed the source.",
+    )?;
+
+    // Decode and validate pubkey
+    let pubkey_bytes: [u8; 32] = hex::decode(pubkey_hex)
+        .context("invalid hex in pubkey")?
+        .try_into()
+        .map_err(|v: Vec<u8>| anyhow::anyhow!("pubkey is {} bytes, expected 32", v.len()))?;
+
+    // Construct the verifying key from the raw pubkey bytes.
+    // Note: pubkey_bytes IS the verifying key (from identity_pubkey),
+    // NOT a seed. Use VerifyingKey::from_bytes, not ed25519_verifying_key.
+    let vk = VerifyingKey::from_bytes(&pubkey_bytes)
+        .context("invalid Ed25519 public key in meta.pubkey")?;
+
+    // Verify pubkey matches the claimed signer hash
+    {
+        use sha2::{Digest, Sha256};
+        let digest = Sha256::digest(vk.as_bytes());
+        let computed_hash = hex::encode(&digest[..16]);
+        if computed_hash != signer_hash {
+            bail!(
+                "pubkey does not match signed_by hash\n\
+                 meta.signed_by = {signer_hash}\n\
+                 SHA-256(pubkey) = {computed_hash}\n\
+                 The signing metadata may have been tampered with."
+            );
+        }
+    }
+
+    // Decode signature
+    let sig_bytes: [u8; 64] = hex::decode(sig_hex)
+        .context("invalid hex in signature")?
+        .try_into()
+        .map_err(|v: Vec<u8>| anyhow::anyhow!("signature is {} bytes, expected 64", v.len()))?;
+
+    let signature = ed25519_dalek::Signature::from_bytes(&sig_bytes);
+
+    // Canonicalize with the same source ref used at sign time
+    let canonical = canonicalize_for_signing(&toml_str, profile_source)?;
+
+    // Verify — public-key only, no passphrase needed
+    match vk.verify(&canonical, &signature) {
+        Ok(()) => {
+            eprintln!();
+            eprintln!("  {} signature valid", style("✓").green().bold());
+            eprintln!("  signer     {signer_hash}");
+            eprintln!("  signed at  {signed_at}");
+            eprintln!();
+            Ok(())
+        }
+        Err(_) => {
+            eprintln!();
+            eprintln!("  {} signature INVALID", style("✗").red().bold());
+            eprintln!("  signer     {signer_hash}");
+            eprintln!("  The profile content has been modified since signing.");
+            eprintln!();
+            bail!("signature verification failed")
+        }
+    }
+}
+
+fn chrono_now() -> String {
+    std::process::Command::new("date")
+        .args(["-u", "+%Y-%m-%dT%H:%M:%SZ"])
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_else(|| "unknown".to_string())
 }

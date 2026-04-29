@@ -22,7 +22,8 @@ Single crate, no workspace. Key modules:
 - `ops/install.rs` — install with auto-resolution, alias-aware duplicate detection, atomic revert on failure, prefer-nix-on-equal preference
 - `ops/identity.rs` — StyreneIdentity lifecycle: `init` (generate encrypted key), `show` (display hash + pubkeys), `link` (enroll with Signum hub). Uses `styrene-identity` crate for HKDF derivation, Ed25519 signing, argon2id file encryption. All secrets zeroized after use.
 - `ops/profile.rs` — apply a machine profile from a GitHub repo
-- `ops/forge.rs` — build a bootable NixOS installer USB, optionally with a baked-in profile
+- `ops/profile.rs` — apply, sign, and verify machine profiles. `apply` resolves profile chain (extends/compose), merges layers, renders to nix modules. `sign` canonicalizes merged TOML + source ref, signs with Ed25519 identity, embeds pubkey. `verify` checks signature using embedded pubkey (no private key needed).
+- `ops/forge.rs` — build a bootable NixOS installer USB, optionally with a baked-in profile. Interactive mode prompts for profile, hostname, arch, disk, WiFi, SSH key when flags are omitted.
 - `ops/polymerize.rs` — interactive NixOS installer (runs on target after booting from USB)
 - `ops/build_image.rs` — build an OCI container image from a profile
 - `ops/develop.rs` — enter a dev shell from a flake (wraps `nix develop`)

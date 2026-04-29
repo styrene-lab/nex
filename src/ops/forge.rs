@@ -7,12 +7,397 @@ use console::style;
 use crate::discover;
 use crate::output;
 
-const NIXOS_ISO_URL: &str =
+const NIXOS_ISO_URL_X86: &str =
     "https://channels.nixos.org/nixos-24.11/latest-nixos-minimal-x86_64-linux.iso";
+const NIXOS_ISO_URL_ARM: &str =
+    "https://channels.nixos.org/nixos-24.11/latest-nixos-minimal-aarch64-linux.iso";
 const NIXOS_ISO_NAME: &str = "nixos-minimal-x86_64.iso";
+
+// ── Interactive prompt helpers ───────────────────────────────────────────────
+
+struct DiskInfo {
+    device: String,
+    label: String,
+}
+
+/// List removable/external disks suitable for flashing.
+fn list_removable_disks() -> Vec<DiskInfo> {
+    if crate::discover::detect_platform() == crate::discover::Platform::Darwin {
+        list_removable_disks_macos()
+    } else {
+        list_removable_disks_linux()
+    }
+}
+
+fn list_removable_disks_macos() -> Vec<DiskInfo> {
+    let output = Command::new("diskutil")
+        .args(["list", "-plist", "external", "physical"])
+        .output();
+
+    // Fallback: parse diskutil list text output
+    let output = match output {
+        Ok(o) if o.status.success() => o,
+        _ => {
+            return list_removable_disks_macos_text();
+        }
+    };
+
+    // The plist contains AllDisksAndPartitions with DeviceIdentifier entries
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut disks = Vec::new();
+
+    // Simple plist parsing — look for whole-disk identifiers (disk4, not disk4s1)
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("<string>disk") {
+            let dev = trimmed
+                .trim_start_matches("<string>")
+                .trim_end_matches("</string>");
+            // Skip partition identifiers like "disk4s1" — we only want "disk4"
+            if dev.contains('s') {
+                continue;
+            }
+            if let Some(info) = get_disk_info_macos(dev) {
+                disks.push(info);
+            }
+        }
+    }
+
+    disks
+}
+
+fn list_removable_disks_macos_text() -> Vec<DiskInfo> {
+    let output = Command::new("diskutil").arg("list").output();
+    let output = match output {
+        Ok(o) if o.status.success() => o,
+        _ => return Vec::new(),
+    };
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut disks = Vec::new();
+
+    for line in stdout.lines() {
+        // Lines like "/dev/disk4 (external, physical):"
+        if line.starts_with("/dev/disk") && line.contains("external") {
+            let dev = line.split_whitespace().next().unwrap_or("");
+            if !dev.is_empty() {
+                if let Some(info) = get_disk_info_macos(&dev.replace("/dev/", "")) {
+                    disks.push(info);
+                }
+            }
+        }
+    }
+
+    disks
+}
+
+fn get_disk_info_macos(dev_id: &str) -> Option<DiskInfo> {
+    let output = Command::new("diskutil")
+        .args(["info", &format!("/dev/{dev_id}")])
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let info = String::from_utf8_lossy(&output.stdout);
+    let mut size = String::new();
+    let mut name = String::new();
+
+    for line in info.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("Disk Size:") {
+            // "Disk Size:                 31.5 GB (31457280000 Bytes)..."
+            size = trimmed
+                .trim_start_matches("Disk Size:")
+                .trim()
+                .split('(')
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_string();
+        }
+        if trimmed.starts_with("Media Name:") || trimmed.starts_with("Device / Media Name:") {
+            name = trimmed.split(':').nth(1).unwrap_or("").trim().to_string();
+        }
+    }
+
+    if name.is_empty() {
+        name = "Unknown".to_string();
+    }
+
+    Some(DiskInfo {
+        device: format!("/dev/{dev_id}"),
+        label: format!("/dev/{dev_id}  {name}  {size}"),
+    })
+}
+
+fn list_removable_disks_linux() -> Vec<DiskInfo> {
+    let output = Command::new("lsblk")
+        .args(["-d", "-J", "-o", "NAME,SIZE,MODEL,TRAN,TYPE,RM"])
+        .output();
+
+    let output = match output {
+        Ok(o) if o.status.success() => o,
+        _ => return Vec::new(),
+    };
+
+    let json: serde_json::Value = match serde_json::from_slice(&output.stdout) {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+
+    let devices = json["blockdevices"].as_array();
+    let devices = match devices {
+        Some(d) => d,
+        None => return Vec::new(),
+    };
+
+    let mut disks = Vec::new();
+    for dev in devices {
+        let dtype = dev["type"].as_str().unwrap_or("");
+        // rm can be bool (true) or string ("1") depending on lsblk version
+        let rm = dev["rm"]
+            .as_bool()
+            .unwrap_or_else(|| dev["rm"].as_str() == Some("1"));
+        let tran = dev["tran"].as_str().unwrap_or("");
+        let name = dev["name"].as_str().unwrap_or("");
+
+        // Only physical disks that are removable or USB
+        if dtype != "disk" {
+            continue;
+        }
+        if !rm && tran != "usb" {
+            continue;
+        }
+        // Skip loop, sr, ram
+        if name.starts_with("loop") || name.starts_with("sr") || name.starts_with("ram") {
+            continue;
+        }
+
+        let size = dev["size"].as_str().unwrap_or("?");
+        let model = dev["model"].as_str().unwrap_or("Unknown").trim();
+
+        disks.push(DiskInfo {
+            device: format!("/dev/{name}"),
+            label: format!("/dev/{name}  {model}  {size}  {tran}"),
+        });
+    }
+
+    disks
+}
+
+fn prompt_profile() -> Result<Option<String>> {
+    let input: String = dialoguer::Input::new()
+        .with_prompt("  Profile (GitHub user/repo, local path, or blank for generic)")
+        .default(String::new())
+        .allow_empty(true)
+        .interact_text()
+        .context("failed to read profile")?;
+
+    // Strip quotes and whitespace from input
+    let input = input
+        .trim()
+        .trim_matches('"')
+        .trim_matches('\'')
+        .to_string();
+    if input.is_empty() {
+        return Ok(None);
+    }
+
+    // Local path?
+    let path = std::path::Path::new(&input);
+    if path.exists() && (path.join("profile.toml").exists() || input.ends_with(".toml")) {
+        return Ok(Some(input));
+    }
+
+    // Treat as GitHub ref
+    Ok(Some(input))
+}
+
+fn prompt_hostname() -> Result<String> {
+    let hostname: String = dialoguer::Input::new()
+        .with_prompt("  Hostname for target")
+        .default("nixos".to_string())
+        .validate_with(|input: &String| -> Result<(), String> {
+            let h = input.trim();
+            if h.is_empty() {
+                return Err("hostname cannot be empty".to_string());
+            }
+            if h.starts_with('-') || h.ends_with('-') {
+                return Err("hostname cannot start or end with a hyphen".to_string());
+            }
+            if !h.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+                return Err("hostname must be alphanumeric with hyphens only".to_string());
+            }
+            Ok(())
+        })
+        .interact_text()
+        .context("failed to read hostname")?;
+
+    Ok(hostname.trim().to_string())
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Arch {
+    X86_64,
+    Aarch64,
+}
+
+impl Arch {
+    fn iso_url(&self) -> &'static str {
+        match self {
+            Arch::X86_64 => NIXOS_ISO_URL_X86,
+            Arch::Aarch64 => NIXOS_ISO_URL_ARM,
+        }
+    }
+
+    fn target_triple(&self) -> &'static str {
+        match self {
+            Arch::X86_64 => "x86_64-unknown-linux-gnu",
+            Arch::Aarch64 => "aarch64-unknown-linux-gnu",
+        }
+    }
+
+    fn label(&self) -> &'static str {
+        match self {
+            Arch::X86_64 => "x86_64",
+            Arch::Aarch64 => "aarch64",
+        }
+    }
+}
+
+fn prompt_arch() -> Result<Arch> {
+    let items = vec!["x86_64  (Intel/AMD)", "aarch64 (Raspberry Pi, ARM)"];
+    let selection = dialoguer::Select::new()
+        .with_prompt("  Target architecture")
+        .items(&items)
+        .default(0)
+        .interact()
+        .context("failed to select architecture")?;
+
+    Ok(if selection == 0 {
+        Arch::X86_64
+    } else {
+        Arch::Aarch64
+    })
+}
+
+fn prompt_disk() -> Result<Option<String>> {
+    let mut disks = list_removable_disks();
+
+    if disks.is_empty() {
+        println!(
+            "  {} no removable disks detected — building bundle only",
+            style("i").cyan()
+        );
+        return Ok(None);
+    }
+
+    let mut labels: Vec<String> = disks.iter().map(|d| d.label.clone()).collect();
+    labels.push("Skip (build bundle only)".to_string());
+
+    let selection = dialoguer::Select::new()
+        .with_prompt("  Flash to USB")
+        .items(&labels)
+        .default(labels.len() - 1) // default to Skip
+        .interact()
+        .context("failed to select disk")?;
+
+    if selection == disks.len() {
+        Ok(None)
+    } else {
+        Ok(Some(disks.remove(selection).device))
+    }
+}
+
+fn prompt_wifi() -> Result<Option<(String, String)>> {
+    let configure = dialoguer::Confirm::new()
+        .with_prompt("  Pre-configure WiFi for first boot?")
+        .default(false)
+        .interact()
+        .context("failed to read wifi preference")?;
+
+    if !configure {
+        return Ok(None);
+    }
+
+    let ssid: String = dialoguer::Input::new()
+        .with_prompt("  WiFi SSID")
+        .validate_with(|input: &String| -> Result<(), String> {
+            if input.trim().is_empty() {
+                Err("SSID cannot be empty".to_string())
+            } else {
+                Ok(())
+            }
+        })
+        .interact_text()
+        .context("failed to read SSID")?;
+
+    let psk = dialoguer::Password::new()
+        .with_prompt("  WiFi password (blank for open network)")
+        .allow_empty_password(true)
+        .interact()
+        .context("failed to read WiFi password")?;
+
+    if psk.is_empty() {
+        println!("  {} open network (no password)", style("i").cyan());
+    }
+
+    Ok(Some((ssid, psk)))
+}
+
+fn prompt_ssh_key() -> Result<Option<String>> {
+    // Check for existing SSH pubkey
+    let home = dirs::home_dir().unwrap_or_default();
+    let candidates = [
+        home.join(".ssh/id_ed25519.pub"),
+        home.join(".ssh/id_rsa.pub"),
+    ];
+
+    let pubkey_path = candidates.iter().find(|p| p.exists());
+
+    if pubkey_path.is_none() {
+        // Check if we can derive from StyreneIdentity
+        let identity_path = styrene_identity::file_signer::FileSigner::default_path();
+        if identity_path.exists() {
+            println!(
+                "  {} no SSH pubkey found at ~/.ssh/ — derive from identity with `nex identity ssh --add`",
+                style("i").cyan()
+            );
+        }
+        return Ok(None);
+    }
+
+    // Safety: we checked pubkey_path.is_none() above and returned
+    let path = match pubkey_path {
+        Some(p) => p,
+        None => return Ok(None),
+    };
+    let bake = dialoguer::Confirm::new()
+        .with_prompt(format!(
+            "  Bake SSH key for target access? ({})",
+            path.display()
+        ))
+        .default(true)
+        .interact()
+        .context("failed to read SSH key preference")?;
+
+    if !bake {
+        return Ok(None);
+    }
+
+    let key =
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    Ok(Some(key.trim().to_string()))
+}
+
+// ── Main entry point ────────────────────────────────────────────────────────
 
 /// Run `nex forge` — build a bootable NixOS installer USB.
 /// If profile is None, builds a generic styx installer.
+/// When run interactively with missing flags, prompts for each value.
 pub fn run(
     profile_ref: Option<&str>,
     hostname: Option<&str>,
@@ -20,14 +405,50 @@ pub fn run(
     output_dir: Option<&Path>,
     dry_run: bool,
 ) -> Result<()> {
+    let is_interactive = std::io::IsTerminal::is_terminal(&std::io::stdin());
+
+    println!();
+    println!("  {} — build NixOS installer", style("nex forge").bold());
+    println!();
+
+    // ── Resolve inputs: flags win, then prompt, then defaults ──
+
+    let profile_ref_owned: Option<String> = match profile_ref {
+        Some(p) => Some(p.to_string()),
+        None if is_interactive => prompt_profile()?,
+        None => None,
+    };
+    let profile_ref = profile_ref_owned.as_deref();
     let is_styx = profile_ref.is_none();
-    let label = if is_styx { "styx" } else { "nex forge" };
 
-    println!();
-    println!("  {} — build NixOS installer", style(label).bold());
-    println!();
+    let hostname_owned: String = match hostname {
+        Some(h) => h.to_string(),
+        None if is_interactive => prompt_hostname()?,
+        None => "nixos".to_string(),
+    };
+    let hostname = hostname_owned.as_str();
 
-    let hostname = hostname.unwrap_or("nixos");
+    let arch = if is_interactive {
+        prompt_arch()?
+    } else {
+        Arch::X86_64
+    };
+
+    let disk_owned: Option<String> = match disk {
+        Some(d) => Some(d.to_string()),
+        None if is_interactive => prompt_disk()?,
+        None => None,
+    };
+    let disk = disk_owned.as_deref();
+
+    let wifi = if is_interactive { prompt_wifi()? } else { None };
+
+    let ssh_key = if is_interactive {
+        prompt_ssh_key()?
+    } else {
+        None
+    };
+
     let bundle_name = profile_ref
         .map(|r| r.replace('/', "_"))
         .unwrap_or_else(|| "styx".to_string());
@@ -108,7 +529,7 @@ pub fn run(
         );
     } else {
         output::status("downloading NixOS minimal ISO...");
-        download_file(NIXOS_ISO_URL, &iso_path)?;
+        download_file(arch.iso_url(), &iso_path)?;
         let size_mb = std::fs::metadata(&iso_path)?.len() / (1024 * 1024);
         println!("  {} NixOS ISO ({} MB)", style("✓").green().bold(), size_mb);
     }
@@ -121,6 +542,37 @@ pub fn run(
     let user = std::env::var("USER").unwrap_or_else(|_| "user".to_string());
     std::fs::write(defaults_dir.join("username"), &user)?;
     std::fs::write(defaults_dir.join("timezone"), "America/New_York")?;
+    std::fs::write(defaults_dir.join("arch"), arch.label())?;
+
+    // Write WiFi credentials if provided
+    if let Some((ref ssid, ref psk)) = wifi {
+        std::fs::write(defaults_dir.join("wifi_ssid"), ssid)?;
+        // Write PSK with restricted permissions
+        #[cfg(unix)]
+        {
+            use std::io::Write;
+            use std::os::unix::fs::OpenOptionsExt;
+            let mut f = std::fs::OpenOptions::new()
+                .write(true)
+                .create(true)
+                .truncate(true)
+                .mode(0o600)
+                .open(defaults_dir.join("wifi_psk"))?;
+            f.write_all(psk.as_bytes())?;
+        }
+        #[cfg(not(unix))]
+        std::fs::write(defaults_dir.join("wifi_psk"), psk)?;
+        println!("  {} WiFi: {ssid}", style("✓").green().bold());
+    }
+
+    // Write SSH authorized key if provided
+    if let Some(ref key) = ssh_key {
+        std::fs::write(defaults_dir.join("ssh_authorized_keys"), key)?;
+        println!(
+            "  {} SSH key baked for target access",
+            style("✓").green().bold()
+        );
+    }
 
     // ── 5. Write profile into bundle (if specified) ──────────────────
     if let Some(ref toml_content) = profile_toml {
@@ -133,9 +585,12 @@ pub fn run(
     }
 
     // ── 6. Bundle nex binary for target arch ────────────────────────
-    output::status("bundling nex binary for x86_64-linux...");
+    output::status(&format!(
+        "bundling nex binary for {}-linux...",
+        arch.label()
+    ));
     let nex_bin_path = styrene_dir.join("nex");
-    match fetch_nex_binary(&nex_bin_path) {
+    match fetch_nex_binary(&nex_bin_path, arch) {
         Ok(()) => {
             // Verify it's not a placeholder — check content, not just size
             let content = std::fs::read_to_string(&nex_bin_path).unwrap_or_default();
@@ -378,9 +833,8 @@ fn download_file(url: &str, dest: &Path) -> Result<()> {
 }
 
 /// Bundle nex for the target architecture (currently x86_64-linux).
-/// TODO: support aarch64-linux for ARM targets.
 /// Strategy: nix cross-build (works from macOS) → GitHub release → self-copy → placeholder.
-fn fetch_nex_binary(dest: &Path) -> Result<()> {
+fn fetch_nex_binary(dest: &Path, arch: Arch) -> Result<()> {
     let _nex_src = std::env::current_exe()
         .ok()
         .and_then(|p| p.parent()?.parent()?.parent().map(|p| p.to_path_buf()));
@@ -480,7 +934,7 @@ fn fetch_nex_binary(dest: &Path) -> Result<()> {
     }
 
     // ── Strategy 2: GitHub release download ──
-    let target = "x86_64-unknown-linux-gnu";
+    let target = arch.target_triple();
     if let Ok(output) = Command::new("gh")
         .args([
             "api",

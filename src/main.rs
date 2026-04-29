@@ -73,6 +73,13 @@ fn main() -> Result<()> {
                 }
             }
         }
+        Command::Profile { ref action } => match action {
+            cli::ProfileAction::Sign { source, detached } => {
+                return ops::profile::run_sign(source, *detached)
+            }
+            cli::ProfileAction::Verify { source } => return ops::profile::run_verify(source),
+            cli::ProfileAction::Apply { .. } => {} // handled below with config
+        },
         _ => {}
     }
 
@@ -113,7 +120,11 @@ fn main() -> Result<()> {
         Command::Adopt => ops::adopt::run(&config, cli.dry_run),
         Command::List => ops::list::run(&config),
         Command::Migrate => ops::migrate::run(&config),
-        Command::Profile { source } => ops::profile::run(&config, &source, cli.dry_run),
+        Command::Profile { ref action } => match action {
+            cli::ProfileAction::Apply { source } => ops::profile::run(&config, source, cli.dry_run),
+            // Sign and Verify are handled in the pre-config block above
+            _ => unreachable!(),
+        },
         Command::Doctor => ops::doctor::run(&config),
         Command::Switch => ops::switch::run(&config, cli.dry_run),
         Command::Update => ops::update::run(&config, cli.dry_run),
