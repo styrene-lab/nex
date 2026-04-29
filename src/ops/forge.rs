@@ -157,10 +157,12 @@ fn list_removable_disks_linux() -> Vec<DiskInfo> {
     let mut disks = Vec::new();
     for dev in devices {
         let dtype = dev["type"].as_str().unwrap_or("");
-        // rm can be bool (true) or string ("1") depending on lsblk version
-        let rm = dev["rm"]
-            .as_bool()
-            .unwrap_or_else(|| dev["rm"].as_str() == Some("1"));
+        // rm can be bool, string "1", or integer 1 depending on lsblk version
+        let rm = dev["rm"].as_bool().unwrap_or_else(|| {
+            dev["rm"].as_str() == Some("1")
+                || dev["rm"].as_u64() == Some(1)
+                || dev["rm"].as_i64() == Some(1)
+        });
         let tran = dev["tran"].as_str().unwrap_or("");
         let name = dev["name"].as_str().unwrap_or("");
 
@@ -403,6 +405,7 @@ pub fn run(
     hostname: Option<&str>,
     disk: Option<&str>,
     output_dir: Option<&Path>,
+    arch_flag: Option<&str>,
     dry_run: bool,
 ) -> Result<()> {
     let is_interactive = std::io::IsTerminal::is_terminal(&std::io::stdin());
@@ -428,10 +431,12 @@ pub fn run(
     };
     let hostname = hostname_owned.as_str();
 
-    let arch = if is_interactive {
-        prompt_arch()?
-    } else {
-        Arch::X86_64
+    let arch = match arch_flag {
+        Some("aarch64" | "arm64" | "arm") => Arch::Aarch64,
+        Some("x86_64" | "x86" | "amd64") => Arch::X86_64,
+        Some(other) => bail!("unknown architecture: {other} (use x86_64 or aarch64)"),
+        None if is_interactive => prompt_arch()?,
+        None => Arch::X86_64,
     };
 
     let disk_owned: Option<String> = match disk {
@@ -646,10 +651,11 @@ pub fn run(
         "version: 2\n\
          hostname: {hostname}\n\
          profile: {profile}\n\
-         arch: x86_64\n\
+         arch: {arch}\n\
          styx: {is_styx}\n\
          created: {created}\n",
         profile = profile_ref.unwrap_or("none"),
+        arch = arch.label(),
         created = chrono_now(),
     );
     std::fs::write(bundle_dir.join("bundle.yaml"), manifest)?;

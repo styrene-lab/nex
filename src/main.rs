@@ -42,12 +42,14 @@ fn main() -> Result<()> {
             ref hostname,
             ref disk,
             ref output,
+            ref arch,
         } => {
             return ops::forge::run(
                 profile.as_deref(),
                 hostname.as_deref(),
                 disk.as_deref(),
                 output.as_deref(),
+                arch.as_deref(),
                 cli.dry_run,
             )
         }

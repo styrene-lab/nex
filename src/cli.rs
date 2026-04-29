@@ -109,6 +109,10 @@ pub enum Command {
         /// Output directory for the bundle (default: /tmp/nex-forge)
         #[arg(long, short)]
         output: Option<PathBuf>,
+
+        /// Target architecture (x86_64 or aarch64). Prompted interactively if omitted.
+        #[arg(long)]
+        arch: Option<String>,
     },
     /// Interactive NixOS installer (runs on target machine after booting from USB)
     Polymerize {
