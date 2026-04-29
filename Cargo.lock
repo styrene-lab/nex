@@ -1026,7 +1026,7 @@ dependencies = [
 
 [[package]]
 name = "nex-pkg"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -1041,7 +1041,6 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
- "sha2",
  "styrene-identity",
  "tempfile",
  "toml",
@@ -1278,7 +1277,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -1666,14 +1665,16 @@ checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 
 [[package]]
 name = "styrene-identity"
-version = "0.1.1"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "682a50685aed4eb173bf86998ccb814080b9a82d156459a1570dee368b848ec3"
+checksum = "12504c5764c5096c5527bdc557e2502569b80417b50e2cace60d0d4dd30308e1"
 dependencies = [
  "argon2",
  "async-trait",
+ "base64",
  "chacha20poly1305",
  "ed25519-dalek",
+ "hex",
  "hkdf",
  "rand_core 0.6.4",
  "sha2",

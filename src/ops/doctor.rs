@@ -11,6 +11,9 @@ pub fn run(config: &Config) -> Result<()> {
     println!("  {} — checking configuration", style("nex doctor").bold());
     println!();
 
+    // Identity checks (report-only, no auto-fix)
+    check_identity();
+
     let mut fixed = 0;
 
     // Check mac-app-util integration
@@ -285,6 +288,75 @@ fn is_local_bin_on_path() -> bool {
     path_var
         .split(':')
         .any(|entry| entry == "~/.local/bin" || entry == "$HOME/.local/bin" || entry == expanded)
+}
+
+/// Check identity file health and git signing configuration.
+fn check_identity() {
+    let identity_path = styrene_identity::file_signer::FileSigner::default_path();
+
+    if !identity_path.exists() {
+        warn("identity", "no identity file — run `nex identity init`");
+    } else {
+        match std::fs::metadata(&identity_path) {
+            Ok(meta) => {
+                if meta.len() != 97 {
+                    warn(
+                        "identity",
+                        &format!("unexpected file size ({} bytes, expected 97)", meta.len()),
+                    );
+                } else {
+                    ok("identity", &format!("{}", identity_path.display()));
+                }
+
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let mode = meta.permissions().mode() & 0o777;
+                    if mode != 0o600 {
+                        warn(
+                            "identity permissions",
+                            &format!("{:#o} — should be 0o600", mode),
+                        );
+                    }
+                }
+            }
+            Err(e) => warn("identity", &format!("cannot read: {e}")),
+        }
+    }
+
+    // Git signing
+    let gpg_format = std::process::Command::new("git")
+        .args(["config", "--global", "gpg.format"])
+        .output();
+    match gpg_format {
+        Ok(ref out) if String::from_utf8_lossy(&out.stdout).trim() == "ssh" => {
+            ok("git signing", "gpg.format = ssh");
+        }
+        _ => {
+            info("git signing", "not configured — run `nex identity git`");
+        }
+    }
+
+    // SSH labels
+    match crate::config::load_identity_config() {
+        Ok(id_config) => {
+            let labels = id_config.ssh.and_then(|s| s.labels).unwrap_or_default();
+            if labels.is_empty() {
+                info(
+                    "ssh labels",
+                    "none registered — try `nex identity ssh --add github`",
+                );
+            } else {
+                ok(
+                    "ssh labels",
+                    &format!("{}: {}", labels.len(), labels.join(", ")),
+                );
+            }
+        }
+        Err(_) => {
+            info("ssh labels", "no identity config");
+        }
+    }
 }
 
 fn ok(label: &str, detail: &str) {

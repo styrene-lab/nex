@@ -172,6 +172,25 @@ pub enum IdentityAction {
         #[arg(long)]
         path: Option<PathBuf>,
     },
+    /// Scan for all identities on this machine
+    List,
+    /// Export or manage SSH public keys derived from identity
+    Ssh {
+        /// Label for the SSH key (e.g. "github", "work")
+        label: Option<String>,
+        /// List all registered SSH key labels
+        #[arg(long, conflicts_with = "label")]
+        list: bool,
+        /// Register a new SSH key label
+        #[arg(long, conflicts_with_all = ["label", "list"])]
+        add: Option<String>,
+    },
+    /// Configure git commit signing with identity
+    Git {
+        /// Show current git signing configuration
+        #[arg(long)]
+        show: bool,
+    },
     /// Link this identity to a Signum hub for SSO
     Link {
         /// Signum instance URL (e.g. https://signum.styrene.io)

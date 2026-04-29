@@ -4,27 +4,12 @@ use anyhow::{bail, Context, Result};
 use zeroize::Zeroize;
 
 use styrene_identity::derive::{KeyDeriver, KeyPurpose};
-use styrene_identity::file_signer::{ClosurePassphraseProvider, FileSigner};
+use styrene_identity::file_signer::FileSigner;
+use styrene_identity::identity::{identity_hash, identity_pubkey};
 use styrene_identity::pubkey::{ed25519_verifying_key, x25519_public_key};
 use styrene_identity::signer::SignerError;
 
 use crate::output;
-
-/// Compute the RNS signing pubkey (hex) and Signum-compatible identity hash.
-/// Signum derives identity from: HKDF("styrene-rns-signing-v1") → Ed25519 pubkey → SHA-256[:16]
-fn signum_identity(root: &styrene_identity::signer::RootSecret) -> (String, String) {
-    use sha2::{Digest, Sha256};
-
-    let deriver = KeyDeriver::new(root.as_bytes());
-    let mut seed = deriver.derive(KeyPurpose::Signing);
-    let vk = ed25519_verifying_key(&seed);
-    seed.zeroize();
-
-    let pubkey_hex = hex::encode(vk.as_bytes());
-    let digest = Sha256::digest(vk.as_bytes());
-    let hash = hex::encode(&digest[..16]);
-    (pubkey_hex, hash)
-}
 
 fn default_path() -> PathBuf {
     FileSigner::default_path()
@@ -42,25 +27,30 @@ fn read_passphrase(prompt: &str) -> Result<Vec<u8>> {
     Ok(passphrase.into_bytes())
 }
 
-/// Build a FileSigner that uses an already-collected passphrase.
-fn signer_with_passphrase(path: &PathBuf, passphrase: &[u8]) -> FileSigner {
-    let pp = passphrase.to_vec();
-    let provider = Box::new(ClosurePassphraseProvider::new(move || Ok(pp.clone())));
-    FileSigner::new(path, provider)
+/// Load identity root secret with passphrase, zeroizing on all paths.
+fn load_root(
+    path: &PathBuf,
+    passphrase: &mut Vec<u8>,
+) -> Result<styrene_identity::signer::RootSecret> {
+    let signer = FileSigner::with_static_passphrase(path, passphrase);
+    match signer.load(passphrase) {
+        Ok(r) => {
+            passphrase.zeroize();
+            Ok(r)
+        }
+        Err(SignerError::DecryptionFailed(_)) => {
+            passphrase.zeroize();
+            bail!("wrong passphrase");
+        }
+        Err(e) => {
+            passphrase.zeroize();
+            bail!("failed to load identity: {e}");
+        }
+    }
 }
 
-/// Compute the canonical identity hash from a root secret.
-/// SHA-256(RNS-signing-Ed25519-pubkey)[:16], 32 hex chars.
-///
-/// The RNS signing key is the canonical identity — it's the mesh identity
-/// used by Signum, styrened, and all mesh operations. Git signing, SSH,
-/// and other keys derive from the same root but are purpose-specific.
-fn identity_hash(root: &styrene_identity::signer::RootSecret) -> String {
-    let (_, hash) = signum_identity(root);
-    hash
-}
+// ── init ────────────────────────────────────────────────────────────────────
 
-/// `nex identity init` — generate a new StyreneIdentity.
 pub fn run_init(path: Option<PathBuf>) -> Result<()> {
     let path = path.unwrap_or_else(default_path);
 
@@ -84,7 +74,7 @@ pub fn run_init(path: Option<PathBuf>) -> Result<()> {
         bail!("passphrase must not be empty");
     }
 
-    let signer = signer_with_passphrase(&path, &passphrase);
+    let signer = FileSigner::with_static_passphrase(&path, &passphrase);
     signer
         .generate(&passphrase)
         .context("failed to generate identity")?;
@@ -109,7 +99,391 @@ pub fn run_init(path: Option<PathBuf>) -> Result<()> {
     Ok(())
 }
 
-/// `nex identity link` — link this identity to a Signum hub.
+// ── show ────────────────────────────────────────────────────────────────────
+
+pub fn run_show(path: Option<PathBuf>) -> Result<()> {
+    let path = path.unwrap_or_else(default_path);
+
+    if !path.exists() {
+        bail!(
+            "no identity at {}\nrun `nex identity init` to create one",
+            path.display()
+        );
+    }
+
+    let mut passphrase = read_passphrase("Passphrase")?;
+    let root = load_root(&path, &mut passphrase)?;
+
+    let hash = identity_hash(&root);
+    let pubkey = identity_pubkey(&root);
+    let deriver = KeyDeriver::new(root.as_bytes());
+
+    let mut ssh_seed = deriver.derive(KeyPurpose::SshHost);
+    let ssh_vk = ed25519_verifying_key(&ssh_seed);
+    ssh_seed.zeroize();
+
+    let mut age_secret = deriver.derive(KeyPurpose::Age);
+    let age_pk = x25519_public_key(&age_secret);
+    age_secret.zeroize();
+
+    eprintln!();
+    output::status("styrene identity");
+    eprintln!("  path       {}", path.display());
+    eprintln!("  hash       {hash}");
+    eprintln!("  pubkey     {}", hex::encode(pubkey));
+    eprintln!("  ssh host   {}", hex::encode(ssh_vk.as_bytes()));
+    eprintln!("  age key    {}", hex::encode(age_pk.as_bytes()));
+
+    Ok(())
+}
+
+// ── list ────────────────────────────────────────────────────────────────────
+
+pub fn run_list() -> Result<()> {
+    eprintln!();
+    output::status("styrene identities");
+
+    let mut found = false;
+
+    // Default path
+    let default = default_path();
+    if default.is_file() {
+        print_identity_metadata(&default, "default");
+        found = true;
+    }
+
+    // Scan for additional .key files in ~/.config/styrene/
+    if let Some(parent) = default.parent() {
+        if parent.is_dir() {
+            let mut extras: Vec<_> = std::fs::read_dir(parent)?
+                .flatten()
+                .filter(|e| {
+                    let p = e.path();
+                    p.extension().and_then(|x| x.to_str()) == Some("key") && p != default
+                })
+                .map(|e| e.path())
+                .collect();
+            extras.sort();
+            for extra in &extras {
+                let label = extra
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("unknown");
+                print_identity_metadata(extra, label);
+                found = true;
+            }
+        }
+    }
+
+    // STYRENE_IDENTITY_PATH env var
+    if let Ok(env_path) = std::env::var("STYRENE_IDENTITY_PATH") {
+        let p = PathBuf::from(&env_path);
+        if p.is_file() && p != default {
+            print_identity_metadata(&p, "env:STYRENE_IDENTITY_PATH");
+            found = true;
+        }
+    }
+
+    // STYRENE_IDENTITY_HASH env var (hash-only)
+    if let Ok(hash) = std::env::var("STYRENE_IDENTITY_HASH") {
+        if !hash.is_empty() {
+            eprintln!(
+                "  {} {}  {}  {}",
+                console::style("○").dim(),
+                console::style("env").bold(),
+                hash,
+                console::style("(hash-only, no signing)").dim()
+            );
+            found = true;
+        }
+    }
+
+    if !found {
+        eprintln!(
+            "  {} no identities found — run {}",
+            console::style("○").dim(),
+            console::style("nex identity init").bold()
+        );
+    }
+
+    eprintln!();
+    Ok(())
+}
+
+fn print_identity_metadata(path: &PathBuf, label: &str) {
+    let meta = std::fs::metadata(path);
+    let size_ok = meta.as_ref().map(|m| m.len() == 97).unwrap_or(false);
+
+    #[cfg(unix)]
+    let perms_ok = meta
+        .as_ref()
+        .map(|m| {
+            use std::os::unix::fs::PermissionsExt;
+            m.permissions().mode() & 0o777 == 0o600
+        })
+        .unwrap_or(false);
+    #[cfg(not(unix))]
+    let perms_ok = true;
+
+    let status = if size_ok && perms_ok {
+        console::style("●").green().to_string()
+    } else {
+        console::style("●").yellow().to_string()
+    };
+
+    eprintln!(
+        "  {status} {}  {}",
+        console::style(label).bold(),
+        console::style(path.display()).dim()
+    );
+
+    if !size_ok {
+        if let Ok(m) = &meta {
+            eprintln!(
+                "    {}",
+                console::style(format!("unexpected size: {} bytes (expected 97)", m.len()))
+                    .yellow()
+            );
+        }
+    }
+    #[cfg(unix)]
+    if !perms_ok {
+        if let Ok(m) = &meta {
+            use std::os::unix::fs::PermissionsExt;
+            eprintln!(
+                "    {}",
+                console::style(format!(
+                    "permissions: {:#o} (should be 0o600)",
+                    m.permissions().mode() & 0o777
+                ))
+                .yellow()
+            );
+        }
+    }
+}
+
+// ── ssh ─────────────────────────────────────────────────────────────────────
+
+pub fn run_ssh(label: Option<String>, list: bool, add: Option<String>) -> Result<()> {
+    if list {
+        return run_ssh_list();
+    }
+    if let Some(new_label) = add {
+        return run_ssh_add(&new_label);
+    }
+    if let Some(label) = label {
+        return run_ssh_export(&label);
+    }
+    bail!(
+        "usage: nex identity ssh <label>\n       \
+         nex identity ssh --list\n       \
+         nex identity ssh --add <label>"
+    );
+}
+
+fn run_ssh_export(label: &str) -> Result<()> {
+    let path = default_path();
+    if !path.exists() {
+        bail!("no identity — run `nex identity init` first");
+    }
+
+    let mut passphrase = read_passphrase("Passphrase")?;
+    let root = load_root(&path, &mut passphrase)?;
+    let deriver = KeyDeriver::new(root.as_bytes());
+
+    let mut seed = deriver
+        .derive_ssh_user_key(label)
+        .context("invalid SSH key label")?;
+    let comment = format!("styrene-ssh-user-{label}");
+    let pubkey = styrene_identity::format::ssh_pubkey(&seed, &comment);
+    let fingerprint = styrene_identity::format::ssh_pubkey_fingerprint(&seed);
+    seed.zeroize();
+
+    eprintln!();
+    output::status(&format!("ssh key: {label}"));
+    eprintln!("  fingerprint  {fingerprint}");
+    eprintln!();
+
+    // Pubkey to stdout for piping
+    print!("{pubkey}");
+
+    eprintln!();
+    eprintln!(
+        "  {}",
+        console::style(
+            "Paste this key into your SSH provider (e.g. GitHub → Settings → SSH keys)."
+        )
+        .dim()
+    );
+
+    Ok(())
+}
+
+fn run_ssh_list() -> Result<()> {
+    let id_config = crate::config::load_identity_config()?;
+    let labels = id_config.ssh.and_then(|s| s.labels).unwrap_or_default();
+
+    if labels.is_empty() {
+        eprintln!();
+        eprintln!(
+            "  no SSH labels registered — try {}",
+            console::style("nex identity ssh --add github").bold()
+        );
+        eprintln!();
+        return Ok(());
+    }
+
+    let path = default_path();
+    if !path.exists() {
+        bail!("no identity — run `nex identity init` first");
+    }
+
+    let mut passphrase = read_passphrase("Passphrase")?;
+    let root = load_root(&path, &mut passphrase)?;
+    let deriver = KeyDeriver::new(root.as_bytes());
+
+    eprintln!();
+    output::status("ssh keys");
+    for label in &labels {
+        let mut seed = deriver
+            .derive_ssh_user_key(label)
+            .context("invalid SSH key label")?;
+        let fingerprint = styrene_identity::format::ssh_pubkey_fingerprint(&seed);
+        seed.zeroize();
+        eprintln!("  {}  {fingerprint}", console::style(label).bold());
+    }
+    eprintln!();
+
+    Ok(())
+}
+
+fn run_ssh_add(label: &str) -> Result<()> {
+    crate::config::append_to_list("identity.ssh.labels", label)?;
+    eprintln!(
+        "  {} registered SSH label: {}",
+        console::style("✓").green().bold(),
+        console::style(label).bold()
+    );
+    // Show the key immediately
+    run_ssh_export(label)
+}
+
+// ── git ─────────────────────────────────────────────────────────────────────
+
+pub fn run_git(show: bool) -> Result<()> {
+    if show {
+        return run_git_show();
+    }
+    run_git_configure()
+}
+
+fn run_git_configure() -> Result<()> {
+    let id_config = crate::config::load_identity_config()?;
+    let git_config = id_config.git.unwrap_or_default();
+
+    let name = match git_config.name {
+        Some(n) => n,
+        None => {
+            let input = dialoguer::Input::<String>::new()
+                .with_prompt("Full name for git commits")
+                .interact()
+                .context("failed to read name")?;
+            crate::config::set_nested_preference(
+                "identity.git.name",
+                toml::Value::String(input.clone()),
+            )?;
+            input
+        }
+    };
+
+    let email = match git_config.email {
+        Some(e) => e,
+        None => {
+            let input = dialoguer::Input::<String>::new()
+                .with_prompt("Email for git commits")
+                .interact()
+                .context("failed to read email")?;
+            crate::config::set_nested_preference(
+                "identity.git.email",
+                toml::Value::String(input.clone()),
+            )?;
+            input
+        }
+    };
+
+    let path = default_path();
+    if !path.exists() {
+        bail!("no identity — run `nex identity init` first");
+    }
+
+    let mut passphrase = read_passphrase("Passphrase")?;
+    let root = load_root(&path, &mut passphrase)?;
+    let deriver = KeyDeriver::new(root.as_bytes());
+
+    let mut seed = deriver.derive(KeyPurpose::Signing);
+    let config_snippet = styrene_identity::format::git_signing_config(&seed);
+    seed.zeroize();
+
+    // Extract the signingkey value from the config snippet
+    let signing_key = config_snippet
+        .lines()
+        .find(|l| l.contains("signingkey"))
+        .and_then(|l| l.split("= ").nth(1))
+        .context("failed to parse signing key from config")?;
+
+    // Apply via git config --global
+    let git = |args: &[&str]| -> Result<()> {
+        let status = std::process::Command::new("git")
+            .args(args)
+            .status()
+            .context("failed to run git")?;
+        if !status.success() {
+            bail!("git config failed");
+        }
+        Ok(())
+    };
+
+    git(&["config", "--global", "user.name", &name])?;
+    git(&["config", "--global", "user.email", &email])?;
+    git(&["config", "--global", "gpg.format", "ssh"])?;
+    git(&["config", "--global", "user.signingkey", signing_key])?;
+    git(&["config", "--global", "commit.gpgsign", "true"])?;
+
+    eprintln!();
+    output::status("git signing configured");
+    eprintln!("  name     {name}");
+    eprintln!("  email    {email}");
+    eprintln!("  signing  enabled (SSH key)");
+    eprintln!();
+
+    Ok(())
+}
+
+fn run_git_show() -> Result<()> {
+    let get = |key: &str| -> String {
+        std::process::Command::new("git")
+            .args(["config", "--global", key])
+            .output()
+            .ok()
+            .filter(|o| o.status.success())
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .unwrap_or_else(|| console::style("(not set)").dim().to_string())
+    };
+
+    eprintln!();
+    output::status("git signing config");
+    eprintln!("  user.name       {}", get("user.name"));
+    eprintln!("  user.email      {}", get("user.email"));
+    eprintln!("  gpg.format      {}", get("gpg.format"));
+    eprintln!("  user.signingkey {}", get("user.signingkey"));
+    eprintln!("  commit.gpgsign  {}", get("commit.gpgsign"));
+    eprintln!();
+
+    Ok(())
+}
+
+// ── link ────────────────────────────────────────────────────────────────────
+
 pub fn run_link(url: &str, code: Option<&str>, path: Option<PathBuf>) -> Result<()> {
     let path = path.unwrap_or_else(default_path);
 
@@ -121,34 +495,15 @@ pub fn run_link(url: &str, code: Option<&str>, path: Option<PathBuf>) -> Result<
     }
 
     let mut passphrase = read_passphrase("Passphrase")?;
-    let signer = signer_with_passphrase(&path, &passphrase);
+    let root = load_root(&path, &mut passphrase)?;
 
-    let root = match signer.load(&passphrase) {
-        Ok(r) => {
-            passphrase.zeroize();
-            r
-        }
-        Err(SignerError::DecryptionFailed(_)) => {
-            passphrase.zeroize();
-            bail!("wrong passphrase");
-        }
-        Err(e) => {
-            passphrase.zeroize();
-            bail!("failed to load identity: {e}");
-        }
-    };
-
-    let (pubkey_hex, hash) = signum_identity(&root);
-    // RootSecret implements Drop+Zeroize via the styrene-identity crate.
-    // Explicit drop here ends the borrow; zeroization happens in Drop.
+    let hash = identity_hash(&root);
+    let pubkey_hex = hex::encode(identity_pubkey(&root));
     drop(root);
 
     let base_url = url.trim_end_matches('/');
 
     if let Some(invite_code) = code {
-        // With invite code: register directly via API — no browser needed.
-        // NOTE: The invite code is visible in shell history and process listing.
-        // For sensitive environments, pipe it: echo <code> | xargs -I{} nex identity link <url> --code {}
         output::status("linking identity to hub...");
 
         let body = serde_json::json!({
@@ -191,8 +546,6 @@ pub fn run_link(url: &str, code: Option<&str>, path: Option<PathBuf>) -> Result<
             bail!("hub returned {status}: {msg}");
         }
     } else {
-        // No invite code: display pubkey for the user to register via admin UI.
-        // Open the hub's admin page in the browser for convenience.
         eprintln!();
         output::status("identity ready to link");
         eprintln!("  hub       {base_url}");
@@ -218,57 +571,6 @@ pub fn run_link(url: &str, code: Option<&str>, path: Option<PathBuf>) -> Result<
             eprintln!("  Open manually: {admin_url}");
         }
     }
-
-    Ok(())
-}
-
-/// `nex identity show` — display identity hash and derived public keys.
-pub fn run_show(path: Option<PathBuf>) -> Result<()> {
-    let path = path.unwrap_or_else(default_path);
-
-    if !path.exists() {
-        bail!(
-            "no identity at {}\nrun `nex identity init` to create one",
-            path.display()
-        );
-    }
-
-    let mut passphrase = read_passphrase("Passphrase")?;
-    let signer = signer_with_passphrase(&path, &passphrase);
-
-    let root = match signer.load(&passphrase) {
-        Ok(r) => {
-            passphrase.zeroize();
-            r
-        }
-        Err(SignerError::DecryptionFailed(_)) => {
-            passphrase.zeroize();
-            bail!("wrong passphrase");
-        }
-        Err(e) => {
-            passphrase.zeroize();
-            bail!("failed to load identity: {e}");
-        }
-    };
-
-    let deriver = KeyDeriver::new(root.as_bytes());
-    let (pubkey_hex, hash) = signum_identity(&root);
-
-    let mut ssh_seed = deriver.derive(KeyPurpose::SshHost);
-    let ssh_vk = ed25519_verifying_key(&ssh_seed);
-    ssh_seed.zeroize();
-
-    let mut age_secret = deriver.derive(KeyPurpose::Age);
-    let age_pk = x25519_public_key(&age_secret);
-    age_secret.zeroize();
-
-    eprintln!();
-    output::status("styrene identity");
-    eprintln!("  path       {}", path.display());
-    eprintln!("  hash       {hash}");
-    eprintln!("  pubkey     {pubkey_hex}");
-    eprintln!("  ssh host   {}", hex::encode(ssh_vk.as_bytes()));
-    eprintln!("  age key    {}", hex::encode(age_pk.as_bytes()));
 
     Ok(())
 }

@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 
 use crate::discover::{self, Platform};
@@ -29,6 +29,29 @@ struct FileConfig {
     repo_path: Option<String>,
     hostname: Option<String>,
     prefer_nix_on_equal: Option<bool>,
+    identity: Option<IdentityConfig>,
+}
+
+/// Identity-related configuration.
+#[derive(Deserialize, Default, Clone)]
+pub struct IdentityConfig {
+    /// Git commit signing settings.
+    pub git: Option<IdentityGitConfig>,
+    /// SSH key label registry.
+    pub ssh: Option<IdentitySshConfig>,
+}
+
+/// Git signing config stored in nex config.
+#[derive(Deserialize, Default, Clone)]
+pub struct IdentityGitConfig {
+    pub name: Option<String>,
+    pub email: Option<String>,
+}
+
+/// SSH key labels registered for this identity.
+#[derive(Deserialize, Default, Clone)]
+pub struct IdentitySshConfig {
+    pub labels: Option<Vec<String>>,
 }
 
 impl Config {
@@ -190,6 +213,103 @@ pub fn set_preference(key: &str, value: &str) -> Result<()> {
 pub fn config_dir() -> Result<PathBuf> {
     let home = dirs::home_dir().context("no home directory")?;
     Ok(home.join(".config/nex"))
+}
+
+/// Load just the identity portion of the config (does not require a nix repo).
+pub fn load_identity_config() -> Result<IdentityConfig> {
+    let fc = load_file_config().unwrap_or_default();
+    Ok(fc.identity.unwrap_or_default())
+}
+
+/// Set a nested TOML key using dotted notation (e.g. "identity.git.name").
+/// Creates intermediate tables as needed.
+pub fn set_nested_preference(dotted_key: &str, value: toml::Value) -> Result<()> {
+    let path = config_dir()?.join("config.toml");
+    let content = if path.exists() {
+        std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?
+    } else {
+        String::new()
+    };
+
+    let mut root: toml::Value = if content.is_empty() {
+        toml::Value::Table(toml::map::Map::new())
+    } else {
+        toml::from_str(&content).with_context(|| format!("parsing {}", path.display()))?
+    };
+
+    let parts: Vec<&str> = dotted_key.split('.').collect();
+    let mut current = &mut root;
+    for part in &parts[..parts.len() - 1] {
+        if !current.is_table() {
+            bail!("config key '{part}' is not a table");
+        }
+        current = current
+            .as_table_mut()
+            .expect("checked above")
+            .entry(part.to_string())
+            .or_insert_with(|| toml::Value::Table(toml::map::Map::new()));
+    }
+
+    let leaf = parts.last().context("empty key")?;
+    current
+        .as_table_mut()
+        .context("leaf parent is not a table")?
+        .insert(leaf.to_string(), value);
+
+    let serialized = toml::to_string_pretty(&root).context("serializing config")?;
+    std::fs::create_dir_all(config_dir()?)?;
+    crate::edit::atomic_write_bytes(&path, serialized.as_bytes())
+        .with_context(|| format!("writing {}", path.display()))?;
+    Ok(())
+}
+
+/// Append a string to an array config value, creating it if it doesn't exist.
+/// Skips duplicates.
+pub fn append_to_list(dotted_key: &str, item: &str) -> Result<()> {
+    let path = config_dir()?.join("config.toml");
+    let content = if path.exists() {
+        std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?
+    } else {
+        String::new()
+    };
+
+    let mut root: toml::Value = if content.is_empty() {
+        toml::Value::Table(toml::map::Map::new())
+    } else {
+        toml::from_str(&content).with_context(|| format!("parsing {}", path.display()))?
+    };
+
+    let parts: Vec<&str> = dotted_key.split('.').collect();
+    let mut current = &mut root;
+    for part in &parts[..parts.len() - 1] {
+        current = current
+            .as_table_mut()
+            .context("not a table")?
+            .entry(part.to_string())
+            .or_insert_with(|| toml::Value::Table(toml::map::Map::new()));
+    }
+
+    let leaf = parts.last().context("empty key")?;
+    let table = current
+        .as_table_mut()
+        .context("leaf parent is not a table")?;
+    let arr = table
+        .entry(leaf.to_string())
+        .or_insert_with(|| toml::Value::Array(Vec::new()));
+
+    let arr = arr.as_array_mut().context("config key is not an array")?;
+
+    // Skip duplicates
+    let item_val = toml::Value::String(item.to_string());
+    if !arr.contains(&item_val) {
+        arr.push(item_val);
+    }
+
+    let serialized = toml::to_string_pretty(&root).context("serializing config")?;
+    std::fs::create_dir_all(config_dir()?)?;
+    crate::edit::atomic_write_bytes(&path, serialized.as_bytes())
+        .with_context(|| format!("writing {}", path.display()))?;
+    Ok(())
 }
 
 fn load_file_config() -> Result<FileConfig> {

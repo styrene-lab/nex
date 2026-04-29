@@ -2,6 +2,24 @@
 
 All notable changes to nex are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.15.0] - 2026-04-28
+
+### Added
+- **`nex identity list`** — scan for all identities on the machine (default path, additional `.key` files, env vars). No passphrase needed — shows file metadata, size, permissions.
+- **`nex identity ssh <label>`** — export SSH pubkey to stdout (pipeable) with fingerprint. Derives per-label Ed25519 keys via two-level HKDF.
+- **`nex identity ssh --list`** — show all registered SSH key labels and their fingerprints.
+- **`nex identity ssh --add <label>`** — register a new SSH label in config and immediately export the key.
+- **`nex identity git`** — configure git commit signing. Prompts for name/email (saved to config), derives signing key, applies via `git config --global`.
+- **`nex identity git --show`** — display current git signing configuration.
+- **`nex doctor` identity checks** — reports identity file existence, size (97 bytes), permissions (0o600), git signing status, and registered SSH labels.
+- **Nested config support** — `~/.config/nex/config.toml` now supports `[identity.git]` (name, email) and `[identity.ssh]` (labels) sections via `set_nested_preference()` and `append_to_list()`.
+
+### Changed
+- Upgraded to `styrene-identity` 0.2.0 — uses canonical `identity_hash()`, `identity_pubkey()`, `format::ssh_pubkey()`, `format::ssh_pubkey_fingerprint()`, `format::git_signing_config()` from the crate instead of hand-rolled implementations.
+- Replaced `ClosurePassphraseProvider` with `StaticPassphraseProvider` / `FileSigner::with_static_passphrase()`.
+- Extracted `load_root()` helper for consistent passphrase zeroization across all identity operations.
+- Dropped direct `sha2` dependency (using styrene-identity's `identity_hash()` instead).
+
 ## [0.14.0] - 2026-04-28
 
 ### Added

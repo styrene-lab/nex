@@ -63,6 +63,11 @@ fn main() -> Result<()> {
             return match action {
                 cli::IdentityAction::Init { path } => ops::identity::run_init(path.clone()),
                 cli::IdentityAction::Show { path } => ops::identity::run_show(path.clone()),
+                cli::IdentityAction::List => ops::identity::run_list(),
+                cli::IdentityAction::Ssh { label, list, add } => {
+                    ops::identity::run_ssh(label.clone(), *list, add.clone())
+                }
+                cli::IdentityAction::Git { show } => ops::identity::run_git(*show),
                 cli::IdentityAction::Link { url, code, path } => {
                     ops::identity::run_link(url, code.as_deref(), path.clone())
                 }
