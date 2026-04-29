@@ -88,6 +88,9 @@ pub enum Command {
     /// Identify brew packages that can migrate to nix
     Migrate,
     /// Manage and apply machine profiles
+    #[command(
+        after_help = "Note: `nex profile <source>` was renamed to `nex profile apply <source>` in v0.16.0"
+    )]
     Profile {
         #[command(subcommand)]
         action: ProfileAction,

@@ -435,8 +435,10 @@ pub fn run(
     let hostname = hostname_owned.as_str();
 
     let arch = match arch_flag {
-        Some("aarch64" | "arm64" | "arm") => Arch::Aarch64,
-        Some("x86_64" | "x86" | "amd64") => Arch::X86_64,
+        Some(a) if matches!(a.to_lowercase().as_str(), "aarch64" | "arm64" | "arm") => {
+            Arch::Aarch64
+        }
+        Some(a) if matches!(a.to_lowercase().as_str(), "x86_64" | "x86" | "amd64") => Arch::X86_64,
         Some(other) => bail!("unknown architecture: {other} (use x86_64 or aarch64)"),
         None if is_interactive => prompt_arch()?,
         None => Arch::X86_64,
