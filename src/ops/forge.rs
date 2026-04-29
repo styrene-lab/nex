@@ -11,7 +11,10 @@ const NIXOS_ISO_URL_X86: &str =
     "https://channels.nixos.org/nixos-24.11/latest-nixos-minimal-x86_64-linux.iso";
 const NIXOS_ISO_URL_ARM: &str =
     "https://channels.nixos.org/nixos-24.11/latest-nixos-minimal-aarch64-linux.iso";
-const NIXOS_ISO_NAME: &str = "nixos-minimal-x86_64.iso";
+/// ISO filename includes arch to prevent cross-arch cache collisions.
+fn iso_filename(arch: Arch) -> String {
+    format!("nixos-minimal-{}.iso", arch.label())
+}
 
 // ── Interactive prompt helpers ───────────────────────────────────────────────
 
@@ -513,7 +516,7 @@ pub fn run(
     std::fs::create_dir_all(&styrene_dir)?;
 
     // ── 3. Download NixOS ISO ────────────────────────────────────────
-    let iso_path = bundle_dir.join(NIXOS_ISO_NAME);
+    let iso_path = bundle_dir.join(iso_filename(arch));
     // Validate cached ISO — remove if suspiciously small (partial download)
     if iso_path.exists() {
         let size = std::fs::metadata(&iso_path).map(|m| m.len()).unwrap_or(0);
