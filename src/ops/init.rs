@@ -356,7 +356,75 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
     }
 
     println!();
-    println!("  {} Setup complete.", style("✓").green().bold());
+    println!("  {} System setup complete.", style("✓").green().bold());
+    println!();
+
+    // ── Identity setup (optional, interactive) ─────────────────────
+    let identity_path = styrene_identity::file_signer::FileSigner::default_path();
+    if !identity_path.exists() {
+        let setup_identity = dialoguer::Confirm::new()
+            .with_prompt("  Create a Styrene identity? (SSH keys, git signing, mesh)")
+            .default(true)
+            .interact()
+            .unwrap_or(false);
+
+        if setup_identity {
+            if let Err(e) = crate::ops::identity::run_init(None) {
+                eprintln!(
+                    "  {} identity creation failed: {e}",
+                    style("!").yellow().bold()
+                );
+                eprintln!(
+                    "  Run {} later to set up your identity.",
+                    style("nex identity init").bold()
+                );
+            } else {
+                // Offer git signing
+                let setup_git = dialoguer::Confirm::new()
+                    .with_prompt("  Configure git commit signing?")
+                    .default(true)
+                    .interact()
+                    .unwrap_or(false);
+
+                if setup_git {
+                    if let Err(e) = crate::ops::identity::run_git(false) {
+                        eprintln!(
+                            "  {} git signing setup failed: {e}",
+                            style("!").yellow().bold()
+                        );
+                    }
+                }
+
+                // Offer SSH key registration
+                let setup_ssh = dialoguer::Confirm::new()
+                    .with_prompt("  Register an SSH key? (e.g. for GitHub)")
+                    .default(true)
+                    .interact()
+                    .unwrap_or(false);
+
+                if setup_ssh {
+                    let label: String = dialoguer::Input::new()
+                        .with_prompt("  SSH key label")
+                        .default("github".to_string())
+                        .interact_text()
+                        .unwrap_or_else(|_| "github".to_string());
+
+                    if let Err(e) = crate::ops::identity::run_ssh(None, false, Some(label)) {
+                        eprintln!("  {} SSH key setup failed: {e}", style("!").yellow().bold());
+                    }
+                }
+            }
+        }
+    } else {
+        eprintln!(
+            "  {} identity already exists at {}",
+            style("✓").green().bold(),
+            style(identity_path.display()).dim()
+        );
+    }
+
+    println!();
+    println!("  {} All done.", style("✓").green().bold());
     println!();
     println!("  Next steps:");
     println!(
@@ -364,6 +432,12 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
         style("  nex install htop").cyan()
     );
     println!("  {}  Show all packages", style("  nex list").cyan());
+    if identity_path.exists() {
+        println!(
+            "  {}  Show your identity",
+            style("  nex identity show").cyan()
+        );
+    }
     println!();
 
     Ok(())
