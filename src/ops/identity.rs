@@ -4,9 +4,10 @@ use anyhow::{bail, Context, Result};
 use zeroize::Zeroize;
 
 use styrene_identity::derive::{KeyDeriver, KeyPurpose};
+use styrene_identity::export::AllPublicKeys;
 use styrene_identity::file_signer::FileSigner;
 use styrene_identity::identity::{identity_hash, identity_pubkey};
-use styrene_identity::pubkey::{self, ed25519_verifying_key, x25519_public_key};
+use styrene_identity::pubkey;
 use styrene_identity::signer::SignerError;
 
 use crate::output;
@@ -107,26 +108,18 @@ pub fn run_show(path: Option<PathBuf>) -> Result<()> {
 
     let mut passphrase = read_passphrase("Passphrase")?;
     let root = load_root(&path, &mut passphrase)?;
-
-    let hash = identity_hash(&root);
-    let pubkey = identity_pubkey(&root);
-    let deriver = KeyDeriver::new(root.as_bytes());
-
-    let mut ssh_seed = deriver.derive(KeyPurpose::SshHost);
-    let ssh_vk = ed25519_verifying_key(&ssh_seed);
-    ssh_seed.zeroize();
-
-    let mut age_secret = deriver.derive(KeyPurpose::Age);
-    let age_pk = x25519_public_key(&age_secret);
-    age_secret.zeroize();
+    let keys = AllPublicKeys::from_root(&root);
 
     eprintln!();
     output::status("styrene identity");
     eprintln!("  path       {}", path.display());
-    eprintln!("  hash       {hash}");
-    eprintln!("  pubkey     {}", hex::encode(pubkey));
-    eprintln!("  ssh host   {}", hex::encode(ssh_vk.as_bytes()));
-    eprintln!("  age key    {}", hex::encode(age_pk.as_bytes()));
+    eprintln!("  hash       {}", keys.identity_hash);
+    eprintln!("  pubkey     {}", keys.signing_pubkey_hex);
+    eprintln!("  ssh host   {}", keys.ssh_host_fingerprint);
+    eprintln!("  wireguard  {}", keys.wireguard_pubkey);
+    if !keys.age_recipient.is_empty() {
+        eprintln!("  age        {}", keys.age_recipient);
+    }
 
     Ok(())
 }

@@ -2169,10 +2169,8 @@ fn canonicalize_for_signing(toml_str: &str, source: &str) -> Result<Vec<u8>> {
 /// Resolves the full profile chain, canonicalizes the merged result, and
 /// signs with KeyPurpose::Signing. The signature covers source ref + content.
 pub fn run_sign(source: &str, detached: bool) -> Result<()> {
-    use styrene_identity::derive::{KeyDeriver, KeyPurpose};
     use styrene_identity::file_signer::FileSigner;
-    use styrene_identity::identity::{identity_hash, identity_pubkey};
-    use styrene_identity::pubkey::sign_with_seed;
+    use styrene_identity::identity::identity_sign;
 
     eprintln!();
     output::status("signing profile...");
@@ -2224,16 +2222,12 @@ pub fn run_sign(source: &str, detached: bool) -> Result<()> {
         }
     };
 
-    let hash = identity_hash(&root);
-    let pubkey = identity_pubkey(&root);
-    let pubkey_hex = hex::encode(pubkey);
-    let deriver = KeyDeriver::new(root.as_bytes());
-    let mut seed = deriver.derive(KeyPurpose::Signing);
-    let signature = sign_with_seed(&seed, &canonical);
-    seed.zeroize();
+    let att = identity_sign(&root, &canonical);
     drop(root);
 
-    let sig_hex = hex::encode(signature);
+    let hash = att.hash;
+    let pubkey_hex = hex::encode(att.pubkey);
+    let sig_hex = hex::encode(att.signature);
     let now = chrono_now();
 
     // Sanitize output filename

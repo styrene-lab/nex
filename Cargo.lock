@@ -140,6 +140,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
 
 [[package]]
+name = "bech32"
+version = "0.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32637268377fc7b10a8c6d51de3e7fba1ce5dd371a96e342b34e6078db558e7f"
+
+[[package]]
 name = "bitflags"
 version = "2.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1667,19 +1673,21 @@ checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 
 [[package]]
 name = "styrene-identity"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "12504c5764c5096c5527bdc557e2502569b80417b50e2cace60d0d4dd30308e1"
+checksum = "86a31c9b7f3572aed5b9ffc47f4b6c354e01866faa29b3c176e0e0304c75008b"
 dependencies = [
  "argon2",
  "async-trait",
  "base64",
+ "bech32",
  "chacha20poly1305",
  "ed25519-dalek",
  "hex",
  "hkdf",
  "rand_core 0.6.4",
  "sha2",
+ "subtle",
  "thiserror 2.0.18",
  "x25519-dalek",
  "zeroize",

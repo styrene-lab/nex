@@ -220,7 +220,8 @@ fn identity_show_displays_hash() {
         .stderr(predicate::str::contains("hash"))
         .stderr(predicate::str::contains("pubkey"))
         .stderr(predicate::str::contains("ssh host"))
-        .stderr(predicate::str::contains("age key"));
+        .stderr(predicate::str::contains("wireguard"))
+        .stderr(predicate::str::contains("age"));
 }
 
 #[test]
