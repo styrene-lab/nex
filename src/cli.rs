@@ -197,6 +197,10 @@ pub enum IdentityAction {
         #[arg(long)]
         show: bool,
     },
+    /// Export WireGuard key pair derived from identity
+    Wg,
+    /// Export age encryption identity/recipient derived from identity
+    Age,
     /// Link this identity to a Signum hub for SSO
     Link {
         /// Signum instance URL (e.g. https://signum.styrene.io)

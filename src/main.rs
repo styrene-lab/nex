@@ -71,6 +71,8 @@ fn main() -> Result<()> {
                     ops::identity::run_ssh(label.clone(), *list, add.clone())
                 }
                 cli::IdentityAction::Git { show } => ops::identity::run_git(*show),
+                cli::IdentityAction::Wg => ops::identity::run_wg(),
+                cli::IdentityAction::Age => ops::identity::run_age(),
                 cli::IdentityAction::Link { url, code, path } => {
                     ops::identity::run_link(url, code.as_deref(), path.clone())
                 }

@@ -6,7 +6,7 @@ use zeroize::Zeroize;
 use styrene_identity::derive::{KeyDeriver, KeyPurpose};
 use styrene_identity::file_signer::FileSigner;
 use styrene_identity::identity::{identity_hash, identity_pubkey};
-use styrene_identity::pubkey::{ed25519_verifying_key, x25519_public_key};
+use styrene_identity::pubkey::{self, ed25519_verifying_key, x25519_public_key};
 use styrene_identity::signer::SignerError;
 
 use crate::output;
@@ -466,6 +466,81 @@ fn run_git_show() -> Result<()> {
     eprintln!("  user.signingkey {}", get("user.signingkey"));
     eprintln!("  commit.gpgsign  {}", get("commit.gpgsign"));
     eprintln!();
+
+    Ok(())
+}
+
+// ── wg ─────────────────────────────────────────────────────────────────────
+
+pub fn run_wg() -> Result<()> {
+    let path = default_path();
+    if !path.exists() {
+        bail!("no identity — run `nex identity init` first");
+    }
+
+    let mut passphrase = read_passphrase("Passphrase")?;
+    let root = load_root(&path, &mut passphrase)?;
+    let deriver = KeyDeriver::new(root.as_bytes());
+
+    let mut seed = deriver.derive(KeyPurpose::WireGuard);
+    let privkey = styrene_identity::format::wireguard_privkey(&seed);
+    let pubkey = styrene_identity::format::wireguard_pubkey(&seed);
+    seed.zeroize();
+
+    eprintln!();
+    output::status("wireguard key pair");
+    eprintln!("  privkey  {privkey}");
+    eprintln!();
+
+    // Pubkey to stdout for piping
+    print!("{pubkey}");
+
+    eprintln!();
+    eprintln!(
+        "  {}",
+        console::style(
+            "Public key printed to stdout (pipeable). Private key shown above on stderr."
+        )
+        .dim()
+    );
+
+    Ok(())
+}
+
+// ── age ────────────────────────────────────────────────────────────────────
+
+pub fn run_age() -> Result<()> {
+    let path = default_path();
+    if !path.exists() {
+        bail!("no identity — run `nex identity init` first");
+    }
+
+    let mut passphrase = read_passphrase("Passphrase")?;
+    let root = load_root(&path, &mut passphrase)?;
+    let deriver = KeyDeriver::new(root.as_bytes());
+
+    let mut seed = deriver.derive(KeyPurpose::Age);
+    let pk = pubkey::x25519_public_key(&seed);
+
+    eprintln!();
+    output::status("age encryption key pair");
+    eprintln!("  identity   {}", hex::encode(seed));
+    eprintln!();
+
+    // Recipient (public) to stdout for piping
+    print!("{}", hex::encode(pk.as_bytes()));
+
+    seed.zeroize();
+
+    eprintln!();
+    eprintln!(
+        "  {}",
+        console::style("Recipient (public) printed to stdout (pipeable). Identity (secret) shown above on stderr.").dim()
+    );
+    eprintln!(
+        "  {}",
+        console::style("Note: enable the age-format feature for Bech32-encoded AGE-SECRET-KEY-1.../age1... format.").dim()
+    );
 
     Ok(())
 }
