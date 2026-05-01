@@ -221,6 +221,9 @@ pub enum ProfileAction {
         /// GitHub repo (user/repo), URL, or local path
         #[arg(value_name = "SOURCE")]
         source: String,
+        /// Verify the profile signature before applying (required for signed profiles)
+        #[arg(long)]
+        verify: bool,
     },
     /// Sign a profile with your Styrene identity
     Sign {

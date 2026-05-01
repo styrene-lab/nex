@@ -619,7 +619,20 @@ fn render_multiline_attr(lines: &mut Vec<String>, attr: &str, value: &Option<Str
     }
 }
 
-pub fn run(config: &Config, repo_ref: &str, dry_run: bool) -> Result<()> {
+pub fn run(config: &Config, repo_ref: &str, verify: bool, dry_run: bool) -> Result<()> {
+    // Phase 0: Verify signature if requested
+    if verify {
+        eprintln!(
+            "  {} verifying profile signature...",
+            style("→").cyan()
+        );
+        run_verify(repo_ref)?;
+        eprintln!(
+            "  {} signature verified",
+            style("✓").green().bold()
+        );
+    }
+
     // Phase 1: Collect all profile layers
     let layers = collect_profiles(repo_ref)?;
 
