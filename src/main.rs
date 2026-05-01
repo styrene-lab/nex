@@ -62,6 +62,21 @@ fn main() -> Result<()> {
         } => return ops::build_image::run(profile, name.as_deref(), tag, cli.dry_run),
         Command::Develop { ref flake } => return ops::develop::run(flake),
         Command::Dev { ref project } => return ops::dev::run(project),
+        Command::Rbac { ref action } => {
+            return match action {
+                cli::RbacAction::Sync {
+                    hub_url,
+                    identity,
+                    token,
+                    output,
+                } => ops::rbac::run_sync(
+                    hub_url,
+                    identity.as_deref(),
+                    token.as_deref(),
+                    output.clone(),
+                ),
+            }
+        }
         Command::Identity { ref action } => {
             return match action {
                 cli::IdentityAction::Init { path } => ops::identity::run_init(path.clone()),
@@ -149,7 +164,8 @@ fn main() -> Result<()> {
         | Command::BuildImage { .. }
         | Command::Develop { .. }
         | Command::Dev { .. }
-        | Command::Identity { .. } => {
+        | Command::Identity { .. }
+        | Command::Rbac { .. } => {
             unreachable!()
         }
     }

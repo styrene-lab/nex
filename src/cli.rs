@@ -154,6 +154,11 @@ pub enum Command {
         #[command(subcommand)]
         action: IdentityAction,
     },
+    /// Manage RBAC roster (sync from hub)
+    Rbac {
+        #[command(subcommand)]
+        action: RbacAction,
+    },
     /// Check and fix common configuration issues
     Doctor,
     /// Update nex itself to the latest release
@@ -239,5 +244,24 @@ pub enum ProfileAction {
         /// GitHub repo (user/repo) or local path to profile.toml
         #[arg(value_name = "SOURCE")]
         source: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum RbacAction {
+    /// Sync RBAC roster entries from a Signum hub
+    Sync {
+        /// Hub URL (e.g. https://signum.styrene.io)
+        #[arg(value_name = "HUB_URL")]
+        hub_url: String,
+        /// Fetch only a specific identity's entry
+        #[arg(long)]
+        identity: Option<String>,
+        /// Admin token for full roster access (single-identity fetch is public)
+        #[arg(long, env = "SIGNUM_ADMIN_TOKEN")]
+        token: Option<String>,
+        /// Output path for the TOML config (default: ~/.config/styrene/config.toml)
+        #[arg(long, short)]
+        output: Option<PathBuf>,
     },
 }
