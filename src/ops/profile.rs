@@ -4,7 +4,7 @@ use std::process::Command;
 
 use anyhow::{bail, Context, Result};
 use console::style;
-use zeroize::Zeroize;
+use zeroize::Zeroizing;
 
 use crate::config::Config;
 use crate::discover::Platform;
@@ -301,10 +301,54 @@ struct MergedProfile {
 ///   1. The extended parent (recursively resolved)
 ///   2. Each compose fragment in order
 ///   3. The profile's own inline sections (overrides)
+/// Validate that an extends repo ref looks like `user/repo` (with optional @ref suffix).
+/// Rejects file://, http://, absolute paths, and other potentially unsafe values.
+fn validate_repo_ref(repo_ref: &str) -> Result<()> {
+    // Strip optional @ref suffix (e.g. "user/repo@main")
+    let base = repo_ref.split('@').next().unwrap_or(repo_ref);
+
+    // Reject obviously dangerous patterns
+    if base.starts_with('/')
+        || base.starts_with('\\')
+        || base.contains("://")
+        || base.contains("..")
+    {
+        bail!(
+            "invalid extends ref '{repo_ref}': must be 'user/repo' format, not a URL or path"
+        );
+    }
+
+    // Must have exactly one slash separating user and repo
+    let parts: Vec<&str> = base.split('/').collect();
+    if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {
+        bail!(
+            "invalid extends ref '{repo_ref}': must be 'user/repo' format (got '{base}')"
+        );
+    }
+
+    // Each segment must be alphanumeric + hyphens + underscores + dots
+    for part in &parts {
+        if !part
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
+        {
+            bail!(
+                "invalid extends ref '{repo_ref}': segments may only contain alphanumeric characters, hyphens, underscores, and dots"
+            );
+        }
+    }
+
+    Ok(())
+}
+
+/// Maximum recursion depth for extends/compose chains to prevent stack overflow
+/// from deeply nested or maliciously crafted profile hierarchies.
+const MAX_PROFILE_DEPTH: usize = 50;
+
 fn collect_profiles(repo_ref: &str) -> Result<Vec<ProfileLayer>> {
     let mut layers = Vec::new();
     let mut visited = HashSet::new();
-    collect_recursive(repo_ref, "profile.toml", &mut layers, &mut visited)?;
+    collect_recursive(repo_ref, "profile.toml", &mut layers, &mut visited, 0)?;
     Ok(layers)
 }
 
@@ -313,7 +357,12 @@ fn collect_recursive(
     file: &str,
     layers: &mut Vec<ProfileLayer>,
     visited: &mut HashSet<String>,
+    depth: usize,
 ) -> Result<()> {
+    if depth > MAX_PROFILE_DEPTH {
+        bail!("profile extends/compose chain exceeds maximum depth of {MAX_PROFILE_DEPTH}");
+    }
+
     let visit_key = format!("{repo_ref}:{file}");
     if !visited.insert(visit_key.clone()) {
         bail!("profile cycle detected: {visit_key}");
@@ -323,7 +372,8 @@ fn collect_recursive(
 
     // 1. If this profile extends another, resolve the parent first (base goes earliest)
     if let Some(parent_ref) = profile.meta.as_ref().and_then(|m| m.extends.clone()) {
-        collect_recursive(&parent_ref, "profile.toml", layers, visited)?;
+        validate_repo_ref(&parent_ref)?;
+        collect_recursive(&parent_ref, "profile.toml", layers, visited, depth + 1)?;
     }
 
     // 2. If this profile composes fragments, resolve each one.
@@ -331,7 +381,7 @@ fn collect_recursive(
     if let Some(compose) = profile.meta.as_ref().and_then(|m| m.compose.clone()) {
         for fragment_path in &compose {
             let fragment_file = format!("{fragment_path}.toml");
-            collect_recursive(repo_ref, &fragment_file, layers, visited)?;
+            collect_recursive(repo_ref, &fragment_file, layers, visited, depth + 1)?;
         }
     }
 
@@ -1043,6 +1093,12 @@ fn download_tree(
     for entry in entries {
         let name = entry.get("name").and_then(|v| v.as_str()).unwrap_or("");
         let entry_type = entry.get("type").and_then(|v| v.as_str()).unwrap_or("");
+
+        // Validate filename to prevent path traversal attacks
+        if name.contains("..") || name.contains('/') || name.contains('\\') {
+            bail!("unsafe filename in {path} directory: {name}");
+        }
+
         let entry_path = format!("{path}/{name}");
 
         if entry_type == "file" {
@@ -2200,27 +2256,18 @@ pub fn run_sign(source: &str, detached: bool) -> Result<()> {
         bail!("no identity — run `nex identity init` first");
     }
 
-    let mut passphrase = crate::input::input().password("Passphrase")?.into_bytes();
+    let passphrase = Zeroizing::new(crate::input::input().password("Passphrase")?.into_bytes());
 
     if passphrase.is_empty() {
         bail!("passphrase must not be empty");
     }
 
     let signer_file = FileSigner::with_static_passphrase(&identity_path, &passphrase);
-    let root = match signer_file.load(&passphrase) {
-        Ok(r) => {
-            passphrase.zeroize();
-            r
-        }
-        Err(styrene_identity::signer::SignerError::DecryptionFailed(_)) => {
-            passphrase.zeroize();
-            bail!("wrong passphrase");
-        }
-        Err(e) => {
-            passphrase.zeroize();
-            bail!("failed to load identity: {e}");
-        }
-    };
+    let root = signer_file.load(&passphrase)
+        .map_err(|e| match e {
+            styrene_identity::signer::SignerError::DecryptionFailed(_) => anyhow::anyhow!("wrong passphrase"),
+            e => anyhow::anyhow!("failed to load identity: {e}"),
+        })?;
 
     let att = identity_sign(&root, &canonical);
     drop(root);

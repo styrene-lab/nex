@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use anyhow::{bail, Context, Result};
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 use styrene_identity::derive::{KeyDeriver, KeyPurpose};
 use styrene_identity::export::AllPublicKeys;
@@ -17,34 +17,26 @@ fn default_path() -> PathBuf {
 }
 
 /// Read a passphrase from the terminal (no echo). Rejects empty input.
-fn read_passphrase(prompt: &str) -> Result<Vec<u8>> {
+/// Returns a `Zeroizing` wrapper that automatically clears memory on drop.
+fn read_passphrase(prompt: &str) -> Result<Zeroizing<Vec<u8>>> {
     let passphrase = crate::input::input().password(prompt)?;
     if passphrase.is_empty() {
         bail!("passphrase must not be empty");
     }
-    Ok(passphrase.into_bytes())
+    Ok(Zeroizing::new(passphrase.into_bytes()))
 }
 
-/// Load identity root secret with passphrase, zeroizing on all paths.
+/// Load identity root secret with passphrase. The passphrase is wrapped in
+/// `Zeroizing` so it is automatically cleared on drop — no manual zeroize needed.
 fn load_root(
     path: &PathBuf,
-    passphrase: &mut Vec<u8>,
+    passphrase: &Zeroizing<Vec<u8>>,
 ) -> Result<styrene_identity::signer::RootSecret> {
     let signer = FileSigner::with_static_passphrase(path, passphrase);
-    match signer.load(passphrase) {
-        Ok(r) => {
-            passphrase.zeroize();
-            Ok(r)
-        }
-        Err(SignerError::DecryptionFailed(_)) => {
-            passphrase.zeroize();
-            bail!("wrong passphrase");
-        }
-        Err(e) => {
-            passphrase.zeroize();
-            bail!("failed to load identity: {e}");
-        }
-    }
+    signer.load(passphrase).map_err(|e| match e {
+        SignerError::DecryptionFailed(_) => anyhow::anyhow!("wrong passphrase"),
+        e => anyhow::anyhow!("failed to load identity: {e}"),
+    })
 }
 
 // ── init ────────────────────────────────────────────────────────────────────
@@ -61,9 +53,11 @@ pub fn run_init(path: Option<PathBuf>) -> Result<()> {
 
     output::status("creating new Styrene identity");
 
-    let mut passphrase = crate::input::input()
-        .password_with_confirm("Passphrase")?
-        .into_bytes();
+    let passphrase = Zeroizing::new(
+        crate::input::input()
+            .password_with_confirm("Passphrase")?
+            .into_bytes(),
+    );
 
     if passphrase.is_empty() {
         bail!("passphrase must not be empty");
@@ -77,7 +71,6 @@ pub fn run_init(path: Option<PathBuf>) -> Result<()> {
     let root = signer
         .load(&passphrase)
         .context("failed to load newly created identity")?;
-    passphrase.zeroize();
 
     let hash = identity_hash(&root);
 
@@ -106,8 +99,8 @@ pub fn run_show(path: Option<PathBuf>) -> Result<()> {
         );
     }
 
-    let mut passphrase = read_passphrase("Passphrase")?;
-    let root = load_root(&path, &mut passphrase)?;
+    let passphrase = read_passphrase("Passphrase")?;
+    let root = load_root(&path, &passphrase)?;
     let keys = AllPublicKeys::from_root(&root);
 
     eprintln!();
@@ -274,8 +267,8 @@ fn run_ssh_export(label: &str) -> Result<()> {
         bail!("no identity — run `nex identity init` first");
     }
 
-    let mut passphrase = read_passphrase("Passphrase")?;
-    let root = load_root(&path, &mut passphrase)?;
+    let passphrase = read_passphrase("Passphrase")?;
+    let root = load_root(&path, &passphrase)?;
     let deriver = KeyDeriver::new(root.as_bytes());
 
     let mut seed = deriver
@@ -325,8 +318,8 @@ fn run_ssh_list() -> Result<()> {
         bail!("no identity — run `nex identity init` first");
     }
 
-    let mut passphrase = read_passphrase("Passphrase")?;
-    let root = load_root(&path, &mut passphrase)?;
+    let passphrase = read_passphrase("Passphrase")?;
+    let root = load_root(&path, &passphrase)?;
     let deriver = KeyDeriver::new(root.as_bytes());
 
     eprintln!();
@@ -397,8 +390,8 @@ fn run_git_configure() -> Result<()> {
         bail!("no identity — run `nex identity init` first");
     }
 
-    let mut passphrase = read_passphrase("Passphrase")?;
-    let root = load_root(&path, &mut passphrase)?;
+    let passphrase = read_passphrase("Passphrase")?;
+    let root = load_root(&path, &passphrase)?;
     let deriver = KeyDeriver::new(root.as_bytes());
 
     let mut seed = deriver.derive(KeyPurpose::Signing);
@@ -471,8 +464,8 @@ pub fn run_wg() -> Result<()> {
         bail!("no identity — run `nex identity init` first");
     }
 
-    let mut passphrase = read_passphrase("Passphrase")?;
-    let root = load_root(&path, &mut passphrase)?;
+    let passphrase = read_passphrase("Passphrase")?;
+    let root = load_root(&path, &passphrase)?;
     let deriver = KeyDeriver::new(root.as_bytes());
 
     let mut seed = deriver.derive(KeyPurpose::WireGuard);
@@ -508,8 +501,8 @@ pub fn run_age() -> Result<()> {
         bail!("no identity — run `nex identity init` first");
     }
 
-    let mut passphrase = read_passphrase("Passphrase")?;
-    let root = load_root(&path, &mut passphrase)?;
+    let passphrase = read_passphrase("Passphrase")?;
+    let root = load_root(&path, &passphrase)?;
     let deriver = KeyDeriver::new(root.as_bytes());
 
     let mut seed = deriver.derive(KeyPurpose::Age);
@@ -550,8 +543,8 @@ pub fn run_link(url: &str, code: Option<&str>, path: Option<PathBuf>) -> Result<
         );
     }
 
-    let mut passphrase = read_passphrase("Passphrase")?;
-    let root = load_root(&path, &mut passphrase)?;
+    let passphrase = read_passphrase("Passphrase")?;
+    let root = load_root(&path, &passphrase)?;
 
     let hash = identity_hash(&root);
     let pubkey_hex = hex::encode(identity_pubkey(&root));

@@ -67,6 +67,7 @@ impl Sandbox {
         cmd.env("HOME", self.home.path())
             .env("NEX_REPO", &self.repo)
             .env("NEX_HOSTNAME", "test-host")
+            .env("NEX_TESTING", "1")
             .env("NEX_TEST_PASSPHRASE", "testpass")
             .env("NEX_TEST_CONFIRM", "y")
             .env("NEX_TEST_INPUT", "test-value");

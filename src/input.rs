@@ -6,6 +6,10 @@
 //!
 //! # E2E test environment variables
 //!
+//! These env vars are only consulted when `NEX_TESTING=1` is set,
+//! preventing abuse in production environments.
+//!
+//! - `NEX_TESTING` — guard: must be set for any test env vars to take effect
 //! - `NEX_TEST_PASSPHRASE` — bypass password prompts
 //! - `NEX_TEST_CONFIRM` — bypass confirm prompts ("y"/"true" = yes, anything else = no)
 //! - `NEX_TEST_INPUT` — bypass text input prompts
@@ -31,12 +35,23 @@ pub trait InputProvider: Send + Sync {
 }
 
 /// Production input — reads from terminal via dialoguer.
-/// Falls back to environment variables for e2e test support.
+/// Falls back to environment variables for e2e test support, but only
+/// when `NEX_TESTING` is explicitly set to prevent abuse in production.
 pub struct TerminalInput;
+
+/// Return the value of a test env var, but only if the `NEX_TESTING` guard is set.
+/// This prevents attackers from bypassing interactive prompts in production by
+/// setting `NEX_TEST_*` env vars.
+fn test_env_fallback(var: &str) -> Option<String> {
+    if std::env::var("NEX_TESTING").is_err() {
+        return None;
+    }
+    std::env::var(var).ok()
+}
 
 impl InputProvider for TerminalInput {
     fn password(&self, prompt: &str) -> Result<String> {
-        if let Ok(pp) = std::env::var("NEX_TEST_PASSPHRASE") {
+        if let Some(pp) = test_env_fallback("NEX_TEST_PASSPHRASE") {
             return Ok(pp);
         }
         dialoguer::Password::new()
@@ -46,7 +61,7 @@ impl InputProvider for TerminalInput {
     }
 
     fn password_with_confirm(&self, prompt: &str) -> Result<String> {
-        if let Ok(pp) = std::env::var("NEX_TEST_PASSPHRASE") {
+        if let Some(pp) = test_env_fallback("NEX_TEST_PASSPHRASE") {
             return Ok(pp);
         }
         dialoguer::Password::new()
@@ -57,7 +72,7 @@ impl InputProvider for TerminalInput {
     }
 
     fn confirm(&self, prompt: &str, default: bool) -> Result<bool> {
-        if let Ok(val) = std::env::var("NEX_TEST_CONFIRM") {
+        if let Some(val) = test_env_fallback("NEX_TEST_CONFIRM") {
             return Ok(val == "y" || val == "yes" || val == "true");
         }
         if !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
@@ -71,7 +86,7 @@ impl InputProvider for TerminalInput {
     }
 
     fn input_text(&self, prompt: &str, default: Option<&str>) -> Result<String> {
-        if let Ok(val) = std::env::var("NEX_TEST_INPUT") {
+        if let Some(val) = test_env_fallback("NEX_TEST_INPUT") {
             return Ok(val);
         }
         let mut builder = dialoguer::Input::<String>::new().with_prompt(prompt);
@@ -82,7 +97,7 @@ impl InputProvider for TerminalInput {
     }
 
     fn select(&self, prompt: &str, items: &[String], default: usize) -> Result<usize> {
-        if let Ok(val) = std::env::var("NEX_TEST_SELECT") {
+        if let Some(val) = test_env_fallback("NEX_TEST_SELECT") {
             return Ok(val.parse().unwrap_or(default));
         }
         if !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
