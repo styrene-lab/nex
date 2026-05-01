@@ -221,7 +221,7 @@ pub enum ProfileAction {
         /// GitHub repo (user/repo), URL, or local path
         #[arg(value_name = "SOURCE")]
         source: String,
-        /// Verify the profile signature before applying (required for signed profiles)
+        /// Verify the profile signature before applying (local .signed.toml files only)
         #[arg(long)]
         verify: bool,
     },

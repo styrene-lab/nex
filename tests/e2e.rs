@@ -423,6 +423,51 @@ fn doctor_reports_identity_present() {
         .stderr(predicate::str::contains("identity.key"));
 }
 
+// ── Identity export tests ───────────────────────────────────────────────────
+
+#[test]
+fn identity_wg_exports_keypair() {
+    let sb = Sandbox::new().with_identity();
+    sb.nex()
+        .args(["identity", "wg"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("privkey"))
+        .stderr(predicate::str::contains("wireguard"));
+}
+
+#[test]
+fn identity_age_exports_key() {
+    let sb = Sandbox::new().with_identity();
+    sb.nex()
+        .args(["identity", "age"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("age"));
+}
+
+// ── Profile verify tests ───────────────────────────────────────────────────
+
+#[test]
+fn profile_apply_verify_unsigned_fails() {
+    let sb = Sandbox::new().with_identity().with_config();
+    let profile_path = sb.home.path().join("test-profile.toml");
+    std::fs::write(
+        &profile_path,
+        "[meta]\nname = \"test\"\n\n[packages]\nnix = [\"git\"]\n",
+    )
+    .expect("write profile");
+    sb.nex()
+        .args([
+            "profile",
+            "apply",
+            profile_path.to_str().unwrap(),
+            "--verify",
+        ])
+        .assert()
+        .failure();
+}
+
 // ── Config tests ────────────────────────────────────────────────────────────
 
 #[test]
