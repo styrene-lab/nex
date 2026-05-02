@@ -154,12 +154,16 @@ pub fn contains_any(path: &Path, list: &NixList, names: &[&str]) -> Result<Optio
 }
 
 /// List all package names in a list within the given file.
+/// Returns an empty vec if the list is not found (not every module has one).
 pub fn list_packages(path: &Path, list: &NixList) -> Result<Vec<String>> {
     let content =
         fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     let lines: Vec<String> = content.lines().map(String::from).collect();
 
-    let (open, close) = find_list_range(&lines, list)?;
+    let (open, close) = match find_list_range(&lines, list) {
+        Ok(range) => range,
+        Err(_) => return Ok(Vec::new()),
+    };
 
     let mut pkgs = Vec::new();
     for line in &lines[open + 1..close] {
