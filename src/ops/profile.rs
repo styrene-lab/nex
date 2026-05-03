@@ -1396,7 +1396,7 @@ pub fn run(config: &Config, repo_ref: &str, verify: bool, dry_run: bool) -> Resu
         },
     };
     changes += apply_nix_packages(config, &mut session, &merged_pkgs, dry_run)?;
-    if !dry_run && changes > 0 {
+    if !dry_run {
         ensure_base_import(config)?;
     }
     if config.has_homebrew_provider() {
