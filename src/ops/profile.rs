@@ -542,7 +542,44 @@ impl MergedShell {
     }
 }
 
-fn render_shell_nix(shell: &MergedShell) -> String {
+/// Ensure Homebrew is on PATH in login shells (macOS only).
+/// Prepends the brew shellenv block if not already present.
+fn inject_profile_defaults(platform: Platform, existing: &Option<String>) -> Option<String> {
+    if platform != Platform::Darwin {
+        return existing.clone();
+    }
+
+    let brew_block = "\
+# Homebrew (must come before nix so nix PATH wins)
+if [ -f /opt/homebrew/bin/brew ]; then
+    eval \"$(/opt/homebrew/bin/brew shellenv)\"
+elif [ -f /home/linuxbrew/.linuxbrew/bin/brew ]; then
+    eval \"$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)\"
+fi";
+
+    match existing {
+        Some(ref text) if text.contains("brew shellenv") => existing.clone(),
+        Some(ref text) => Some(format!("{brew_block}\n\n{}", text.trim())),
+        None => Some(brew_block.to_string()),
+    }
+}
+
+/// Fix oh-my-bash compatibility with bash 5.3+.
+/// Hyphenated function names (e.g. banish-cookies) are not valid identifiers
+/// in newer bash and cause errors with declare/typeset/readonly.
+fn inject_init_defaults(existing: &Option<String>) -> Option<String> {
+    let omb_compat = "\
+# oh-my-bash compat: bash 5.3+ rejects hyphens in identifiers
+unset -f banish-cookies 2>/dev/null";
+
+    match existing {
+        Some(ref text) if text.contains("banish-cookies") => existing.clone(),
+        Some(ref text) => Some(format!("{}\n\n{omb_compat}", text.trim())),
+        None => Some(omb_compat.to_string()),
+    }
+}
+
+fn render_shell_nix(shell: &MergedShell, platform: Platform) -> String {
     let mut lines = vec![
         "{ pkgs, ... }:".to_string(),
         String::new(),
@@ -574,8 +611,14 @@ fn render_shell_nix(shell: &MergedShell) -> String {
         lines.push("  };".to_string());
     }
 
-    render_multiline_attr(&mut lines, "profileExtra", &shell.profile_extra);
-    render_multiline_attr(&mut lines, "initExtra", &shell.init_extra);
+    // Inject platform-aware shell defaults into profileExtra/initExtra.
+    // These ensure Homebrew is on PATH for login shells (macOS) and that
+    // oh-my-bash's bash-5.3-incompatible identifiers are cleaned up.
+    let profile_extra = inject_profile_defaults(platform, &shell.profile_extra);
+    let init_extra = inject_init_defaults(&shell.init_extra);
+
+    render_multiline_attr(&mut lines, "profileExtra", &profile_extra);
+    render_multiline_attr(&mut lines, "initExtra", &init_extra);
 
     if !shell.env.is_empty() {
         lines.push("  home.sessionVariables = {".to_string());
@@ -730,7 +773,7 @@ pub fn run(config: &Config, repo_ref: &str, verify: bool, dry_run: bool) -> Resu
                 config.repo.join("shell.nix")
             };
 
-            let content = render_shell_nix(&merged.shell);
+            let content = render_shell_nix(&merged.shell, config.platform);
             if let Some(parent) = shell_nix.parent() {
                 std::fs::create_dir_all(parent)?;
             }

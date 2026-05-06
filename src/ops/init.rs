@@ -681,8 +681,23 @@ fn scaffold_repo(hostname: &str, dry_run: bool) -> Result<PathBuf> {
              \x20 # Enable bash so home-manager generates .bashrc and .bash_profile.\n\
              \x20 # Without this, the login shell works but has no managed config.\n\
              \x20 programs.bash.enable = true;\n\
+             {profile_extra}\
              \x20 programs.home-manager.enable = true;\n\
-             }}\n"
+             }}\n",
+            profile_extra = if platform == Platform::Darwin {
+                "\
+ \x20 # Homebrew must be on PATH for login shells.\n\
+ \x20 programs.bash.profileExtra = ''\n\
+ \x20   # Homebrew (must come before nix so nix PATH wins)\n\
+ \x20   if [ -f /opt/homebrew/bin/brew ]; then\n\
+ \x20       eval \"$(/opt/homebrew/bin/brew shellenv)\"\n\
+ \x20   elif [ -f /home/linuxbrew/.linuxbrew/bin/brew ]; then\n\
+ \x20       eval \"$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)\"\n\
+ \x20   fi\n\
+ \x20 '';\n\n"
+            } else {
+                ""
+            }
         )
         .as_bytes(),
     )?;
