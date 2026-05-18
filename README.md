@@ -49,6 +49,7 @@ nex profile apply user/repo   # Apply a machine profile from GitHub
 nex forge user/profile        # Burn a bootable NixOS USB with profile baked in
 nex polymerize                # Interactive NixOS installer (on target machine)
 nex build-image user/profile  # Build an OCI container from a profile
+nex build-image ./agent-pkg   # Build from ./agent-pkg/styrene-package.toml
 ```
 
 ### Development
@@ -103,6 +104,33 @@ tap_to_click = true
 ```
 
 Profiles compose via `extends` for team/personal layering. Apply with `nex profile apply user/repo`.
+
+### Styrene Agent Packages
+
+`nex build-image` also accepts a Styrene package manifest. This is the bridge between Nex profile composition and Auspex/Omegon deployment: the package points at a Nex profile for the environment, then supplies image and agent metadata for the deployable artifact.
+
+```toml
+[package]
+name = "styrene.agent.primary"
+version = "0.1.0"
+
+[nex]
+profile = "./profile.toml"
+
+[image]
+name = "ghcr.io/styrene-lab/primary"
+tag = "0.1.0"
+entrypoint = "/bin/omegon"
+cmd = ["serve", "--control-plane", "0.0.0.0:7842"]
+ports = [7842]
+
+[agent]
+role = "primary-driver"
+mode = "daemon"
+posture = "orchestrator"
+```
+
+The generated image carries Styrene OCI labels for the package, Nex profile, and agent role/mode/posture so Auspex can reconcile deployed agents back to package intent.
 
 ## Installation
 

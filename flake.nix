@@ -45,6 +45,7 @@
               clippy
               rustfmt
               rust-analyzer
+              pkl
             ];
           };
         }

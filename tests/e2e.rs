@@ -10,6 +10,8 @@
 //! - NEX_TEST_INPUT: bypass text input prompts
 
 use std::fs;
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command as StdCommand;
 
@@ -397,6 +399,128 @@ fn forge_unknown_arch_fails() {
         .assert()
         .failure()
         .stderr(predicate::str::contains("unknown architecture"));
+}
+
+#[test]
+#[cfg(unix)]
+fn forge_check_validates_template_with_json_report() {
+    let sb = Sandbox::new();
+    let dir = sb.home.path().join("forge-template");
+    fs::create_dir_all(&dir).expect("create forge template dir");
+    let forge_pkl = dir.join("forge.pkl");
+    let forge_toml = dir.join("forge.toml");
+    fs::write(&forge_pkl, "name = \"minimal-workstation\"\n").expect("write forge.pkl");
+    fs::write(
+        &forge_toml,
+        r#"
+[forge_template]
+id = "minimal-workstation"
+version = "1.0.0"
+canonical_format = "pkl"
+visibility = "public"
+profile_class = "desktop"
+destructive_capabilities = ["image-build"]
+network_requirements = ["package-download"]
+"#,
+    )
+    .expect("write forge.toml");
+
+    let fake_pkl = dir.join("fake-pkl");
+    fs::write(
+        &fake_pkl,
+        r#"#!/bin/sh
+cat <<'JSON'
+{
+  "name": "minimal-workstation",
+  "profileClass": "desktop",
+  "visibility": "public",
+  "plan": {
+    "mode": "image-build",
+    "target": "operator-selected",
+    "requiresNetwork": true
+  }
+}
+JSON
+"#,
+    )
+    .expect("write fake pkl");
+    let mut perms = fs::metadata(&fake_pkl)
+        .expect("stat fake pkl")
+        .permissions();
+    perms.set_mode(0o755);
+    fs::set_permissions(&fake_pkl, perms).expect("chmod fake pkl");
+
+    sb.nex()
+        .env("NEX_PKL", &fake_pkl)
+        .args([
+            "forge",
+            "check",
+            forge_pkl.to_str().unwrap(),
+            "--metadata",
+            forge_toml.to_str().unwrap(),
+            "--json",
+            "--no-execute",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"valid\": true"))
+        .stdout(predicate::str::contains("\"id\": \"minimal-workstation\""))
+        .stdout(predicate::str::contains("\"canonicalFormat\": \"pkl\""));
+}
+
+// ── Build image tests ──────────────────────────────────────────────────────
+
+#[test]
+fn build_image_accepts_styrene_package_manifest() {
+    let sb = Sandbox::new();
+    let package_dir = sb.home.path().join("agent-package");
+    fs::create_dir_all(&package_dir).expect("create package dir");
+    fs::write(
+        package_dir.join("profile.toml"),
+        r#"
+[meta]
+name = "profile-fallback"
+
+[container]
+packages = ["git"]
+"#,
+    )
+    .expect("write profile");
+    fs::write(
+        package_dir.join("styrene-package.toml"),
+        r#"
+[package]
+name = "styrene.agent.primary"
+version = "0.1.0"
+
+[nex]
+profile = "./profile.toml"
+
+[image]
+name = "ghcr.io/styrene-lab/primary"
+tag = "0.1.0"
+entrypoint = "/bin/omegon"
+cmd = ["serve", "--control-plane", "0.0.0.0:7842"]
+ports = [7842]
+
+[agent]
+role = "primary-driver"
+mode = "daemon"
+posture = "orchestrator"
+"#,
+    )
+    .expect("write package manifest");
+
+    sb.nex()
+        .args(["build-image", package_dir.to_str().unwrap(), "--dry-run"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "package: styrene.agent.primary:0.1.0",
+        ))
+        .stdout(predicate::str::contains(
+            "Would build: ghcr.io/styrene-lab/primary:0.1.0",
+        ));
 }
 
 // ── Doctor tests ────────────────────────────────────────────────────────────

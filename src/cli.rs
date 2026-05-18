@@ -97,6 +97,9 @@ pub enum Command {
     },
     /// Build a bootable NixOS installer USB, optionally with a baked-in profile
     Forge {
+        #[command(subcommand)]
+        action: Option<ForgeAction>,
+
         /// Nex profile (GitHub user/repo) to bake in. Omit for generic styx installer.
         #[arg(value_name = "PROFILE")]
         profile: Option<String>,
@@ -123,19 +126,19 @@ pub enum Command {
         #[arg(long)]
         bundle: Option<PathBuf>,
     },
-    /// Build an OCI container image from a profile
+    /// Build an OCI container image from a profile or Styrene package manifest
     BuildImage {
-        /// Nex profile (GitHub user/repo) or local path to profile.toml
-        #[arg(value_name = "PROFILE")]
-        profile: String,
+        /// Nex profile, local profile.toml, or styrene-package.toml
+        #[arg(value_name = "SOURCE")]
+        source: String,
 
-        /// Image name (default: derived from profile name)
+        /// Image name (default: package image name or profile name)
         #[arg(long)]
         name: Option<String>,
 
-        /// Image tag (default: "latest")
-        #[arg(long, default_value = "latest")]
-        tag: String,
+        /// Image tag (default: package image tag or "latest")
+        #[arg(long)]
+        tag: Option<String>,
     },
     /// Enter a dev shell from a flake (wraps nix develop)
     Develop {
@@ -167,6 +170,34 @@ pub enum Command {
     Diff,
     /// Garbage collect nix store
     Gc,
+}
+
+#[derive(Subcommand)]
+pub enum ForgeAction {
+    /// Plan a forge request/template without creating artifacts or flashing disks
+    Plan {
+        /// Canonical Pkl request/template path. JSON is accepted as transport fallback.
+        #[arg(long)]
+        request: PathBuf,
+    },
+    /// Validate and inspect a forge template without building or flashing anything
+    Check {
+        /// Canonical forge.pkl template path
+        #[arg(value_name = "PATH")]
+        path: PathBuf,
+
+        /// Optional Armory forge.toml metadata path to compare against the template
+        #[arg(long)]
+        metadata: Option<PathBuf>,
+
+        /// Emit a stable JSON report
+        #[arg(long)]
+        json: bool,
+
+        /// Explicitly require non-executing validation mode
+        #[arg(long)]
+        no_execute: bool,
+    },
 }
 
 #[derive(Subcommand)]

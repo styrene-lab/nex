@@ -683,6 +683,45 @@ pub fn run(
     Ok(())
 }
 
+pub fn run_plan(request_path: &Path) -> Result<()> {
+    let request = crate::forge::load_request(request_path)?;
+    let plan = crate::forge::plan_request(&request)?;
+    println!("{}", serde_json::to_string_pretty(&plan)?);
+    Ok(())
+}
+
+pub fn run_check(
+    template_path: &Path,
+    metadata_path: Option<&Path>,
+    json: bool,
+    no_execute: bool,
+) -> Result<()> {
+    let result = crate::forge::check_template(template_path, metadata_path, no_execute);
+    let (report, exit_code) = match result {
+        Ok(report) => {
+            let exit_code = report.exit_code();
+            (report, exit_code)
+        }
+        Err(error) => (
+            crate::forge::ForgeCheckReport::evaluator_error(error.to_string()),
+            2,
+        ),
+    };
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else if report.valid {
+        println!("forge template valid: {}", report.template.id);
+    } else {
+        println!("forge template invalid: {}", report.template.id);
+        for error in &report.errors {
+            println!("  {}: {}", error.code, error.message);
+        }
+    }
+
+    std::process::exit(exit_code);
+}
+
 /// Resolved profile chain — base profiles merged in order.
 pub struct ResolvedProfile {
     /// The merged TOML content (base first, overlays applied in order).
@@ -774,8 +813,27 @@ fn merge_toml(base: &mut toml::Value, overlay: toml::Value) {
     }
 }
 
-/// Fetch profile.toml content from GitHub.
+/// Fetch profile.toml content from a local path or GitHub.
 fn fetch_profile_toml(repo_ref: &str) -> Result<String> {
+    let path = Path::new(repo_ref);
+    if path.exists() {
+        let profile_path = if path.is_dir() {
+            path.join("profile.toml")
+        } else {
+            path.to_path_buf()
+        };
+
+        if !profile_path.exists() {
+            bail!(
+                "local profile path {} does not contain profile.toml",
+                path.display()
+            );
+        }
+
+        return std::fs::read_to_string(&profile_path)
+            .with_context(|| format!("failed to read {}", profile_path.display()));
+    }
+
     // Try gh CLI first (private repos)
     if let Ok(output) = Command::new("gh")
         .args([
@@ -1488,6 +1546,152 @@ pub fn generate_linux_config(lines: &mut Vec<String>, linux: &toml::Value) {
 
         lines.push(String::new());
     }
+
+    // Extra NixOS services
+    if let Some(services) = linux.get("services").and_then(|v| v.as_array()) {
+        let services: Vec<&str> = services.iter().filter_map(|v| v.as_str()).collect();
+        if !services.is_empty() {
+            lines.push("  # Extra services".to_string());
+            for service in services {
+                lines.push(format!("  services.{service}.enable = true;"));
+            }
+            lines.push(String::new());
+        }
+    }
+
+    // Kernel parameters
+    if let Some(params) = linux.get("kernel_params").and_then(|v| v.as_array()) {
+        let params: Vec<String> = params
+            .iter()
+            .filter_map(|v| v.as_str())
+            .map(nix_string)
+            .collect();
+        if !params.is_empty() {
+            lines.push(format!("  boot.kernelParams = [ {} ];", params.join(" ")));
+            lines.push(String::new());
+        }
+    }
+
+    // Firewall ports
+    if let Some(firewall) = linux.get("firewall") {
+        if let Some(ports) = firewall.get("allowed_tcp_ports").and_then(|v| v.as_array()) {
+            let ports: Vec<String> = ports
+                .iter()
+                .filter_map(|v| v.as_integer())
+                .map(|p| p.to_string())
+                .collect();
+            if !ports.is_empty() {
+                lines.push(format!(
+                    "  networking.firewall.allowedTCPPorts = [ {} ];",
+                    ports.join(" ")
+                ));
+            }
+        }
+        if let Some(ports) = firewall.get("allowed_udp_ports").and_then(|v| v.as_array()) {
+            let ports: Vec<String> = ports
+                .iter()
+                .filter_map(|v| v.as_integer())
+                .map(|p| p.to_string())
+                .collect();
+            if !ports.is_empty() {
+                lines.push(format!(
+                    "  networking.firewall.allowedUDPPorts = [ {} ];",
+                    ports.join(" ")
+                ));
+            }
+        }
+        lines.push(String::new());
+    }
+
+    // K3s substrate support. Profiles may point at a token file, but should not
+    // embed the token itself because Nix store paths are world-readable.
+    if let Some(k3s) = linux.get("k3s") {
+        let enabled = k3s.get("enable").and_then(|v| v.as_bool()).unwrap_or(true);
+        if enabled {
+            lines.push("  # K3s".to_string());
+            lines.push("  services.k3s = {".to_string());
+            lines.push("    enable = true;".to_string());
+            let role = k3s.get("role").and_then(|v| v.as_str()).unwrap_or("server");
+            lines.push(format!("    role = {};", nix_string(role)));
+
+            if let Some(cluster_init) = k3s.get("cluster_init").and_then(|v| v.as_bool()) {
+                lines.push(format!(
+                    "    clusterInit = {};",
+                    if cluster_init { "true" } else { "false" }
+                ));
+            }
+            if let Some(disable_agent) = k3s.get("disable_agent").and_then(|v| v.as_bool()) {
+                lines.push(format!(
+                    "    disableAgent = {};",
+                    if disable_agent { "true" } else { "false" }
+                ));
+            }
+            if let Some(server_addr) = k3s.get("server_addr").and_then(|v| v.as_str()) {
+                lines.push(format!("    serverAddr = {};", nix_string(server_addr)));
+            }
+            if let Some(token_file) = k3s.get("token_file").and_then(|v| v.as_str()) {
+                lines.push(format!("    tokenFile = {};", nix_string(token_file)));
+            }
+
+            let mut flags: Vec<String> = Vec::new();
+            if let Some(disabled) = k3s.get("disable").and_then(|v| v.as_array()) {
+                for component in disabled.iter().filter_map(|v| v.as_str()) {
+                    flags.push(format!("--disable={component}"));
+                }
+            }
+            if let Some(extra_flags) = k3s.get("extra_flags").and_then(|v| v.as_array()) {
+                for flag in extra_flags.iter().filter_map(|v| v.as_str()) {
+                    flags.push(flag.to_string());
+                }
+            }
+            if !flags.is_empty() {
+                lines.push("    extraFlags = [".to_string());
+                for flag in flags {
+                    lines.push(format!("      {}", nix_string(&flag)));
+                }
+                lines.push("    ];".to_string());
+            }
+            lines.push("  };".to_string());
+            lines.push(String::new());
+        }
+    }
+
+    let mut extra_configs = Vec::new();
+    if let Some(extra_config) = linux.get("extra_config").and_then(|v| v.as_str()) {
+        extra_configs.push(extra_config);
+    }
+    if let Some(fragments) = linux
+        .get("extra_config_fragments")
+        .and_then(|v| v.as_array())
+    {
+        for fragment in fragments.iter().filter_map(|v| v.as_str()) {
+            extra_configs.push(fragment);
+        }
+    }
+    for extra_config in extra_configs {
+        append_extra_nixos_config(lines, extra_config);
+    }
+}
+
+fn nix_string(value: &str) -> String {
+    format!("{value:?}")
+}
+
+fn append_extra_nixos_config(lines: &mut Vec<String>, extra_config: &str) {
+    let extra_config = extra_config.trim();
+    if extra_config.is_empty() {
+        return;
+    }
+
+    lines.push("  # Extra NixOS config from profile".to_string());
+    for line in extra_config.lines() {
+        if line.trim().is_empty() {
+            lines.push(String::new());
+        } else {
+            lines.push(format!("  {}", line));
+        }
+    }
+    lines.push(String::new());
 }
 
 /// Generate a legacy polymerize.sh installer script.
@@ -2286,6 +2490,101 @@ mod tests {
     }
 
     #[test]
+    fn test_generate_linux_config_services_kernel_firewall() {
+        let profile: toml::Value = toml::from_str(
+            r#"
+            services = ["openssh"]
+            kernel_params = ["quiet"]
+
+            [firewall]
+            allowed_tcp_ports = [22, 6443]
+            allowed_udp_ports = [8472]
+        "#,
+        )
+        .unwrap();
+        let mut lines = Vec::new();
+        generate_linux_config(&mut lines, &profile);
+        let output = lines.join("\n");
+
+        assert!(output.contains("services.openssh.enable = true"));
+        assert!(output.contains("boot.kernelParams = [ \"quiet\" ];"));
+        assert!(output.contains("networking.firewall.allowedTCPPorts = [ 22 6443 ];"));
+        assert!(output.contains("networking.firewall.allowedUDPPorts = [ 8472 ];"));
+    }
+
+    #[test]
+    fn test_generate_linux_config_k3s_server() {
+        let profile: toml::Value = toml::from_str(
+            r#"
+            [k3s]
+            enable = true
+            role = "server"
+            cluster_init = true
+            token_file = "/var/lib/rancher/k3s/server/node-token"
+            disable = ["traefik", "servicelb"]
+            extra_flags = ["--write-kubeconfig-mode=0644", "--flannel-backend=vxlan"]
+        "#,
+        )
+        .unwrap();
+        let mut lines = Vec::new();
+        generate_linux_config(&mut lines, &profile);
+        let output = lines.join("\n");
+
+        assert!(output.contains("services.k3s = {"));
+        assert!(output.contains("role = \"server\";"));
+        assert!(output.contains("clusterInit = true;"));
+        assert!(output.contains("tokenFile = \"/var/lib/rancher/k3s/server/node-token\";"));
+        assert!(output.contains("\"--disable=traefik\""));
+        assert!(output.contains("\"--disable=servicelb\""));
+        assert!(output.contains("\"--write-kubeconfig-mode=0644\""));
+        assert!(!output.contains("token ="));
+    }
+
+    #[test]
+    fn test_generate_linux_config_k3s_agent() {
+        let profile: toml::Value = toml::from_str(
+            r#"
+            [k3s]
+            role = "agent"
+            server_addr = "https://192.168.0.50:6443"
+            token_file = "/run/secrets/k3s-token"
+        "#,
+        )
+        .unwrap();
+        let mut lines = Vec::new();
+        generate_linux_config(&mut lines, &profile);
+        let output = lines.join("\n");
+
+        assert!(output.contains("role = \"agent\";"));
+        assert!(output.contains("serverAddr = \"https://192.168.0.50:6443\";"));
+        assert!(output.contains("tokenFile = \"/run/secrets/k3s-token\";"));
+    }
+
+    #[test]
+    fn test_generate_linux_config_extra_config() {
+        let profile: toml::Value = toml::from_str(
+            r#"
+            extra_config = """
+            virtualisation.docker.enable = true;
+            services.haproxy.enable = true;
+            """
+            extra_config_fragments = [
+              "networking.useDHCP = false;",
+            ]
+        "#,
+        )
+        .unwrap();
+        let mut lines = Vec::new();
+        generate_linux_config(&mut lines, &profile);
+        let output = lines.join("\n");
+
+        assert!(output.contains("# Extra NixOS config from profile"));
+        assert!(output.contains("virtualisation.docker.enable = true;"));
+        assert!(output.contains("services.haproxy.enable = true;"));
+        assert!(output.contains("networking.useDHCP = false;"));
+    }
+
+    #[test]
     fn test_generate_linux_config_no_sections() {
         let profile: toml::Value = toml::from_str("").unwrap();
         let mut lines = Vec::new();
@@ -2331,6 +2630,32 @@ mod tests {
         merge_toml(&mut base, overlay);
         // Should not duplicate — same value
         assert_eq!(base["shell"]["aliases"]["ls"].as_str().unwrap(), "eza");
+    }
+
+    #[test]
+    fn test_resolve_profile_chain_local_directory() {
+        let dir =
+            std::env::temp_dir().join(format!("nex-forge-local-profile-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("profile.toml"),
+            r#"
+            [meta]
+            name = "local-profile"
+
+            [packages]
+            nix = ["git"]
+            "#,
+        )
+        .unwrap();
+
+        let resolved = resolve_profile_chain(dir.to_str().unwrap()).unwrap();
+        assert_eq!(resolved.chain, vec![dir.to_string_lossy().to_string()]);
+        assert!(resolved.merged.contains("local-profile"));
+        assert!(resolved.merged.contains("git"));
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -4,7 +4,9 @@ mod config;
 mod discover;
 mod edit;
 mod exec;
+pub mod forge;
 pub mod input;
+pub mod menu;
 mod nixfile;
 mod ops;
 mod output;
@@ -39,12 +41,24 @@ fn main() -> Result<()> {
         Command::SelfUpdate => return ops::self_update::run(),
         Command::Gc => return ops::gc::run(cli.dry_run),
         Command::Forge {
+            ref action,
             ref profile,
             ref hostname,
             ref disk,
             ref output,
             ref arch,
         } => {
+            if let Some(action) = action {
+                return match action {
+                    cli::ForgeAction::Plan { request } => ops::forge::run_plan(request),
+                    cli::ForgeAction::Check {
+                        path,
+                        metadata,
+                        json,
+                        no_execute,
+                    } => ops::forge::run_check(path, metadata.as_deref(), *json, *no_execute),
+                };
+            }
             return ops::forge::run(
                 profile.as_deref(),
                 hostname.as_deref(),
@@ -52,14 +66,14 @@ fn main() -> Result<()> {
                 output.as_deref(),
                 arch.as_deref(),
                 cli.dry_run,
-            )
+            );
         }
         Command::Polymerize { ref bundle } => return ops::polymerize::run(bundle.as_deref()),
         Command::BuildImage {
-            ref profile,
+            ref source,
             ref name,
             ref tag,
-        } => return ops::build_image::run(profile, name.as_deref(), tag, cli.dry_run),
+        } => return ops::build_image::run(source, name.as_deref(), tag.as_deref(), cli.dry_run),
         Command::Develop { ref flake } => return ops::develop::run(flake),
         Command::Dev { ref project } => return ops::dev::run(project),
         Command::Rbac { ref action } => {

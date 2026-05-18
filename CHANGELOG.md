@@ -2,6 +2,11 @@
 
 All notable changes to nex are documented here. Format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+- `nex build-image` now accepts `styrene-package.toml` inputs. Package manifests resolve `[nex].profile`, use `[image]` defaults for name/tag/entrypoint/cmd/ports, and emit Styrene OCI labels for package and agent metadata.
+
 ## [0.16.0] - 2026-04-29
 
 ### Added
