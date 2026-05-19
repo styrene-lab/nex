@@ -306,20 +306,8 @@ pub fn run(bundle: Option<&Path>) -> Result<()> {
 fn step_network(defaults: &Defaults) -> Result<()> {
     println!("  {}", style("── Network ──").bold());
 
-    // Check if we already have connectivity (ethernet, pre-configured WiFi, etc.)
-    let has_net = Command::new("ping")
-        .args(["-c1", "-W2", "1.1.1.1"])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false);
-
-    if has_net {
-        println!(
-            "  {} Network connected (ethernet or pre-configured)",
-            style("✓").green().bold()
-        );
+    let mut status = detect_network_status(2);
+    if accept_existing_network(&status, defaults) {
         println!();
         return Ok(());
     }
@@ -332,30 +320,21 @@ fn step_network(defaults: &Defaults) -> Result<()> {
         .status();
     std::thread::sleep(std::time::Duration::from_secs(2));
 
-    // Re-check after NM start (ethernet may have auto-connected)
-    let has_net = Command::new("ping")
-        .args(["-c1", "-W2", "1.1.1.1"])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false);
-
-    if has_net {
-        println!(
-            "  {} Network connected (ethernet)",
-            style("✓").green().bold()
-        );
+    // Re-check after NM start (ethernet may have auto-connected).
+    status = detect_network_status(2);
+    if accept_existing_network(&status, defaults) {
         println!();
         return Ok(());
     }
 
-    if defaults.network_require_wired == Some(true) {
-        bail!("wired network is required by the forged bundle, but no wired connection is active");
-    }
-
     if defaults.network_wifi_allowed == Some(false) {
-        bail!("WiFi fallback is disabled by the forged bundle and no wired connection is active");
+        println!(
+            "  {} No active network detected. WiFi prompting is disabled by the forged bundle.",
+            style("!").yellow()
+        );
+        println!("    Continuing; the install step will re-check package fetch connectivity.");
+        println!();
+        return Ok(());
     }
 
     if let (Some(ssid), Some(psk)) = (&defaults.wifi_ssid, &defaults.wifi_psk) {
@@ -507,13 +486,7 @@ fn step_network(defaults: &Defaults) -> Result<()> {
     }
 
     // Verify
-    let connected = Command::new("ping")
-        .args(["-c1", "-W3", "1.1.1.1"])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false);
+    let connected = has_network_connectivity(3);
 
     if connected {
         println!("  {} Network connected", style("✓").green().bold());
@@ -530,7 +503,125 @@ fn step_network(defaults: &Defaults) -> Result<()> {
     Ok(())
 }
 
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+struct NetworkStatus {
+    verified_connectivity: bool,
+    active_wired: bool,
+    active_wifi: bool,
+}
+
+fn accept_existing_network(status: &NetworkStatus, defaults: &Defaults) -> bool {
+    if status.verified_connectivity {
+        let transport = if status.active_wired {
+            "wired"
+        } else if status.active_wifi {
+            "WiFi"
+        } else {
+            "pre-configured"
+        };
+        if defaults.network_require_wired == Some(true)
+            && status.active_wifi
+            && !status.active_wired
+        {
+            println!(
+                "  {} Wired network was requested, but active WiFi already has connectivity.",
+                style("!").yellow()
+            );
+        }
+        println!(
+            "  {} Network connected ({transport})",
+            style("✓").green().bold()
+        );
+        return true;
+    }
+
+    if status.active_wired {
+        println!(
+            "  {} Wired network is active; external connectivity verification failed.",
+            style("!").yellow()
+        );
+        println!("    Continuing; the install step will re-check package fetch connectivity.");
+        return true;
+    }
+
+    if status.active_wifi {
+        if defaults.network_require_wired == Some(true) {
+            println!(
+                "  {} Wired network was requested, but active WiFi is already configured.",
+                style("!").yellow()
+            );
+        }
+        if defaults.network_wifi_allowed == Some(false) {
+            println!(
+                "  {} WiFi prompting is disabled, but an operator-configured WiFi connection is active.",
+                style("!").yellow()
+            );
+        }
+        println!("    Continuing; the install step will re-check package fetch connectivity.");
+        return true;
+    }
+
+    false
+}
+
+fn detect_network_status(timeout_seconds: u64) -> NetworkStatus {
+    let mut status = NetworkStatus {
+        verified_connectivity: has_network_connectivity(timeout_seconds),
+        ..NetworkStatus::default()
+    };
+
+    if let Ok(output) = Command::new("nmcli")
+        .args(["-t", "-f", "TYPE,STATE", "device", "status"])
+        .output()
+    {
+        if output.status.success() {
+            for line in String::from_utf8_lossy(&output.stdout).lines() {
+                let mut parts = line.splitn(2, ':');
+                let dtype = parts.next().unwrap_or("");
+                let state = parts.next().unwrap_or("");
+                if !state.starts_with("connected") {
+                    continue;
+                }
+                match dtype {
+                    "ethernet" => status.active_wired = true,
+                    "wifi" | "wireless" => status.active_wifi = true,
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    status
+}
+
 fn has_network_connectivity(timeout_seconds: u64) -> bool {
+    let timeout = timeout_seconds.to_string();
+    let https_targets = [
+        "https://cache.nixos.org/nix-cache-info",
+        "https://github.com/",
+    ];
+    for target in https_targets {
+        let status = Command::new("curl")
+            .args([
+                "-fsSL",
+                "--connect-timeout",
+                &timeout,
+                "--max-time",
+                &timeout,
+                "-o",
+                "/dev/null",
+                target,
+            ])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if status {
+            return true;
+        }
+    }
+
     Command::new("ping")
         .args(["-c1", &format!("-W{timeout_seconds}"), "1.1.1.1"])
         .stdout(std::process::Stdio::null())
@@ -1527,6 +1618,36 @@ mod tests {
             nix_string("ssh-ed25519 AAAA\"quoted"),
             "\"ssh-ed25519 AAAA\\\"quoted\""
         );
+    }
+
+    #[test]
+    fn test_accept_existing_network_allows_operator_configured_wifi() {
+        let defaults = Defaults {
+            network_require_wired: Some(true),
+            network_wifi_allowed: Some(false),
+            ..Defaults::default()
+        };
+        let status = NetworkStatus {
+            verified_connectivity: true,
+            active_wired: false,
+            active_wifi: true,
+        };
+
+        assert!(accept_existing_network(&status, &defaults));
+    }
+
+    #[test]
+    fn test_accept_existing_network_does_not_accept_absent_network() {
+        let defaults = Defaults {
+            network_require_wired: Some(true),
+            network_wifi_allowed: Some(false),
+            ..Defaults::default()
+        };
+
+        assert!(!accept_existing_network(
+            &NetworkStatus::default(),
+            &defaults
+        ));
     }
 
     #[test]
