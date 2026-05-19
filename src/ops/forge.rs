@@ -5,6 +5,10 @@ use anyhow::{bail, Context, Result};
 use console::style;
 
 use crate::discover;
+use crate::forge::{
+    ForgeArch, ForgeDiagnostic, ForgeEvent, ForgeOperation, ForgePlan, ForgePreflightReport,
+    ForgeRequest, PolymerizeDefaults,
+};
 use crate::input::input;
 use crate::output;
 
@@ -247,6 +251,15 @@ enum Arch {
     Aarch64,
 }
 
+impl From<ForgeArch> for Arch {
+    fn from(arch: ForgeArch) -> Self {
+        match arch {
+            ForgeArch::X86_64 => Arch::X86_64,
+            ForgeArch::Aarch64 => Arch::Aarch64,
+        }
+    }
+}
+
 impl Arch {
     fn iso_url(&self) -> &'static str {
         match self {
@@ -395,6 +408,42 @@ pub fn run(
     arch_flag: Option<&str>,
     dry_run: bool,
 ) -> Result<()> {
+    run_with_options(
+        profile_ref,
+        hostname,
+        disk,
+        output_dir,
+        arch_flag,
+        dry_run,
+        ForgeRunOptions::default(),
+    )
+}
+
+struct ForgeRunOptions {
+    prompt_optional_inputs: bool,
+    allow_placeholder_nex: bool,
+    polymerize_defaults: Option<PolymerizeDefaults>,
+}
+
+impl Default for ForgeRunOptions {
+    fn default() -> Self {
+        Self {
+            prompt_optional_inputs: true,
+            allow_placeholder_nex: true,
+            polymerize_defaults: None,
+        }
+    }
+}
+
+fn run_with_options(
+    profile_ref: Option<&str>,
+    hostname: Option<&str>,
+    disk: Option<&str>,
+    output_dir: Option<&Path>,
+    arch_flag: Option<&str>,
+    dry_run: bool,
+    options: ForgeRunOptions,
+) -> Result<()> {
     let is_interactive = std::io::IsTerminal::is_terminal(&std::io::stdin());
 
     println!();
@@ -435,9 +484,13 @@ pub fn run(
     };
     let disk = disk_owned.as_deref();
 
-    let wifi = if is_interactive { prompt_wifi()? } else { None };
+    let wifi = if options.prompt_optional_inputs && is_interactive {
+        prompt_wifi()?
+    } else {
+        None
+    };
 
-    let ssh_key = if is_interactive {
+    let ssh_key = if options.prompt_optional_inputs && is_interactive {
         prompt_ssh_key()?
     } else {
         None
@@ -533,9 +586,20 @@ pub fn run(
     std::fs::create_dir_all(&defaults_dir)?;
     std::fs::write(defaults_dir.join("hostname"), hostname)?;
 
-    let user = std::env::var("USER").unwrap_or_else(|_| "user".to_string());
+    let user = options
+        .polymerize_defaults
+        .as_ref()
+        .map(|defaults| defaults.username.clone())
+        .filter(|username| !username.is_empty())
+        .unwrap_or_else(|| std::env::var("USER").unwrap_or_else(|_| "user".to_string()));
+    let timezone = options
+        .polymerize_defaults
+        .as_ref()
+        .map(|defaults| defaults.timezone.clone())
+        .filter(|timezone| !timezone.is_empty())
+        .unwrap_or_else(|| "America/New_York".to_string());
     std::fs::write(defaults_dir.join("username"), &user)?;
-    std::fs::write(defaults_dir.join("timezone"), "America/New_York")?;
+    std::fs::write(defaults_dir.join("timezone"), timezone)?;
     std::fs::write(defaults_dir.join("arch"), arch.label())?;
 
     // Write WiFi credentials if provided
@@ -614,6 +678,9 @@ pub fn run(
                 );
                 println!();
 
+                if !options.allow_placeholder_nex {
+                    bail!("Cannot bundle placeholder nex binary for declarative forge request.");
+                }
                 let cont = input().confirm("  Continue without working nex binary?", false)?;
                 if !cont {
                     bail!("Cannot bundle nex binary for Linux. Build it separately or run forge on a Linux machine.");
@@ -627,6 +694,9 @@ pub fn run(
             }
         }
         Err(e) => {
+            if !options.allow_placeholder_nex {
+                bail!("Could not fetch nex binary for declarative forge request: {e}");
+            }
             println!("  {} Could not fetch nex binary: {e}", style("!").yellow());
             println!("    Build manually and copy to: {}", nex_bin_path.display());
         }
@@ -688,6 +758,511 @@ pub fn run_plan(request_path: &Path) -> Result<()> {
     let plan = crate::forge::plan_request(&request)?;
     println!("{}", serde_json::to_string_pretty(&plan)?);
     Ok(())
+}
+
+pub fn run_request(request_path: &Path, events: &str, dry_run: bool) -> Result<()> {
+    let events = EventMode::parse(events)?;
+    emit_event(
+        events,
+        ForgeEvent::PhaseStarted {
+            schema_version: crate::forge::FORGE_SCHEMA_VERSION,
+            phase: "load-request".to_string(),
+        },
+    )?;
+    let request = crate::forge::load_request(request_path)?;
+    emit_event(
+        events,
+        ForgeEvent::PhaseCompleted {
+            schema_version: crate::forge::FORGE_SCHEMA_VERSION,
+            phase: "load-request".to_string(),
+        },
+    )?;
+
+    emit_event(
+        events,
+        ForgeEvent::PhaseStarted {
+            schema_version: crate::forge::FORGE_SCHEMA_VERSION,
+            phase: "plan".to_string(),
+        },
+    )?;
+    let plan = crate::forge::plan_request(&request)?;
+    for warning in &plan.warnings {
+        emit_event(
+            events,
+            ForgeEvent::Warning {
+                schema_version: crate::forge::FORGE_SCHEMA_VERSION,
+                code: warning.code.clone(),
+                message: warning.message.clone(),
+            },
+        )?;
+    }
+    if plan.is_blocked() {
+        for blocker in &plan.blockers {
+            emit_event(
+                events,
+                ForgeEvent::Blocker {
+                    schema_version: crate::forge::FORGE_SCHEMA_VERSION,
+                    code: blocker.code.clone(),
+                    message: blocker.message.clone(),
+                },
+            )?;
+        }
+        emit_event(
+            events,
+            ForgeEvent::RunFailed {
+                schema_version: crate::forge::FORGE_SCHEMA_VERSION,
+                message: "forge request has blockers".to_string(),
+            },
+        )?;
+        bail_with_plan_blockers(&plan);
+    }
+    emit_event(
+        events,
+        ForgeEvent::PhaseCompleted {
+            schema_version: crate::forge::FORGE_SCHEMA_VERSION,
+            phase: "plan".to_string(),
+        },
+    )?;
+
+    let preflight = preflight_request(&request, &plan);
+    for warning in &preflight.warnings {
+        emit_event(
+            events,
+            ForgeEvent::Warning {
+                schema_version: crate::forge::FORGE_SCHEMA_VERSION,
+                code: warning.code.clone(),
+                message: warning.message.clone(),
+            },
+        )?;
+    }
+    if !preflight.valid {
+        for error in &preflight.errors {
+            emit_event(
+                events,
+                ForgeEvent::Blocker {
+                    schema_version: crate::forge::FORGE_SCHEMA_VERSION,
+                    code: error.code.clone(),
+                    message: error.message.clone(),
+                },
+            )?;
+        }
+        emit_event(
+            events,
+            ForgeEvent::RunFailed {
+                schema_version: crate::forge::FORGE_SCHEMA_VERSION,
+                message: "forge host preflight failed".to_string(),
+            },
+        )?;
+        bail_with_preflight_errors(&preflight);
+    }
+
+    if dry_run {
+        let plan_json = serde_json::to_string_pretty(&plan)?;
+        if events == EventMode::Jsonl {
+            eprintln!("{plan_json}");
+        } else {
+            println!("{plan_json}");
+        }
+        emit_event(
+            events,
+            ForgeEvent::RunCompleted {
+                schema_version: crate::forge::FORGE_SCHEMA_VERSION,
+            },
+        )?;
+        return Ok(());
+    }
+
+    confirm_destructive_actions(&request, &plan)?;
+    execute_request(&request, events)?;
+    emit_event(
+        events,
+        ForgeEvent::ArtifactCreated {
+            schema_version: crate::forge::FORGE_SCHEMA_VERSION,
+            path: plan.output_dir,
+        },
+    )?;
+    emit_event(
+        events,
+        ForgeEvent::RunCompleted {
+            schema_version: crate::forge::FORGE_SCHEMA_VERSION,
+        },
+    )?;
+    Ok(())
+}
+
+pub fn run_preflight(request_path: &Path, json: bool) -> Result<()> {
+    let request = crate::forge::load_request(request_path)?;
+    let plan = crate::forge::plan_request(&request)?;
+    let mut preflight = preflight_request(&request, &plan);
+    preflight.errors.extend(plan.blockers);
+    preflight.warnings.extend(plan.warnings);
+    preflight.valid = preflight.errors.is_empty();
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&preflight)?);
+    } else if preflight.valid {
+        println!("forge preflight passed");
+        for warning in &preflight.warnings {
+            println!("  warning {}: {}", warning.code, warning.message);
+        }
+    } else {
+        println!("forge preflight failed");
+        for error in &preflight.errors {
+            println!("  {}: {}", error.code, error.message);
+        }
+    }
+
+    if preflight.valid {
+        Ok(())
+    } else {
+        std::process::exit(1);
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum EventMode {
+    Human,
+    Jsonl,
+}
+
+impl EventMode {
+    fn parse(value: &str) -> Result<Self> {
+        match value {
+            "human" => Ok(Self::Human),
+            "jsonl" => Ok(Self::Jsonl),
+            other => bail!("unsupported forge event format {other}; use human or jsonl"),
+        }
+    }
+}
+
+fn emit_event(mode: EventMode, event: ForgeEvent) -> Result<()> {
+    if mode == EventMode::Jsonl {
+        println!("{}", serde_json::to_string(&event)?);
+    }
+    Ok(())
+}
+
+fn bail_with_plan_blockers(plan: &ForgePlan) -> ! {
+    for blocker in &plan.blockers {
+        eprintln!(
+            "{} {}: {}",
+            style("!").red().bold(),
+            blocker.code,
+            blocker.message
+        );
+    }
+    std::process::exit(1);
+}
+
+fn bail_with_preflight_errors(report: &ForgePreflightReport) -> ! {
+    for error in &report.errors {
+        eprintln!(
+            "{} {}: {}",
+            style("!").red().bold(),
+            error.code,
+            error.message
+        );
+    }
+    std::process::exit(1);
+}
+
+fn confirm_destructive_actions(request: &ForgeRequest, plan: &ForgePlan) -> Result<()> {
+    if plan.destructive_actions.is_empty() {
+        return Ok(());
+    }
+    if !request.safety.allow_destructive_flash {
+        bail!("destructive flash is not allowed by request safety policy");
+    }
+    if !request.safety.require_operator_confirmation {
+        return Ok(());
+    }
+
+    println!();
+    println!("  {}", style("Destructive forge actions").red().bold());
+    for action in &plan.destructive_actions {
+        println!("  {} {}", style("!").red().bold(), action.message);
+    }
+    println!();
+    let confirmed = input()
+        .confirm("  Proceed with destructive forge action?", false)
+        .context("failed to read forge confirmation")?;
+    if !confirmed {
+        bail!("operator declined destructive forge action");
+    }
+    Ok(())
+}
+
+fn preflight_request(request: &ForgeRequest, plan: &ForgePlan) -> ForgePreflightReport {
+    let mut warnings = Vec::new();
+    let mut errors = Vec::new();
+
+    match request.operation {
+        ForgeOperation::Bundle | ForgeOperation::UsbInstall => {
+            require_command("curl", &mut errors);
+            warn_command(
+                "nix",
+                &mut warnings,
+                "Nix is recommended so forge can build/cache a Linux Nex entrypoint.",
+            );
+        }
+        ForgeOperation::Image | ForgeOperation::Netboot | ForgeOperation::RemotePolymerize => {
+            errors.push(ForgeDiagnostic::new(
+                "FORGE_RUN_OPERATION_UNSUPPORTED",
+                "forge run currently supports bundle and usb-install operations only.",
+            ));
+        }
+    }
+
+    if let Some(profile) = request.profile.as_deref() {
+        if looks_like_local_profile(profile) {
+            let profile_path = Path::new(profile);
+            let profile_file = if profile_path.is_dir() {
+                profile_path.join("profile.toml")
+            } else {
+                profile_path.to_path_buf()
+            };
+            if !profile_file.exists() {
+                errors.push(ForgeDiagnostic::new(
+                    "PROFILE_NOT_FOUND",
+                    format!("Local profile does not exist: {}", profile_file.display()),
+                ));
+            }
+        } else {
+            warn_command(
+                "gh",
+                &mut warnings,
+                "GitHub profile resolution will fall back to curl if gh is unavailable.",
+            );
+        }
+    }
+
+    if let Some(iso) = plan.iso.as_ref() {
+        if let Some(parent) = iso.cache_path.parent() {
+            if let Err(error) = std::fs::create_dir_all(parent) {
+                errors.push(ForgeDiagnostic::new(
+                    "OUTPUT_DIR_NOT_WRITABLE",
+                    format!(
+                        "Cannot create output directory {}: {error}",
+                        parent.display()
+                    ),
+                ));
+            } else {
+                let probe = parent.join(".nex-forge-preflight");
+                match std::fs::write(&probe, b"") {
+                    Ok(()) => {
+                        let _ = std::fs::remove_file(&probe);
+                    }
+                    Err(error) => errors.push(ForgeDiagnostic::new(
+                        "OUTPUT_DIR_NOT_WRITABLE",
+                        format!(
+                            "Cannot write to output directory {}: {error}",
+                            parent.display()
+                        ),
+                    )),
+                }
+            }
+        }
+    }
+
+    if request.operation == ForgeOperation::UsbInstall {
+        require_command("sudo", &mut errors);
+        require_command("dd", &mut errors);
+        require_command("sync", &mut errors);
+        require_command("sgdisk", &mut errors);
+        warn_command(
+            "nix",
+            &mut warnings,
+            "If sgdisk is missing globally, run forge through `nix shell nixpkgs#gptfdisk -c ...`.",
+        );
+
+        if crate::discover::detect_platform() == crate::discover::Platform::Darwin {
+            require_command("diskutil", &mut errors);
+            require_command("newfs_msdos", &mut errors);
+        } else {
+            require_command("mount", &mut errors);
+            require_command("umount", &mut errors);
+            require_command("mkfs.vfat", &mut errors);
+            warn_command(
+                "partprobe",
+                &mut warnings,
+                "partprobe is used to refresh the partition table on Linux hosts.",
+            );
+        }
+
+        if let Some(device) = request.target.disk.as_deref() {
+            preflight_usb_device(device, &mut warnings, &mut errors);
+        }
+    }
+
+    ForgePreflightReport::from_diagnostics(warnings, errors)
+}
+
+fn looks_like_local_profile(profile: &str) -> bool {
+    profile.starts_with('/')
+        || profile.starts_with("./")
+        || profile.starts_with("../")
+        || profile.ends_with(".toml")
+}
+
+fn command_exists(command: &str) -> bool {
+    Command::new("which")
+        .arg(command)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
+fn require_command(command: &str, errors: &mut Vec<ForgeDiagnostic>) {
+    if !command_exists(command) {
+        errors.push(ForgeDiagnostic::new(
+            "MISSING_HOST_TOOL",
+            format!("Required host command not found on PATH: {command}"),
+        ));
+    }
+}
+
+fn warn_command(command: &str, warnings: &mut Vec<ForgeDiagnostic>, message: &str) {
+    if !command_exists(command) {
+        warnings.push(ForgeDiagnostic::new(
+            "MISSING_OPTIONAL_HOST_TOOL",
+            format!("{message} Missing command: {command}"),
+        ));
+    }
+}
+
+fn preflight_usb_device(
+    device: &str,
+    warnings: &mut Vec<ForgeDiagnostic>,
+    errors: &mut Vec<ForgeDiagnostic>,
+) {
+    if crate::discover::detect_platform() == crate::discover::Platform::Darwin {
+        let output = Command::new("diskutil").args(["info", device]).output();
+        let Ok(output) = output else {
+            errors.push(ForgeDiagnostic::new(
+                "USB_DEVICE_NOT_FOUND",
+                format!("diskutil cannot inspect target device {device}."),
+            ));
+            return;
+        };
+        if !output.status.success() {
+            errors.push(ForgeDiagnostic::new(
+                "USB_DEVICE_NOT_FOUND",
+                format!("Target device does not exist or is not accessible: {device}."),
+            ));
+            return;
+        }
+        let info = String::from_utf8_lossy(&output.stdout);
+        if !info.contains("Removable Media") && !info.contains("External") {
+            errors.push(ForgeDiagnostic::new(
+                "USB_DEVICE_NOT_REMOVABLE",
+                format!("{device} does not appear to be removable/external media."),
+            ));
+        }
+        if !device.starts_with("/dev/disk") {
+            warnings.push(ForgeDiagnostic::new(
+                "USB_DEVICE_NAME_UNUSUAL",
+                format!("macOS target device should usually look like /dev/diskN, got {device}."),
+            ));
+        }
+    } else if !Path::new(device).exists() {
+        errors.push(ForgeDiagnostic::new(
+            "USB_DEVICE_NOT_FOUND",
+            format!("Target device does not exist: {device}."),
+        ));
+    }
+}
+
+fn ensure_flash_host_tools(is_macos: bool) -> Result<()> {
+    let mut errors = Vec::new();
+    require_command("sudo", &mut errors);
+    require_command("dd", &mut errors);
+    require_command("sync", &mut errors);
+    require_command("sgdisk", &mut errors);
+    if is_macos {
+        require_command("diskutil", &mut errors);
+        require_command("newfs_msdos", &mut errors);
+        require_command("mount", &mut errors);
+        require_command("umount", &mut errors);
+        require_command("cp", &mut errors);
+    } else {
+        require_command("mount", &mut errors);
+        require_command("umount", &mut errors);
+        require_command("mkfs.vfat", &mut errors);
+        require_command("cp", &mut errors);
+    }
+
+    if errors.is_empty() {
+        return Ok(());
+    }
+
+    for error in &errors {
+        eprintln!(
+            "{} {}: {}",
+            style("!").red().bold(),
+            error.code,
+            error.message
+        );
+    }
+    if !command_exists("sgdisk") && command_exists("nix") {
+        eprintln!(
+            "  hint: run the flash command through {}",
+            style("nix shell nixpkgs#gptfdisk -c ...").cyan()
+        );
+    }
+    bail!("missing required host tools for USB flashing");
+}
+
+fn execute_request(request: &ForgeRequest, events: EventMode) -> Result<()> {
+    match request.operation {
+        ForgeOperation::Bundle | ForgeOperation::UsbInstall => {
+            emit_event(
+                events,
+                ForgeEvent::PhaseStarted {
+                    schema_version: crate::forge::FORGE_SCHEMA_VERSION,
+                    phase: "build-installer".to_string(),
+                },
+            )?;
+            let arch = Arch::from(request.arch);
+            let arch_label = arch.label().to_string();
+            let disk = if request.operation == ForgeOperation::UsbInstall {
+                request.target.disk.as_deref()
+            } else {
+                None
+            };
+            run_with_options(
+                request.profile.as_deref(),
+                Some(&request.hostname),
+                disk,
+                request.output_dir.as_deref(),
+                Some(&arch_label),
+                false,
+                ForgeRunOptions {
+                    prompt_optional_inputs: false,
+                    allow_placeholder_nex: false,
+                    polymerize_defaults: request.polymerize_defaults.clone(),
+                },
+            )?;
+            emit_event(
+                events,
+                ForgeEvent::PhaseCompleted {
+                    schema_version: crate::forge::FORGE_SCHEMA_VERSION,
+                    phase: "build-installer".to_string(),
+                },
+            )?;
+            Ok(())
+        }
+        ForgeOperation::Image => {
+            bail!("forge run for image operations is not implemented yet; use forge plan/check")
+        }
+        ForgeOperation::Netboot => {
+            bail!("forge run for netboot operations is not implemented yet")
+        }
+        ForgeOperation::RemotePolymerize => {
+            bail!("forge run for remote polymerize operations is not implemented yet")
+        }
+    }
 }
 
 pub fn run_check(
@@ -1847,6 +2422,7 @@ fn flash_to_usb(bundle_dir: &Path, iso_path: &Path, device: &str) -> Result<()> 
 
     // Safety: confirm device exists and is removable
     let is_macos = crate::discover::detect_platform() == crate::discover::Platform::Darwin;
+    ensure_flash_host_tools(is_macos)?;
 
     if is_macos {
         // Verify it's an external disk
@@ -1946,38 +2522,13 @@ fn flash_to_usb(bundle_dir: &Path, iso_path: &Path, device: &str) -> Result<()> 
             eprintln!("  warning: sync failed — data may not be fully flushed to disk");
         }
 
-        // Check for sgdisk (gptfdisk) — required for the data partition
-        let has_sgdisk = Command::new("which")
-            .arg("sgdisk")
-            .output()
-            .map(|o| o.status.success())
-            .unwrap_or(false);
-
-        if !has_sgdisk {
-            println!();
-            println!(
-                "  {} ISO written and bootable, but sgdisk not found.",
-                style("!").yellow()
-            );
-            println!("    Install it to add the data partition:");
-            if is_macos {
-                println!("      brew install gptfdisk");
-            } else {
-                println!("      nix-shell -p gptfdisk");
-            }
-            println!("    Then manually:");
-            println!("      sudo sgdisk -e {device}");
-            println!("      sudo sgdisk -n 4:0:0 -t 4:0700 -c 4:NEXDATA {device}");
-            println!("    Or just copy styrene/ onto a separate USB stick.");
-            println!();
-            return Ok(());
-        }
-
         // Move the backup GPT header to the true end of the disk
         output::status("extending partition table...");
         let sgdisk_extend = Command::new("sudo").args(["sgdisk", "-e", device]).status();
         if !sgdisk_extend.map(|s| s.success()).unwrap_or(false) {
-            eprintln!("  warning: sgdisk -e failed — data partition may not be creatable");
+            bail!(
+                "failed to extend partition table on {device}; refusing to produce a USB without the styrene installer payload"
+            );
         }
 
         // Add a FAT32 data partition in the free space after the ISO
@@ -1998,11 +2549,9 @@ fn flash_to_usb(bundle_dir: &Path, iso_path: &Path, device: &str) -> Result<()> 
             .unwrap_or(false);
 
         if !sgdisk_ok {
-            println!(
-                "  {} Could not create data partition. Copy styrene/ manually.",
-                style("!").yellow()
+            bail!(
+                "failed to create NEXDATA partition on {device}; refusing to produce a USB without the styrene installer payload"
             );
-            return Ok(());
         }
 
         // Re-read partition table
@@ -2042,8 +2591,8 @@ fn flash_to_usb(bundle_dir: &Path, iso_path: &Path, device: &str) -> Result<()> 
                 .unwrap_or(false)
         };
         if !mkfs_ok {
-            eprintln!(
-                "  warning: formatting data partition failed — installer files may not be copyable"
+            bail!(
+                "failed to format NEXDATA partition {part4}; refusing to produce a USB without the styrene installer payload"
             );
         }
 
@@ -2076,7 +2625,9 @@ fn flash_to_usb(bundle_dir: &Path, iso_path: &Path, device: &str) -> Result<()> 
                 ])
                 .status();
             if !cp_status.map(|s| s.success()).unwrap_or(false) {
-                eprintln!("  warning: failed to copy installer files to USB data partition");
+                bail!(
+                    "failed to copy styrene installer payload to NEXDATA partition at {mount_point}"
+                );
             }
 
             if is_macos {
@@ -2098,14 +2649,8 @@ fn flash_to_usb(bundle_dir: &Path, iso_path: &Path, device: &str) -> Result<()> 
                 style("✓").green().bold()
             );
         } else {
-            println!();
-            println!(
-                "  {} ISO written (bootable) but data partition mount failed.",
-                style("!").yellow()
-            );
-            println!(
-                "    Copy styrene/ manually: {}",
-                bundle_dir.join("styrene").display()
+            bail!(
+                "failed to mount NEXDATA partition {part4}; refusing to produce a USB without the styrene installer payload"
             );
         }
 
