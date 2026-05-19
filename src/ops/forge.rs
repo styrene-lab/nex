@@ -275,6 +275,13 @@ impl Arch {
         }
     }
 
+    fn nix_cross_system(&self) -> &'static str {
+        match self {
+            Arch::X86_64 => "x86_64-linux",
+            Arch::Aarch64 => "aarch64-linux",
+        }
+    }
+
     fn label(&self) -> &'static str {
         match self {
             Arch::X86_64 => "x86_64",
@@ -650,48 +657,12 @@ fn run_with_options(
     let nex_bin_path = styrene_dir.join("nex");
     match fetch_nex_binary(&nex_bin_path, arch) {
         Ok(()) => {
-            // Verify it's not a placeholder — check content, not just size
-            let content = std::fs::read_to_string(&nex_bin_path).unwrap_or_default();
-            let is_placeholder = content.contains("nex binary not available");
-            let size = std::fs::metadata(&nex_bin_path)
-                .map(|m| m.len())
-                .unwrap_or(0);
-            if is_placeholder {
-                println!(
-                    "  {} nex binary is a placeholder ({} bytes)",
-                    style("!").red().bold(),
-                    size
-                );
-                println!("    The USB will not have a working installer.");
-                println!("    To fix: build nex for Linux and copy to the bundle:");
-                println!(
-                    "      {}",
-                    style(format!("cargo build --release --target x86_64-unknown-linux-gnu && cp target/x86_64-unknown-linux-gnu/release/nex {}", nex_bin_path.display())).cyan()
-                );
-                println!(
-                    "    Or on a Linux machine: {}",
-                    style(format!(
-                        "cargo build --release && cp target/release/nex {}",
-                        nex_bin_path.display()
-                    ))
-                    .cyan()
-                );
-                println!();
-
-                if !options.allow_placeholder_nex {
-                    bail!("Cannot bundle placeholder nex binary for declarative forge request.");
-                }
-                let cont = input().confirm("  Continue without working nex binary?", false)?;
-                if !cont {
-                    bail!("Cannot bundle nex binary for Linux. Build it separately or run forge on a Linux machine.");
-                }
-            } else {
-                println!(
-                    "  {} nex binary bundled ({} MB)",
-                    style("✓").green().bold(),
-                    size / (1024 * 1024)
-                );
-            }
+            let size = validate_airgap_nex_binary(&nex_bin_path, arch)?;
+            println!(
+                "  {} nex binary bundled ({} MB)",
+                style("✓").green().bold(),
+                size / (1024 * 1024)
+            );
         }
         Err(e) => {
             if !options.allow_placeholder_nex {
@@ -1448,6 +1419,49 @@ fn download_file(url: &str, dest: &Path) -> Result<()> {
     Ok(())
 }
 
+fn validate_airgap_nex_binary(path: &Path, arch: Arch) -> Result<u64> {
+    let bytes = std::fs::read(path)
+        .with_context(|| format!("failed to read bundled nex binary {}", path.display()))?;
+
+    if bytes.len() < 20 {
+        bail!("bundled nex binary is too small to be a valid Linux executable");
+    }
+
+    if &bytes[0..4] != b"\x7fELF" {
+        bail!(
+            "bundled nex entrypoint is not an ELF binary; refusing to create airgapped installer. \
+             Build/copy a real {} Linux nex binary to {}",
+            arch.target_triple(),
+            path.display()
+        );
+    }
+
+    let machine = u16::from_le_bytes([bytes[18], bytes[19]]);
+    match (arch, machine) {
+        (Arch::X86_64, 0x3e) | (Arch::Aarch64, 0xb7) => {}
+        (Arch::X86_64, other) => {
+            bail!("bundled nex binary has ELF machine {other:#x}, expected x86_64")
+        }
+        (Arch::Aarch64, other) => {
+            bail!("bundled nex binary has ELF machine {other:#x}, expected aarch64")
+        }
+    }
+
+    Ok(bytes.len() as u64)
+}
+
+#[cfg(unix)]
+fn set_executable(path: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))
+        .with_context(|| format!("failed to set executable permissions on {}", path.display()))
+}
+
+#[cfg(not(unix))]
+fn set_executable(_path: &Path) -> Result<()> {
+    Ok(())
+}
+
 /// Bundle nex for the target architecture (currently x86_64-linux).
 /// Strategy: nix cross-build (works from macOS) → GitHub release → self-copy → placeholder.
 fn fetch_nex_binary(dest: &Path, arch: Arch) -> Result<()> {
@@ -1471,8 +1485,9 @@ fn fetch_nex_binary(dest: &Path, arch: Arch) -> Result<()> {
         if let Some(ref src) = src_dir {
             println!("    Cross-building via nix...");
 
+            let cross_system = arch.nix_cross_system();
             let expr = format!(
-                "let pkgs = import <nixpkgs> {{ crossSystem = \"x86_64-linux\"; }}; \
+                "let pkgs = import <nixpkgs> {{ crossSystem = \"{cross_system}\"; }}; \
                  src = builtins.path {{ path = {src}; name = \"nex-src\"; \
                    filter = path: type: type != \"unknown\" && !(pkgs.lib.hasSuffix \".sock\" path); }}; \
                  in pkgs.rustPlatform.buildRustPackage {{ \
@@ -1525,23 +1540,13 @@ fn fetch_nex_binary(dest: &Path, arch: Arch) -> Result<()> {
                             eprintln!("  warning: nix copy failed — the bundled nex binary may not work on the target without network");
                         }
 
-                        // Write a bootstrap script as the "nex" entry point
-                        let script = format!(
-                            "#!/usr/bin/env bash\n\
-                             set -euo pipefail\n\
-                             SD=\"$(cd \"$(dirname \"${{BASH_SOURCE[0]}}\")\" && pwd)\"\n\
-                             nix copy --from \"file://$SD/nix-cache\" --all --no-check-sigs 2>/dev/null || true\n\
-                             exec {store_path}/bin/nex \"$@\"\n"
-                        );
-                        std::fs::write(dest, &script)?;
-                        #[cfg(unix)]
-                        {
-                            use std::os::unix::fs::PermissionsExt;
-                            let _ = std::fs::set_permissions(
-                                dest,
-                                std::fs::Permissions::from_mode(0o755),
-                            );
-                        }
+                        std::fs::copy(&bin_check, dest).with_context(|| {
+                            format!(
+                                "failed to copy built nex binary from {}",
+                                bin_check.display()
+                            )
+                        })?;
+                        set_executable(dest)?;
                         return Ok(());
                     }
                 }
@@ -1563,11 +1568,7 @@ fn fetch_nex_binary(dest: &Path, arch: Arch) -> Result<()> {
         if output.status.success() {
             let url = String::from_utf8_lossy(&output.stdout).trim().to_string();
             if !url.is_empty() && download_file(&url, dest).is_ok() {
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::PermissionsExt;
-                    let _ = std::fs::set_permissions(dest, std::fs::Permissions::from_mode(0o755));
-                }
+                set_executable(dest)?;
                 return Ok(());
             }
         }
@@ -1577,11 +1578,7 @@ fn fetch_nex_binary(dest: &Path, arch: Arch) -> Result<()> {
     if crate::discover::detect_platform() == crate::discover::Platform::Linux {
         let self_exe = std::env::current_exe().context("cannot find own binary")?;
         std::fs::copy(&self_exe, dest)?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(dest, std::fs::Permissions::from_mode(0o755));
-        }
+        set_executable(dest)?;
         return Ok(());
     }
 
@@ -1591,10 +1588,7 @@ fn fetch_nex_binary(dest: &Path, arch: Arch) -> Result<()> {
         "#!/bin/sh\necho 'nex binary not available for Linux — see forge output for instructions'\nexit 1\n",
     )?;
     #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(dest, std::fs::Permissions::from_mode(0o755));
-    }
+    set_executable(dest)?;
     Ok(())
 }
 
@@ -2658,6 +2652,68 @@ fn chrono_now() -> String {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    fn write_minimal_elf(path: &Path, machine: u16) {
+        let mut bytes = vec![0u8; 64];
+        bytes[0..4].copy_from_slice(b"\x7fELF");
+        let machine_bytes = machine.to_le_bytes();
+        bytes[18] = machine_bytes[0];
+        bytes[19] = machine_bytes[1];
+        std::fs::write(path, bytes).unwrap();
+    }
+
+    #[test]
+    fn validate_airgap_nex_binary_accepts_matching_x86_64_elf() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nex");
+        write_minimal_elf(&path, 0x3e);
+
+        let size = validate_airgap_nex_binary(&path, Arch::X86_64).unwrap();
+
+        assert_eq!(size, 64);
+    }
+
+    #[test]
+    fn validate_airgap_nex_binary_accepts_matching_aarch64_elf() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nex");
+        write_minimal_elf(&path, 0xb7);
+
+        let size = validate_airgap_nex_binary(&path, Arch::Aarch64).unwrap();
+
+        assert_eq!(size, 64);
+    }
+
+    #[test]
+    fn validate_airgap_nex_binary_rejects_wrapper_script() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nex");
+        std::fs::write(
+            &path,
+            "#!/usr/bin/env bash\nexec /nix/store/abc/bin/nex \"$@\"\n",
+        )
+        .unwrap();
+
+        let err = validate_airgap_nex_binary(&path, Arch::X86_64)
+            .expect_err("wrapper scripts must not pass airgap validation");
+
+        assert!(err.to_string().contains("not an ELF binary"), "{err}");
+    }
+
+    #[test]
+    fn validate_airgap_nex_binary_rejects_wrong_machine() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nex");
+        write_minimal_elf(&path, 0xb7);
+
+        let err = validate_airgap_nex_binary(&path, Arch::X86_64)
+            .expect_err("aarch64 binary must not pass x86_64 validation");
+
+        assert!(
+            err.to_string().contains("expected x86_64"),
+            "unexpected error: {err}"
+        );
+    }
 
     #[test]
     fn test_merge_toml_tables_deep() {
