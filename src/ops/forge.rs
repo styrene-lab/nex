@@ -1069,12 +1069,13 @@ fn preflight_request(request: &ForgeRequest, plan: &ForgePlan) -> ForgePreflight
         require_command("sudo", &mut errors);
         require_command("dd", &mut errors);
         require_command("sync", &mut errors);
-        require_command("xorriso", &mut errors);
-        warn_command(
-            "nix",
-            &mut warnings,
-            "If xorriso is missing globally, run forge through `nix shell nixpkgs#xorriso -c ...`.",
-        );
+        if !command_exists("xorriso") {
+            require_command("nix", &mut errors);
+            warnings.push(ForgeDiagnostic::new(
+                "XORRISO_USING_NIX_FALLBACK",
+                "xorriso is not on PATH; forge will run it through `nix run nixpkgs#xorriso -- ...`.",
+            ));
+        }
 
         if crate::discover::detect_platform() == crate::discover::Platform::Darwin {
             require_command("diskutil", &mut errors);
@@ -1176,10 +1177,11 @@ fn ensure_flash_host_tools(is_macos: bool) -> Result<()> {
     require_command("sudo", &mut errors);
     require_command("dd", &mut errors);
     require_command("sync", &mut errors);
-    require_command("xorriso", &mut errors);
+    if !command_exists("xorriso") {
+        require_command("nix", &mut errors);
+    }
     if is_macos {
         require_command("diskutil", &mut errors);
-    } else {
     }
 
     if errors.is_empty() {
@@ -1196,8 +1198,8 @@ fn ensure_flash_host_tools(is_macos: bool) -> Result<()> {
     }
     if !command_exists("xorriso") && command_exists("nix") {
         eprintln!(
-            "  hint: run the flash command through {}",
-            style("nix shell nixpkgs#xorriso -c ...").cyan()
+            "  hint: xorriso will be run through {}",
+            style("nix run nixpkgs#xorriso -- ...").cyan()
         );
     }
     bail!("missing required host tools for USB flashing");
@@ -2400,6 +2402,34 @@ echo "╚═══════════════════════�
     )
 }
 
+fn run_xorriso(args: &[String]) -> Result<std::process::ExitStatus> {
+    if command_exists("xorriso") {
+        return Command::new("xorriso")
+            .args(args)
+            .status()
+            .context("failed to execute xorriso");
+    }
+    Command::new("nix")
+        .args(["run", "nixpkgs#xorriso", "--"])
+        .args(args)
+        .status()
+        .context("failed to execute xorriso through nix")
+}
+
+fn run_xorriso_output(args: &[String]) -> Result<std::process::Output> {
+    if command_exists("xorriso") {
+        return Command::new("xorriso")
+            .args(args)
+            .output()
+            .context("failed to execute xorriso");
+    }
+    Command::new("nix")
+        .args(["run", "nixpkgs#xorriso", "--"])
+        .args(args)
+        .output()
+        .context("failed to execute xorriso through nix")
+}
+
 /// Build a bootable ISO that carries the styrene bundle at /styrene.
 fn prepare_flash_iso_with_bundle(bundle_dir: &Path, iso_path: &Path) -> Result<std::path::PathBuf> {
     let bundled_iso = bundle_dir.join("nex-installer-with-styrene.iso");
@@ -2415,25 +2445,34 @@ fn prepare_flash_iso_with_bundle(bundle_dir: &Path, iso_path: &Path) -> Result<s
     if !manifest.is_file() {
         bail!("missing forge bundle manifest: {}", manifest.display());
     }
+    if bundled_iso.exists() {
+        std::fs::remove_file(&bundled_iso).with_context(|| {
+            format!(
+                "failed to replace previous bundled ISO {}",
+                bundled_iso.display()
+            )
+        })?;
+    }
 
     output::status("embedding styrene installer payload into ISO...");
-    let status = Command::new("xorriso")
-        .args([
-            "-indev",
-            &iso_path.display().to_string(),
-            "-outdev",
-            &bundled_iso.display().to_string(),
-            "-boot_image",
-            "any",
-            "replay",
-            "-map",
-            &styrene_dir.display().to_string(),
-            "/styrene",
-            "-map",
-            &manifest.display().to_string(),
-            "/bundle.yaml",
-        ])
-        .status()
+    let xorriso_args = [
+        "-drive_access".to_string(),
+        "exclusive:unrestricted".to_string(),
+        "-indev".to_string(),
+        iso_path.display().to_string(),
+        "-outdev".to_string(),
+        format!("stdio:{}", bundled_iso.display()),
+        "-boot_image".to_string(),
+        "any".to_string(),
+        "replay".to_string(),
+        "-map".to_string(),
+        styrene_dir.display().to_string(),
+        "/styrene".to_string(),
+        "-map".to_string(),
+        manifest.display().to_string(),
+        "/bundle.yaml".to_string(),
+    ];
+    let status = run_xorriso(&xorriso_args)
         .context("failed to run xorriso to embed styrene payload into ISO")?;
 
     if !status.success() {
@@ -2442,17 +2481,15 @@ fn prepare_flash_iso_with_bundle(bundle_dir: &Path, iso_path: &Path) -> Result<s
         );
     }
 
-    let styrene_probe = Command::new("xorriso")
-        .args([
-            "-indev",
-            &bundled_iso.display().to_string(),
-            "-find",
-            "/styrene",
-            "-maxdepth",
-            "1",
-        ])
-        .output()
-        .context("failed to inspect bundled ISO")?;
+    let probe_args = [
+        "-indev".to_string(),
+        format!("stdio:{}", bundled_iso.display()),
+        "-find".to_string(),
+        "/styrene".to_string(),
+        "-maxdepth".to_string(),
+        "1".to_string(),
+    ];
+    let styrene_probe = run_xorriso_output(&probe_args).context("failed to inspect bundled ISO")?;
     if !styrene_probe.status.success()
         || !String::from_utf8_lossy(&styrene_probe.stdout).contains("/styrene")
     {
@@ -2513,7 +2550,16 @@ fn flash_to_usb(iso_path: &Path, device: &str) -> Result<()> {
         style(device).bold()
     );
 
-    let confirm = input().confirm("  Continue?", false)?;
+    let confirm = if std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+        input().confirm("  Continue?", false)?
+    } else {
+        use std::io::Read;
+        let mut answer = String::new();
+        std::io::stdin()
+            .read_to_string(&mut answer)
+            .context("failed to read non-interactive flash confirmation")?;
+        matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes")
+    };
 
     if !confirm {
         println!("  Aborted.");
