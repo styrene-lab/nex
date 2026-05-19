@@ -180,6 +180,26 @@ pub enum ForgeAction {
         #[arg(long)]
         request: PathBuf,
     },
+    /// Execute a forge request after planning and safety checks
+    Run {
+        /// Canonical Pkl request path. JSON is accepted as transport fallback.
+        #[arg(long)]
+        request: PathBuf,
+
+        /// Emit phase/blocker/artifact events as JSON lines
+        #[arg(long, value_name = "FORMAT", default_value = "human")]
+        events: String,
+    },
+    /// Check host readiness for a forge request without building or flashing
+    Preflight {
+        /// Canonical Pkl request path. JSON is accepted as transport fallback.
+        #[arg(long)]
+        request: PathBuf,
+
+        /// Emit a stable JSON report
+        #[arg(long)]
+        json: bool,
+    },
     /// Validate and inspect a forge template without building or flashing anything
     Check {
         /// Canonical forge.pkl template path

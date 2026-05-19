@@ -7,7 +7,7 @@ use console::style;
 use crate::discover;
 use crate::forge::{
     ForgeArch, ForgeDiagnostic, ForgeEvent, ForgeOperation, ForgePlan, ForgePreflightReport,
-    ForgeRequest, PolymerizeDefaults,
+    ForgeRequest, NetworkPolicy, PolymerizeDefaults,
 };
 use crate::input::input;
 use crate::output;
@@ -430,6 +430,7 @@ struct ForgeRunOptions {
     prompt_optional_inputs: bool,
     allow_placeholder_nex: bool,
     polymerize_defaults: Option<PolymerizeDefaults>,
+    network: NetworkPolicy,
 }
 
 impl Default for ForgeRunOptions {
@@ -438,6 +439,7 @@ impl Default for ForgeRunOptions {
             prompt_optional_inputs: true,
             allow_placeholder_nex: true,
             polymerize_defaults: None,
+            network: NetworkPolicy::default(),
         }
     }
 }
@@ -590,49 +592,18 @@ fn run_with_options(
 
     // ── 4. Write defaults for polymerize ─────────────────────────────
     let defaults_dir = styrene_dir.join("defaults");
-    std::fs::create_dir_all(&defaults_dir)?;
-    std::fs::write(defaults_dir.join("hostname"), hostname)?;
-
-    let user = options
-        .polymerize_defaults
-        .as_ref()
-        .map(|defaults| defaults.username.clone())
-        .filter(|username| !username.is_empty())
-        .unwrap_or_else(|| std::env::var("USER").unwrap_or_else(|_| "user".to_string()));
-    let timezone = options
-        .polymerize_defaults
-        .as_ref()
-        .map(|defaults| defaults.timezone.clone())
-        .filter(|timezone| !timezone.is_empty())
-        .unwrap_or_else(|| "America/New_York".to_string());
-    std::fs::write(defaults_dir.join("username"), &user)?;
-    std::fs::write(defaults_dir.join("timezone"), timezone)?;
-    std::fs::write(defaults_dir.join("arch"), arch.label())?;
-
-    // Write WiFi credentials if provided
-    if let Some((ref ssid, ref psk)) = wifi {
-        std::fs::write(defaults_dir.join("wifi_ssid"), ssid)?;
-        // Write PSK with restricted permissions
-        #[cfg(unix)]
-        {
-            use std::io::Write;
-            use std::os::unix::fs::OpenOptionsExt;
-            let mut f = std::fs::OpenOptions::new()
-                .write(true)
-                .create(true)
-                .truncate(true)
-                .mode(0o600)
-                .open(defaults_dir.join("wifi_psk"))?;
-            f.write_all(psk.as_bytes())?;
-        }
-        #[cfg(not(unix))]
-        std::fs::write(defaults_dir.join("wifi_psk"), psk)?;
+    write_polymerize_defaults(
+        &defaults_dir,
+        hostname,
+        arch,
+        &options,
+        wifi.as_ref(),
+        ssh_key.as_deref(),
+    )?;
+    if let Some((ref ssid, _)) = wifi {
         println!("  {} WiFi: {ssid}", style("✓").green().bold());
     }
-
-    // Write SSH authorized key if provided
-    if let Some(ref key) = ssh_key {
-        std::fs::write(defaults_dir.join("ssh_authorized_keys"), key)?;
+    if ssh_key.is_some() {
         println!(
             "  {} SSH key baked for target access",
             style("✓").green().bold()
@@ -657,7 +628,7 @@ fn run_with_options(
     let nex_bin_path = styrene_dir.join("nex");
     match fetch_nex_binary(&nex_bin_path, arch) {
         Ok(()) => {
-            let size = validate_airgap_nex_binary(&nex_bin_path, arch)?;
+            let size = validate_airgap_nex_entrypoint(&nex_bin_path, arch)?;
             println!(
                 "  {} nex binary bundled ({} MB)",
                 style("✓").green().bold(),
@@ -698,7 +669,7 @@ fn run_with_options(
     // ── 8. Flash to USB if requested ─────────────────────────────────
     if let Some(device) = disk {
         let flash_iso_path = prepare_flash_iso_with_bundle(&bundle_dir, &iso_path)?;
-        flash_to_usb(&flash_iso_path, device)?;
+        flash_to_usb(&flash_iso_path, device, options.prompt_optional_inputs)?;
     } else {
         println!("  To flash to USB:");
         println!();
@@ -1204,6 +1175,7 @@ fn execute_request(request: &ForgeRequest, events: EventMode) -> Result<()> {
                     prompt_optional_inputs: false,
                     allow_placeholder_nex: false,
                     polymerize_defaults: request.polymerize_defaults.clone(),
+                    network: request.network.clone(),
                 },
             )?;
             emit_event(
@@ -1419,7 +1391,93 @@ fn download_file(url: &str, dest: &Path) -> Result<()> {
     Ok(())
 }
 
-fn validate_airgap_nex_binary(path: &Path, arch: Arch) -> Result<u64> {
+fn write_polymerize_defaults(
+    defaults_dir: &Path,
+    hostname: &str,
+    arch: Arch,
+    options: &ForgeRunOptions,
+    wifi: Option<&(String, String)>,
+    ssh_key: Option<&str>,
+) -> Result<()> {
+    std::fs::create_dir_all(defaults_dir)?;
+    std::fs::write(defaults_dir.join("hostname"), hostname)?;
+
+    let user = options
+        .polymerize_defaults
+        .as_ref()
+        .map(|defaults| defaults.username.clone())
+        .filter(|username| !username.is_empty())
+        .unwrap_or_else(|| std::env::var("USER").unwrap_or_else(|_| "user".to_string()));
+    let timezone = options
+        .polymerize_defaults
+        .as_ref()
+        .map(|defaults| defaults.timezone.clone())
+        .filter(|timezone| !timezone.is_empty())
+        .unwrap_or_else(|| "America/New_York".to_string());
+    std::fs::write(defaults_dir.join("username"), &user)?;
+    std::fs::write(defaults_dir.join("timezone"), timezone)?;
+    std::fs::write(defaults_dir.join("arch"), arch.label())?;
+
+    if let Some(install_mode) = options
+        .polymerize_defaults
+        .as_ref()
+        .and_then(|defaults| defaults.install_mode.as_deref())
+        .filter(|install_mode| !install_mode.is_empty())
+    {
+        std::fs::write(defaults_dir.join("install_mode"), install_mode)?;
+    }
+
+    std::fs::write(
+        defaults_dir.join("network_require_wired"),
+        if options.network.require_wired {
+            "true\n"
+        } else {
+            "false\n"
+        },
+    )?;
+    std::fs::write(
+        defaults_dir.join("network_wifi_allowed"),
+        if options.network.wifi_allowed {
+            "true\n"
+        } else {
+            "false\n"
+        },
+    )?;
+
+    if let Some((ssid, psk)) = wifi {
+        std::fs::write(defaults_dir.join("wifi_ssid"), ssid)?;
+        write_secret_file(&defaults_dir.join("wifi_psk"), psk)?;
+    }
+
+    if let Some(key) = ssh_key {
+        std::fs::write(defaults_dir.join("ssh_authorized_keys"), key)?;
+    }
+
+    Ok(())
+}
+
+#[cfg(unix)]
+fn write_secret_file(path: &Path, value: &str) -> Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+
+    let mut f = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(path)?;
+    f.write_all(value.as_bytes())?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn write_secret_file(path: &Path, value: &str) -> Result<()> {
+    std::fs::write(path, value)?;
+    Ok(())
+}
+
+fn validate_airgap_nex_entrypoint(path: &Path, arch: Arch) -> Result<u64> {
     let bytes = std::fs::read(path)
         .with_context(|| format!("failed to read bundled nex binary {}", path.display()))?;
 
@@ -1427,9 +1485,20 @@ fn validate_airgap_nex_binary(path: &Path, arch: Arch) -> Result<u64> {
         bail!("bundled nex binary is too small to be a valid Linux executable");
     }
 
+    if bytes.starts_with(b"#!/bin/sh\n") {
+        let script = String::from_utf8_lossy(&bytes);
+        if !script.contains("nix-cache") || !script.contains("nix copy") {
+            bail!("bundled nex launcher does not import the local nix-cache before execution");
+        }
+
+        let elf_path = path.with_file_name("nex.elf");
+        validate_airgap_nex_entrypoint(&elf_path, arch)?;
+        return Ok(bytes.len() as u64);
+    }
+
     if &bytes[0..4] != b"\x7fELF" {
         bail!(
-            "bundled nex entrypoint is not an ELF binary; refusing to create airgapped installer. \
+            "bundled nex entrypoint is neither an ELF binary nor the POSIX airgap launcher; \
              Build/copy a real {} Linux nex binary to {}",
             arch.target_triple(),
             path.display()
@@ -1448,6 +1517,24 @@ fn validate_airgap_nex_binary(path: &Path, arch: Arch) -> Result<u64> {
     }
 
     Ok(bytes.len() as u64)
+}
+
+fn generate_airgap_nex_launcher() -> String {
+    r#"#!/bin/sh
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+CACHE_DIR="$SCRIPT_DIR/nix-cache"
+
+if [ -d "$CACHE_DIR" ] && command -v nix >/dev/null 2>&1; then
+    nix --extra-experimental-features nix-command copy --from "file://$CACHE_DIR" --all --no-check-sigs >/dev/null 2>&1 ||
+        nix copy --from "file://$CACHE_DIR" --all --no-check-sigs >/dev/null 2>&1 ||
+        true
+fi
+
+exec "$SCRIPT_DIR/nex.elf" "$@"
+"#
+    .to_string()
 }
 
 #[cfg(unix)]
@@ -1540,12 +1627,17 @@ fn fetch_nex_binary(dest: &Path, arch: Arch) -> Result<()> {
                             eprintln!("  warning: nix copy failed — the bundled nex binary may not work on the target without network");
                         }
 
-                        std::fs::copy(&bin_check, dest).with_context(|| {
+                        let elf_dest = dest.with_file_name("nex.elf");
+                        std::fs::copy(&bin_check, &elf_dest).with_context(|| {
                             format!(
                                 "failed to copy built nex binary from {}",
                                 bin_check.display()
                             )
                         })?;
+                        set_executable(&elf_dest)?;
+                        std::fs::write(dest, generate_airgap_nex_launcher()).with_context(
+                            || format!("failed to write nex launcher to {}", dest.display()),
+                        )?;
                         set_executable(dest)?;
                         return Ok(());
                     }
@@ -2494,7 +2586,7 @@ fn prepare_flash_iso_with_bundle(bundle_dir: &Path, iso_path: &Path) -> Result<s
 }
 
 /// Flash ISO to a USB device. The ISO must already contain the styrene payload.
-fn flash_to_usb(iso_path: &Path, device: &str) -> Result<()> {
+fn flash_to_usb(iso_path: &Path, device: &str, confirm_flash: bool) -> Result<()> {
     println!();
     println!(
         "  {} Flashing to {}",
@@ -2544,7 +2636,9 @@ fn flash_to_usb(iso_path: &Path, device: &str) -> Result<()> {
         style(device).bold()
     );
 
-    let confirm = if std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+    let confirm = if !confirm_flash {
+        true
+    } else if std::io::IsTerminal::is_terminal(&std::io::stdin()) {
         input().confirm("  Continue?", false)?
     } else {
         use std::io::Read;
@@ -2556,8 +2650,7 @@ fn flash_to_usb(iso_path: &Path, device: &str) -> Result<()> {
     };
 
     if !confirm {
-        println!("  Aborted.");
-        return Ok(());
+        bail!("USB flash aborted by operator");
     }
 
     // Unmount
@@ -2668,7 +2761,7 @@ mod tests {
         let path = dir.path().join("nex");
         write_minimal_elf(&path, 0x3e);
 
-        let size = validate_airgap_nex_binary(&path, Arch::X86_64).unwrap();
+        let size = validate_airgap_nex_entrypoint(&path, Arch::X86_64).unwrap();
 
         assert_eq!(size, 64);
     }
@@ -2679,13 +2772,26 @@ mod tests {
         let path = dir.path().join("nex");
         write_minimal_elf(&path, 0xb7);
 
-        let size = validate_airgap_nex_binary(&path, Arch::Aarch64).unwrap();
+        let size = validate_airgap_nex_entrypoint(&path, Arch::Aarch64).unwrap();
 
         assert_eq!(size, 64);
     }
 
     #[test]
-    fn validate_airgap_nex_binary_rejects_wrapper_script() {
+    fn validate_airgap_nex_entrypoint_accepts_posix_cache_launcher() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("nex");
+        let elf_path = dir.path().join("nex.elf");
+        write_minimal_elf(&elf_path, 0x3e);
+        std::fs::write(&path, generate_airgap_nex_launcher()).unwrap();
+
+        let size = validate_airgap_nex_entrypoint(&path, Arch::X86_64).unwrap();
+
+        assert!(size > 0);
+    }
+
+    #[test]
+    fn validate_airgap_nex_entrypoint_rejects_non_cache_wrapper_script() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("nex");
         std::fs::write(
@@ -2694,10 +2800,95 @@ mod tests {
         )
         .unwrap();
 
-        let err = validate_airgap_nex_binary(&path, Arch::X86_64)
-            .expect_err("wrapper scripts must not pass airgap validation");
+        let err = validate_airgap_nex_entrypoint(&path, Arch::X86_64)
+            .expect_err("non-cache wrapper scripts must not pass airgap validation");
 
-        assert!(err.to_string().contains("not an ELF binary"), "{err}");
+        assert!(
+            err.to_string().contains("neither an ELF binary"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn write_polymerize_defaults_persists_forge_request_handoff() {
+        let dir = tempfile::tempdir().unwrap();
+        let defaults_dir = dir.path().join("defaults");
+        let options = ForgeRunOptions {
+            prompt_optional_inputs: false,
+            allow_placeholder_nex: false,
+            polymerize_defaults: Some(PolymerizeDefaults {
+                username: "styrene".to_string(),
+                timezone: "America/New_York".to_string(),
+                install_mode: Some("server".to_string()),
+            }),
+            network: NetworkPolicy {
+                require_wired: true,
+                wifi_allowed: false,
+            },
+        };
+        let wifi = ("seed-net".to_string(), "secret-pass".to_string());
+
+        write_polymerize_defaults(
+            &defaults_dir,
+            "seed",
+            Arch::X86_64,
+            &options,
+            Some(&wifi),
+            Some("ssh-ed25519 AAAAC3Nza seed\n"),
+        )
+        .unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(defaults_dir.join("hostname")).unwrap(),
+            "seed"
+        );
+        assert_eq!(
+            std::fs::read_to_string(defaults_dir.join("username")).unwrap(),
+            "styrene"
+        );
+        assert_eq!(
+            std::fs::read_to_string(defaults_dir.join("timezone")).unwrap(),
+            "America/New_York"
+        );
+        assert_eq!(
+            std::fs::read_to_string(defaults_dir.join("arch")).unwrap(),
+            "x86_64"
+        );
+        assert_eq!(
+            std::fs::read_to_string(defaults_dir.join("install_mode")).unwrap(),
+            "server"
+        );
+        assert_eq!(
+            std::fs::read_to_string(defaults_dir.join("network_require_wired")).unwrap(),
+            "true\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(defaults_dir.join("network_wifi_allowed")).unwrap(),
+            "false\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(defaults_dir.join("wifi_ssid")).unwrap(),
+            "seed-net"
+        );
+        assert_eq!(
+            std::fs::read_to_string(defaults_dir.join("wifi_psk")).unwrap(),
+            "secret-pass"
+        );
+        assert_eq!(
+            std::fs::read_to_string(defaults_dir.join("ssh_authorized_keys")).unwrap(),
+            "ssh-ed25519 AAAAC3Nza seed\n"
+        );
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(defaults_dir.join("wifi_psk"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777;
+            assert_eq!(mode, 0o600);
+        }
     }
 
     #[test]
@@ -2706,7 +2897,7 @@ mod tests {
         let path = dir.path().join("nex");
         write_minimal_elf(&path, 0xb7);
 
-        let err = validate_airgap_nex_binary(&path, Arch::X86_64)
+        let err = validate_airgap_nex_entrypoint(&path, Arch::X86_64)
             .expect_err("aarch64 binary must not pass x86_64 validation");
 
         assert!(

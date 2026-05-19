@@ -35,6 +35,13 @@ struct Defaults {
     hostname: Option<String>,
     username: Option<String>,
     timezone: Option<String>,
+    arch: Option<String>,
+    install_mode: Option<String>,
+    network_require_wired: Option<bool>,
+    network_wifi_allowed: Option<bool>,
+    wifi_ssid: Option<String>,
+    wifi_psk: Option<String>,
+    ssh_authorized_keys: Option<Vec<String>>,
     profile_ref: Option<String>,
     profile_toml: Option<String>,
 }
@@ -52,10 +59,39 @@ fn load_defaults(bundle: Option<&Path>) -> Defaults {
             .filter(|s| !s.is_empty())
     };
 
+    let read_bool = |name: &str| {
+        read(name).and_then(|value| match value.as_str() {
+            "true" | "1" | "yes" => Some(true),
+            "false" | "0" | "no" => Some(false),
+            _ => None,
+        })
+    };
+
+    let read_lines = |name: &str| {
+        std::fs::read_to_string(dir.join(name))
+            .ok()
+            .map(|content| {
+                content
+                    .lines()
+                    .map(str::trim)
+                    .filter(|line| !line.is_empty())
+                    .map(str::to_string)
+                    .collect::<Vec<_>>()
+            })
+            .filter(|lines| !lines.is_empty())
+    };
+
     Defaults {
         hostname: read("defaults/hostname"),
         username: read("defaults/username"),
         timezone: read("defaults/timezone"),
+        arch: read("defaults/arch"),
+        install_mode: read("defaults/install_mode"),
+        network_require_wired: read_bool("defaults/network_require_wired"),
+        network_wifi_allowed: read_bool("defaults/network_wifi_allowed"),
+        wifi_ssid: read("defaults/wifi_ssid"),
+        wifi_psk: read("defaults/wifi_psk"),
+        ssh_authorized_keys: read_lines("defaults/ssh_authorized_keys"),
         profile_ref: read("profile/source").or_else(|| read("nex/source")),
         profile_toml: read("profile/profile.toml").or_else(|| read("nex/profile.toml")),
     }
@@ -148,10 +184,28 @@ pub fn run(bundle: Option<&Path>) -> Result<()> {
             style("i").cyan()
         );
     }
+    if let Some(ref mode) = defaults.install_mode {
+        println!(
+            "  {} Install mode: {}",
+            style("i").cyan(),
+            style(mode).bold()
+        );
+    }
+    if let Some(ref arch) = defaults.arch {
+        let current_arch = std::env::consts::ARCH;
+        if arch != current_arch {
+            println!(
+                "  {} Bundle arch is {}, live system arch is {}",
+                style("!").yellow(),
+                style(arch).bold(),
+                style(current_arch).bold()
+            );
+        }
+    }
     println!();
 
     // ── 1. Network ───────────────────────────────────────────────────
-    step_network()?;
+    step_network(&defaults)?;
 
     // ── 2. Hostname ──────────────────────────────────────────────────
     let hostname = step_hostname(&defaults)?;
@@ -180,6 +234,12 @@ pub fn run(bundle: Option<&Path>) -> Result<()> {
     } else {
         println!("  Profile:   {}", style("none (base NixOS)").dim());
     }
+    if let Some(ref mode) = defaults.install_mode {
+        println!("  Mode:      {}", style(mode).cyan());
+    }
+    if let Some(keys) = &defaults.ssh_authorized_keys {
+        println!("  SSH keys:  {}", style(keys.len()).cyan());
+    }
     // Warn about special disk layouts
     check_disk_for_special_layouts(&disk);
 
@@ -206,6 +266,7 @@ pub fn run(bundle: Option<&Path>) -> Result<()> {
         &timezone,
         &disk,
         profile_toml.as_deref(),
+        defaults.ssh_authorized_keys.as_deref(),
     )?;
     exec_install(&hostname, &username)?;
     exec_chown_config(&username)?;
@@ -242,7 +303,7 @@ pub fn run(bundle: Option<&Path>) -> Result<()> {
 
 // ── Interactive steps ────────────────────────────────────────────────────
 
-fn step_network() -> Result<()> {
+fn step_network(defaults: &Defaults) -> Result<()> {
     println!("  {}", style("── Network ──").bold());
 
     // Check if we already have connectivity (ethernet, pre-configured WiFi, etc.)
@@ -287,6 +348,30 @@ fn step_network() -> Result<()> {
         );
         println!();
         return Ok(());
+    }
+
+    if defaults.network_require_wired == Some(true) {
+        bail!("wired network is required by the forged bundle, but no wired connection is active");
+    }
+
+    if defaults.network_wifi_allowed == Some(false) {
+        bail!("WiFi fallback is disabled by the forged bundle and no wired connection is active");
+    }
+
+    if let (Some(ssid), Some(psk)) = (&defaults.wifi_ssid, &defaults.wifi_psk) {
+        println!("  No wired connection detected. Trying bundled WiFi: {ssid}");
+        let connected = connect_wifi_with_nmcli(ssid, Some(psk));
+        std::thread::sleep(std::time::Duration::from_secs(3));
+        if connected && has_network_connectivity(3) {
+            println!(
+                "  {} Network connected (bundled WiFi)",
+                style("✓").green().bold()
+            );
+            println!();
+            return Ok(());
+        }
+        eprintln!("  warning: bundled WiFi did not establish connectivity; falling back to interactive setup");
+        println!();
     }
 
     println!("  No wired connection detected. Scanning for WiFi...");
@@ -341,11 +426,7 @@ fn step_network() -> Result<()> {
             let password: String = crate::input::input().password("  Password")?;
 
             // Try nmcli first, fall back to wpa_supplicant
-            let connected = Command::new("nmcli")
-                .args(["device", "wifi", "connect", &ssid, "password", &password])
-                .status()
-                .map(|s| s.success())
-                .unwrap_or(false);
+            let connected = connect_wifi_with_nmcli(&ssid, Some(&password));
 
             if !connected {
                 // wpa_supplicant fallback for environments without NetworkManager
@@ -416,10 +497,7 @@ fn step_network() -> Result<()> {
             let password: String =
                 crate::input::input().password(&format!("  Password for {ssid}"))?;
 
-            let nmcli_status = Command::new("nmcli")
-                .args(["device", "wifi", "connect", ssid, "password", &password])
-                .status();
-            if !nmcli_status.map(|s| s.success()).unwrap_or(false) {
+            if !connect_wifi_with_nmcli(ssid, Some(&password)) {
                 eprintln!("  warning: nmcli failed to connect to {ssid}");
             }
         }
@@ -450,6 +528,25 @@ fn step_network() -> Result<()> {
     println!();
 
     Ok(())
+}
+
+fn has_network_connectivity(timeout_seconds: u64) -> bool {
+    Command::new("ping")
+        .args(["-c1", &format!("-W{timeout_seconds}"), "1.1.1.1"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+fn connect_wifi_with_nmcli(ssid: &str, password: Option<&str>) -> bool {
+    let mut command = Command::new("nmcli");
+    command.args(["device", "wifi", "connect", ssid]);
+    if let Some(password) = password {
+        command.args(["password", password]);
+    }
+    command.status().map(|s| s.success()).unwrap_or(false)
 }
 
 fn step_hostname(defaults: &Defaults) -> Result<String> {
@@ -867,6 +964,7 @@ fn exec_write_config(
     timezone: &str,
     disk: &str,
     profile_toml: Option<&str>,
+    ssh_authorized_keys: Option<&[String]>,
 ) -> Result<()> {
     println!("  {} Writing NixOS configuration...", style(">>>").bold());
 
@@ -949,6 +1047,13 @@ fn exec_write_config(
         "    extraGroups = [ \"wheel\" \"networkmanager\" \"video\" \"audio\" ];".to_string(),
     );
     lines.push("    shell = pkgs.bash;".to_string());
+    if let Some(keys) = ssh_authorized_keys {
+        lines.push("    openssh.authorizedKeys.keys = [".to_string());
+        for key in keys {
+            lines.push(format!("      {}", nix_string(key)));
+        }
+        lines.push("    ];".to_string());
+    }
     lines.push("  };".to_string());
     lines.push(String::new());
     lines.push("  networking.networkmanager.enable = true;".to_string());
@@ -1113,6 +1218,10 @@ fn exec_write_config(
 
     println!("  {} Configuration written", style("✓").green().bold());
     Ok(())
+}
+
+fn nix_string(value: &str) -> String {
+    format!("{value:?}")
 }
 
 fn exec_install(hostname: &str, username: &str) -> Result<()> {
@@ -1380,6 +1489,45 @@ fn check_disk_for_special_layouts(disk: &str) {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_load_defaults_reads_bundled_wifi_credentials() {
+        let dir = tempfile::tempdir().unwrap();
+        let defaults_dir = dir.path().join("defaults");
+        std::fs::create_dir_all(&defaults_dir).unwrap();
+        std::fs::write(defaults_dir.join("arch"), "x86_64\n").unwrap();
+        std::fs::write(defaults_dir.join("install_mode"), "server\n").unwrap();
+        std::fs::write(defaults_dir.join("network_require_wired"), "true\n").unwrap();
+        std::fs::write(defaults_dir.join("network_wifi_allowed"), "false\n").unwrap();
+        std::fs::write(defaults_dir.join("wifi_ssid"), "seed-net\n").unwrap();
+        std::fs::write(defaults_dir.join("wifi_psk"), "secret-pass\n").unwrap();
+        std::fs::write(
+            defaults_dir.join("ssh_authorized_keys"),
+            "ssh-ed25519 AAAAC3Nza seed\n\n",
+        )
+        .unwrap();
+
+        let defaults = load_defaults(Some(dir.path()));
+
+        assert_eq!(defaults.arch.as_deref(), Some("x86_64"));
+        assert_eq!(defaults.install_mode.as_deref(), Some("server"));
+        assert_eq!(defaults.network_require_wired, Some(true));
+        assert_eq!(defaults.network_wifi_allowed, Some(false));
+        assert_eq!(defaults.wifi_ssid.as_deref(), Some("seed-net"));
+        assert_eq!(defaults.wifi_psk.as_deref(), Some("secret-pass"));
+        assert_eq!(
+            defaults.ssh_authorized_keys.as_deref(),
+            Some(["ssh-ed25519 AAAAC3Nza seed".to_string()].as_slice())
+        );
+    }
+
+    #[test]
+    fn test_nix_string_escapes_authorized_keys() {
+        assert_eq!(
+            nix_string("ssh-ed25519 AAAA\"quoted"),
+            "\"ssh-ed25519 AAAA\\\"quoted\""
+        );
+    }
 
     #[test]
     fn test_validate_hostname_valid() {

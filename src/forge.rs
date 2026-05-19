@@ -261,6 +261,27 @@ impl ForgeDiagnostic {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ForgePreflightReport {
+    pub schema_version: u16,
+    pub valid: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<ForgeDiagnostic>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub errors: Vec<ForgeDiagnostic>,
+}
+
+impl ForgePreflightReport {
+    pub fn from_diagnostics(warnings: Vec<ForgeDiagnostic>, errors: Vec<ForgeDiagnostic>) -> Self {
+        Self {
+            schema_version: FORGE_SCHEMA_VERSION,
+            valid: errors.is_empty(),
+            warnings,
+            errors,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ForgeEvent {
     PhaseStarted {
@@ -1048,6 +1069,13 @@ fn validate_operation_target(request: &ForgeRequest, blockers: &mut Vec<ForgeDia
             "Forge operation does not match target kind.",
         ));
     }
+
+    if request.operation == ForgeOperation::UsbInstall && request.target.disk.is_none() {
+        blockers.push(ForgeDiagnostic::new(
+            "USB_TARGET_DISK_REQUIRED",
+            "USB install requests must specify target.disk.",
+        ));
+    }
 }
 
 fn destructive_actions(request: &ForgeRequest) -> Vec<DestructiveAction> {
@@ -1447,6 +1475,25 @@ mod tests {
             plan.destructive_actions[0].target.as_deref(),
             Some("/dev/disk9")
         );
+        Ok(())
+    }
+
+    #[test]
+    fn blocks_usb_install_without_target_disk() -> Result<()> {
+        let request = ForgeRequest::new(
+            ForgeOperation::UsbInstall,
+            "seed",
+            ForgeArch::X86_64,
+            ForgeTarget::usb(None::<String>),
+        );
+
+        let plan = plan_request(&request)?;
+
+        assert!(plan.is_blocked());
+        assert!(plan
+            .blockers
+            .iter()
+            .any(|diag| diag.code == "USB_TARGET_DISK_REQUIRED"));
         Ok(())
     }
 

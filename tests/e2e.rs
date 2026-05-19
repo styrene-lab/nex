@@ -468,6 +468,108 @@ JSON
         .stdout(predicate::str::contains("\"canonicalFormat\": \"pkl\""));
 }
 
+#[test]
+#[cfg(unix)]
+fn forge_run_dry_run_plans_request_without_building() {
+    let sb = Sandbox::new();
+    let dir = sb.home.path().join("forge-run");
+    fs::create_dir_all(&dir).expect("create forge run dir");
+    let request = dir.join("request.pkl");
+    fs::write(&request, "operation = \"bundle\"\n").expect("write request");
+    let fake_pkl = write_fake_pkl(
+        &dir,
+        r#"{
+  "schemaVersion": 1,
+  "operation": "bundle",
+  "hostname": "seed",
+  "arch": "x86_64",
+  "target": {
+    "kind": "bundle"
+  }
+}
+"#,
+    );
+
+    sb.nex()
+        .env("NEX_PKL", &fake_pkl)
+        .args([
+            "--dry-run",
+            "forge",
+            "run",
+            "--request",
+            request.to_str().unwrap(),
+            "--events",
+            "jsonl",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"type\":\"phase_started\""))
+        .stdout(predicate::str::contains("\"type\":\"run_completed\""))
+        .stderr(predicate::str::contains("\"operation\": \"bundle\""));
+}
+
+#[test]
+#[cfg(unix)]
+fn forge_run_refuses_blocked_destructive_request() {
+    let sb = Sandbox::new();
+    let dir = sb.home.path().join("forge-run-blocked");
+    fs::create_dir_all(&dir).expect("create forge run dir");
+    let request = dir.join("request.pkl");
+    fs::write(&request, "operation = \"usb-install\"\n").expect("write request");
+    let fake_pkl = write_fake_pkl(
+        &dir,
+        r#"{
+  "schemaVersion": 1,
+  "operation": "usb-install",
+  "hostname": "seed",
+  "arch": "x86_64",
+  "target": {
+    "kind": "usb",
+    "disk": "/dev/sda"
+  }
+}
+"#,
+    );
+
+    sb.nex()
+        .env("NEX_PKL", &fake_pkl)
+        .args([
+            "forge",
+            "run",
+            "--request",
+            request.to_str().unwrap(),
+            "--events",
+            "jsonl",
+        ])
+        .assert()
+        .failure()
+        .code(1)
+        .stdout(predicate::str::contains("\"type\":\"blocker\""))
+        .stderr(predicate::str::contains("DESTRUCTIVE_FLASH_NOT_ALLOWED"));
+}
+
+#[cfg(unix)]
+fn write_fake_pkl(dir: &Path, json: &str) -> PathBuf {
+    let fake_pkl = dir.join("fake-pkl");
+    fs::write(
+        &fake_pkl,
+        format!(
+            r#"#!/bin/sh
+cat <<'JSON'
+{json}
+JSON
+"#
+        ),
+    )
+    .expect("write fake pkl");
+    let mut perms = fs::metadata(&fake_pkl)
+        .expect("stat fake pkl")
+        .permissions();
+    perms.set_mode(0o755);
+    fs::set_permissions(&fake_pkl, perms).expect("chmod fake pkl");
+    fake_pkl
+}
+
 // ── Build image tests ──────────────────────────────────────────────────────
 
 #[test]
