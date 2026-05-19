@@ -269,6 +269,7 @@ pub fn run(bundle: Option<&Path>) -> Result<()> {
         defaults.ssh_authorized_keys.as_deref(),
     )?;
     exec_install(&hostname, &username)?;
+    exec_persist_network(&defaults)?;
     exec_chown_config(&username)?;
     exec_set_passwords(&username)?;
 
@@ -1315,18 +1316,94 @@ fn nix_string(value: &str) -> String {
     format!("{value:?}")
 }
 
+fn exec_persist_network(defaults: &Defaults) -> Result<()> {
+    let target_dir = Path::new("/mnt/etc/NetworkManager/system-connections");
+    std::fs::create_dir_all(target_dir)?;
+
+    let mut persisted = 0usize;
+    if let (Some(ssid), Some(psk)) = (&defaults.wifi_ssid, &defaults.wifi_psk) {
+        let path = target_dir.join("nex-forge-wifi.nmconnection");
+        std::fs::write(&path, network_manager_wifi_connection(ssid, psk)?)?;
+        set_secret_permissions(&path)?;
+        persisted += 1;
+    }
+
+    let live_dir = Path::new("/etc/NetworkManager/system-connections");
+    if let Ok(entries) = std::fs::read_dir(live_dir) {
+        for entry in entries.flatten() {
+            let source = entry.path();
+            if !source.is_file() {
+                continue;
+            }
+            let Some(name) = source.file_name() else {
+                continue;
+            };
+            let dest = target_dir.join(name);
+            std::fs::copy(&source, &dest)
+                .with_context(|| format!("failed to persist {}", source.display()))?;
+            set_secret_permissions(&dest)?;
+            persisted += 1;
+        }
+    }
+
+    if persisted > 0 {
+        println!(
+            "  {} Persisted {persisted} NetworkManager connection(s)",
+            style("✓").green().bold()
+        );
+    }
+
+    Ok(())
+}
+
+fn network_manager_wifi_connection(ssid: &str, psk: &str) -> Result<String> {
+    if ssid.chars().any(char::is_control) || psk.chars().any(char::is_control) {
+        bail!("WiFi SSID/PSK cannot contain control characters");
+    }
+    let uuid = std::fs::read_to_string("/proc/sys/kernel/random/uuid")
+        .unwrap_or_else(|_| "00000000-0000-4000-8000-000000000000".to_string());
+    Ok(format!(
+        "[connection]\n\
+         id=nex-forge-wifi\n\
+         uuid={uuid}\n\
+         type=wifi\n\
+         autoconnect=true\n\
+         \n\
+         [wifi]\n\
+         mode=infrastructure\n\
+         ssid={ssid}\n\
+         \n\
+         [wifi-security]\n\
+         key-mgmt=wpa-psk\n\
+         psk={psk}\n\
+         \n\
+         [ipv4]\n\
+         method=auto\n\
+         \n\
+         [ipv6]\n\
+         method=auto\n",
+        uuid = uuid.trim(),
+    ))
+}
+
+#[cfg(unix)]
+fn set_secret_permissions(path: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn set_secret_permissions(_path: &Path) -> Result<()> {
+    Ok(())
+}
+
 fn exec_install(hostname: &str, username: &str) -> Result<()> {
     // Set generous download buffer to avoid pressure warnings on large installs
     std::env::set_var("NIX_DOWNLOAD_BUFFER_SIZE", "1073741824");
 
     // Verify network — nixos-install needs to fetch flake inputs
-    let has_net = Command::new("ping")
-        .args(["-c1", "-W3", "1.1.1.1"])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false);
+    let has_net = has_network_connectivity(3);
 
     if !has_net {
         println!(
@@ -1342,13 +1419,7 @@ fn exec_install(hostname: &str, username: &str) -> Result<()> {
         }
 
         // Re-check
-        let has_net = Command::new("ping")
-            .args(["-c1", "-W3", "1.1.1.1"])
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false);
+        let has_net = has_network_connectivity(3);
 
         if !has_net {
             bail!("Still no network. Cannot proceed with nixos-install.");
@@ -1618,6 +1689,25 @@ mod tests {
             nix_string("ssh-ed25519 AAAA\"quoted"),
             "\"ssh-ed25519 AAAA\\\"quoted\""
         );
+    }
+
+    #[test]
+    fn test_network_manager_wifi_connection_contains_autoconnect_profile() {
+        let profile = network_manager_wifi_connection("seed-net", "secret-pass").unwrap();
+
+        assert!(profile.contains("type=wifi"));
+        assert!(profile.contains("\ntype=wifi\n"));
+        assert!(profile.contains("autoconnect=true"));
+        assert!(profile.contains("ssid=seed-net"));
+        assert!(profile.contains("key-mgmt=wpa-psk"));
+        assert!(profile.contains("psk=secret-pass"));
+        assert!(profile.contains("method=auto"));
+    }
+
+    #[test]
+    fn test_network_manager_wifi_connection_rejects_control_characters() {
+        assert!(network_manager_wifi_connection("bad\nssid", "secret").is_err());
+        assert!(network_manager_wifi_connection("seed-net", "bad\nsecret").is_err());
     }
 
     #[test]
