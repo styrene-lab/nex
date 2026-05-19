@@ -2629,6 +2629,9 @@ fn flash_to_usb(iso_path: &Path, device: &str) -> Result<()> {
         style("✓").green().bold()
     );
     println!();
+    println!("  If firmware reports a Secure Boot violation, disable Secure Boot for this boot.");
+    println!("  The NixOS minimal installer is not Secure Boot signed.");
+    println!();
     println!("  Boot from USB, then locate the mounted installer payload:");
     println!(
         "    {}",
