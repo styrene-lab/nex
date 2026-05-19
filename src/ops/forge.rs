@@ -2629,11 +2629,12 @@ fn flash_to_usb(iso_path: &Path, device: &str) -> Result<()> {
         style("✓").green().bold()
     );
     println!();
-    println!("  Boot from USB, then:");
+    println!("  Boot from USB, then locate the mounted installer payload:");
     println!(
         "    {}",
-        style("sudo /iso/styrene/nex polymerize --bundle /iso/styrene").cyan()
+        style("sudo find /run /mnt /media -maxdepth 5 -type f -name nex").cyan()
     );
+    println!("  Then run polymerize with the discovered styrene directory as the bundle.");
 
     Ok(())
 }
