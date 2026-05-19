@@ -726,7 +726,8 @@ fn run_with_options(
 
     // ── 8. Flash to USB if requested ─────────────────────────────────
     if let Some(device) = disk {
-        flash_to_usb(&bundle_dir, &iso_path, device)?;
+        let flash_iso_path = prepare_flash_iso_with_bundle(&bundle_dir, &iso_path)?;
+        flash_to_usb(&flash_iso_path, device)?;
     } else {
         println!("  To flash to USB:");
         println!();
@@ -1068,20 +1069,16 @@ fn preflight_request(request: &ForgeRequest, plan: &ForgePlan) -> ForgePreflight
         require_command("sudo", &mut errors);
         require_command("dd", &mut errors);
         require_command("sync", &mut errors);
-        require_command("sgdisk", &mut errors);
+        require_command("xorriso", &mut errors);
         warn_command(
             "nix",
             &mut warnings,
-            "If sgdisk is missing globally, run forge through `nix shell nixpkgs#gptfdisk -c ...`.",
+            "If xorriso is missing globally, run forge through `nix shell nixpkgs#xorriso -c ...`.",
         );
 
         if crate::discover::detect_platform() == crate::discover::Platform::Darwin {
             require_command("diskutil", &mut errors);
-            require_command("newfs_msdos", &mut errors);
         } else {
-            require_command("mount", &mut errors);
-            require_command("umount", &mut errors);
-            require_command("mkfs.vfat", &mut errors);
             warn_command(
                 "partprobe",
                 &mut warnings,
@@ -1179,18 +1176,10 @@ fn ensure_flash_host_tools(is_macos: bool) -> Result<()> {
     require_command("sudo", &mut errors);
     require_command("dd", &mut errors);
     require_command("sync", &mut errors);
-    require_command("sgdisk", &mut errors);
+    require_command("xorriso", &mut errors);
     if is_macos {
         require_command("diskutil", &mut errors);
-        require_command("newfs_msdos", &mut errors);
-        require_command("mount", &mut errors);
-        require_command("umount", &mut errors);
-        require_command("cp", &mut errors);
     } else {
-        require_command("mount", &mut errors);
-        require_command("umount", &mut errors);
-        require_command("mkfs.vfat", &mut errors);
-        require_command("cp", &mut errors);
     }
 
     if errors.is_empty() {
@@ -1205,10 +1194,10 @@ fn ensure_flash_host_tools(is_macos: bool) -> Result<()> {
             error.message
         );
     }
-    if !command_exists("sgdisk") && command_exists("nix") {
+    if !command_exists("xorriso") && command_exists("nix") {
         eprintln!(
             "  hint: run the flash command through {}",
-            style("nix shell nixpkgs#gptfdisk -c ...").cyan()
+            style("nix shell nixpkgs#xorriso -c ...").cyan()
         );
     }
     bail!("missing required host tools for USB flashing");
@@ -2411,8 +2400,70 @@ echo "╚═══════════════════════�
     )
 }
 
-/// Flash ISO + bundle to a USB device.
-fn flash_to_usb(bundle_dir: &Path, iso_path: &Path, device: &str) -> Result<()> {
+/// Build a bootable ISO that carries the styrene bundle at /styrene.
+fn prepare_flash_iso_with_bundle(bundle_dir: &Path, iso_path: &Path) -> Result<std::path::PathBuf> {
+    let bundled_iso = bundle_dir.join("nex-installer-with-styrene.iso");
+    let styrene_dir = bundle_dir.join("styrene");
+    let manifest = bundle_dir.join("bundle.yaml");
+
+    if !styrene_dir.is_dir() {
+        bail!(
+            "missing styrene bundle directory: {}",
+            styrene_dir.display()
+        );
+    }
+    if !manifest.is_file() {
+        bail!("missing forge bundle manifest: {}", manifest.display());
+    }
+
+    output::status("embedding styrene installer payload into ISO...");
+    let status = Command::new("xorriso")
+        .args([
+            "-indev",
+            &iso_path.display().to_string(),
+            "-outdev",
+            &bundled_iso.display().to_string(),
+            "-boot_image",
+            "any",
+            "replay",
+            "-map",
+            &styrene_dir.display().to_string(),
+            "/styrene",
+            "-map",
+            &manifest.display().to_string(),
+            "/bundle.yaml",
+        ])
+        .status()
+        .context("failed to run xorriso to embed styrene payload into ISO")?;
+
+    if !status.success() {
+        bail!(
+            "failed to embed styrene installer payload into ISO; refusing to flash an incomplete installer"
+        );
+    }
+
+    let styrene_probe = Command::new("xorriso")
+        .args([
+            "-indev",
+            &bundled_iso.display().to_string(),
+            "-find",
+            "/styrene",
+            "-maxdepth",
+            "1",
+        ])
+        .output()
+        .context("failed to inspect bundled ISO")?;
+    if !styrene_probe.status.success()
+        || !String::from_utf8_lossy(&styrene_probe.stdout).contains("/styrene")
+    {
+        bail!("bundled ISO verification failed: /styrene payload is not present");
+    }
+
+    Ok(bundled_iso)
+}
+
+/// Flash ISO to a USB device. The ISO must already contain the styrene payload.
+fn flash_to_usb(iso_path: &Path, device: &str) -> Result<()> {
     println!();
     println!(
         "  {} Flashing to {}",
@@ -2481,190 +2532,62 @@ fn flash_to_usb(bundle_dir: &Path, iso_path: &Path, device: &str) -> Result<()> 
             .status();
     }
 
-    // Strategy: dd the ISO raw to the whole disk (preserves hybrid MBR+GPT
-    // bootloader), then use sgdisk to append a FAT32 data partition in the
-    // free space after the ISO. Works on both macOS and Linux.
+    // Strategy: embed the styrene payload into the bootable ISO before flashing,
+    // then dd that complete image to the whole disk. Do not append a data
+    // partition after writing the NixOS hybrid ISO; macOS/gptfdisk can reject
+    // that layout with "Invalid partition data", which previously produced
+    // bootable but incomplete installer media.
 
-    {
-        // Unmount all partitions before dd
-        if is_macos {
-            let _ = Command::new("diskutil")
-                .args(["unmountDisk", device])
-                .status();
-        }
-
-        // dd ISO raw to disk — preserves the hybrid MBR+GPT bootloader
-        output::status("writing NixOS ISO to USB (this takes a few minutes)...");
-
-        // macOS: use /dev/rdiskN (raw device) for 10x faster writes
-        let dd_target = if is_macos {
-            device.replace("/dev/disk", "/dev/rdisk")
-        } else {
-            device.to_string()
-        };
-
-        let dd_status = Command::new("sudo")
-            .args([
-                "dd",
-                &format!("if={}", iso_path.display()),
-                &format!("of={dd_target}"),
-                "bs=4M",
-                "status=progress",
-            ])
-            .status()
-            .context("dd failed")?;
-
-        if !dd_status.success() {
-            bail!("failed to write ISO to {device}");
-        }
-        let sync_status = Command::new("sync").status();
-        if !sync_status.map(|s| s.success()).unwrap_or(false) {
-            eprintln!("  warning: sync failed — data may not be fully flushed to disk");
-        }
-
-        // Move the backup GPT header to the true end of the disk
-        output::status("extending partition table...");
-        let sgdisk_extend = Command::new("sudo").args(["sgdisk", "-e", device]).status();
-        if !sgdisk_extend.map(|s| s.success()).unwrap_or(false) {
-            bail!(
-                "failed to extend partition table on {device}; refusing to produce a USB without the styrene installer payload"
-            );
-        }
-
-        // Add a FAT32 data partition in the free space after the ISO
-        output::status("creating data partition for installer files...");
-        let sgdisk_ok = Command::new("sudo")
-            .args([
-                "sgdisk",
-                "-n",
-                "4:0:0",
-                "-t",
-                "4:0700",
-                "-c",
-                "4:NEXDATA",
-                device,
-            ])
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false);
-
-        if !sgdisk_ok {
-            bail!(
-                "failed to create NEXDATA partition on {device}; refusing to produce a USB without the styrene installer payload"
-            );
-        }
-
-        // Re-read partition table
-        if is_macos {
-            // macOS needs a moment after GPT modification
-            std::thread::sleep(std::time::Duration::from_secs(2));
-            let _ = Command::new("diskutil")
-                .args(["unmountDisk", device])
-                .status();
-        } else {
-            let _ = Command::new("sudo").args(["partprobe", device]).status();
-            std::thread::sleep(std::time::Duration::from_secs(2));
-        }
-
-        // Determine partition device name
-        let part4 = if is_macos {
-            format!("{device}s4") // macOS uses s4, not 4
-        } else if device.contains("nvme") || device.contains("mmcblk") {
-            format!("{device}p4")
-        } else {
-            format!("{device}4")
-        };
-
-        // Format the data partition
-        output::status("formatting data partition...");
-        let mkfs_ok = if is_macos {
-            Command::new("sudo")
-                .args(["newfs_msdos", "-F", "32", "-v", "NEXDATA", &part4])
-                .status()
-                .map(|s| s.success())
-                .unwrap_or(false)
-        } else {
-            Command::new("sudo")
-                .args(["mkfs.vfat", "-F", "32", "-n", "NEXDATA", &part4])
-                .status()
-                .map(|s| s.success())
-                .unwrap_or(false)
-        };
-        if !mkfs_ok {
-            bail!(
-                "failed to format NEXDATA partition {part4}; refusing to produce a USB without the styrene installer payload"
-            );
-        }
-
-        // Mount and copy styrene files
-        output::status("copying installer files...");
-        let mount_point = "/tmp/nex-usb-data";
-        std::fs::create_dir_all(mount_point)?;
-
-        let mount_ok = if is_macos {
-            Command::new("sudo")
-                .args(["mount", "-t", "msdos", &part4, mount_point])
-                .status()
-                .map(|s| s.success())
-                .unwrap_or(false)
-        } else {
-            Command::new("sudo")
-                .args(["mount", &part4, mount_point])
-                .status()
-                .map(|s| s.success())
-                .unwrap_or(false)
-        };
-
-        if mount_ok {
-            let cp_status = Command::new("sudo")
-                .args([
-                    "cp",
-                    "-r",
-                    &bundle_dir.join("styrene").display().to_string(),
-                    &format!("{mount_point}/"),
-                ])
-                .status();
-            if !cp_status.map(|s| s.success()).unwrap_or(false) {
-                bail!(
-                    "failed to copy styrene installer payload to NEXDATA partition at {mount_point}"
-                );
-            }
-
-            if is_macos {
-                let umount_status = Command::new("sudo").args(["umount", mount_point]).status();
-                if !umount_status.map(|s| s.success()).unwrap_or(false) {
-                    eprintln!("  warning: failed to unmount data partition");
-                }
-                let _ = Command::new("diskutil").args(["eject", device]).status();
-            } else {
-                let umount_status = Command::new("sudo").args(["umount", mount_point]).status();
-                if !umount_status.map(|s| s.success()).unwrap_or(false) {
-                    eprintln!("  warning: failed to unmount data partition");
-                }
-            }
-
-            println!();
-            println!(
-                "  {} USB ready — bootable NixOS ISO + data partition with installer.",
-                style("✓").green().bold()
-            );
-        } else {
-            bail!(
-                "failed to mount NEXDATA partition {part4}; refusing to produce a USB without the styrene installer payload"
-            );
-        }
-
-        println!();
-        println!("  Boot from USB, then:");
-        println!(
-            "    {}",
-            style("mkdir -p /tmp/nex && mount -L NEXDATA /tmp/nex").cyan()
-        );
-        println!(
-            "    {}",
-            style("sudo /tmp/nex/styrene/nex polymerize --bundle /tmp/nex/styrene").cyan()
-        );
+    // Unmount all partitions before dd
+    if is_macos {
+        let _ = Command::new("diskutil")
+            .args(["unmountDisk", device])
+            .status();
     }
+
+    output::status("writing complete NixOS installer ISO to USB (this takes a few minutes)...");
+
+    // macOS: use /dev/rdiskN (raw device) for 10x faster writes
+    let dd_target = if is_macos {
+        device.replace("/dev/disk", "/dev/rdisk")
+    } else {
+        device.to_string()
+    };
+
+    let dd_status = Command::new("sudo")
+        .args([
+            "dd",
+            &format!("if={}", iso_path.display()),
+            &format!("of={dd_target}"),
+            "bs=4M",
+            "status=progress",
+        ])
+        .status()
+        .context("dd failed")?;
+
+    if !dd_status.success() {
+        bail!("failed to write complete installer ISO to {device}");
+    }
+    let sync_status = Command::new("sync").status();
+    if !sync_status.map(|s| s.success()).unwrap_or(false) {
+        eprintln!("  warning: sync failed — data may not be fully flushed to disk");
+    }
+
+    if is_macos {
+        let _ = Command::new("diskutil").args(["eject", device]).status();
+    }
+
+    println!();
+    println!(
+        "  {} USB ready — bootable NixOS ISO with embedded styrene installer payload.",
+        style("✓").green().bold()
+    );
+    println!();
+    println!("  Boot from USB, then:");
+    println!(
+        "    {}",
+        style("sudo /iso/styrene/nex polymerize --bundle /iso/styrene").cyan()
+    );
 
     Ok(())
 }
