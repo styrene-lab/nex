@@ -180,6 +180,15 @@ struct ProfileLinux {
     gnome: Option<ProfileGnome>,
     kde: Option<ProfileKde>,
     cosmic: Option<ProfileCosmic>,
+    ssh: Option<ProfileLinuxSsh>,
+}
+
+#[derive(Clone, serde::Deserialize)]
+#[allow(dead_code)]
+struct ProfileLinuxSsh {
+    authorized_keys: Option<Vec<String>>,
+    #[serde(rename = "authorizedKeys")]
+    authorized_keys_camel: Option<Vec<String>>,
 }
 
 #[derive(Clone, serde::Deserialize)]
@@ -304,6 +313,10 @@ struct MergedProfile {
 /// Validate that an extends repo ref looks like `user/repo` (with optional @ref suffix).
 /// Rejects file://, http://, absolute paths, and other potentially unsafe values.
 fn validate_repo_ref(repo_ref: &str) -> Result<()> {
+    if Path::new(repo_ref).exists() {
+        return Ok(());
+    }
+
     // Strip optional @ref suffix (e.g. "user/repo@main")
     let base = repo_ref.split('@').next().unwrap_or(repo_ref);
 
@@ -313,17 +326,13 @@ fn validate_repo_ref(repo_ref: &str) -> Result<()> {
         || base.contains("://")
         || base.contains("..")
     {
-        bail!(
-            "invalid extends ref '{repo_ref}': must be 'user/repo' format, not a URL or path"
-        );
+        bail!("invalid extends ref '{repo_ref}': must be 'user/repo' format, not a URL or path");
     }
 
     // Must have exactly one slash separating user and repo
     let parts: Vec<&str> = base.split('/').collect();
     if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {
-        bail!(
-            "invalid extends ref '{repo_ref}': must be 'user/repo' format (got '{base}')"
-        );
+        bail!("invalid extends ref '{repo_ref}': must be 'user/repo' format (got '{base}')");
     }
 
     // Each segment must be alphanumeric + hyphens + underscores + dots
@@ -668,15 +677,9 @@ pub fn run(config: &Config, repo_ref: &str, verify: bool, dry_run: bool) -> Resu
         if !Path::new(repo_ref).exists() {
             bail!("--verify requires a local .signed.toml file (not a GitHub ref)");
         }
-        eprintln!(
-            "  {} verifying profile signature...",
-            style("→").cyan()
-        );
+        eprintln!("  {} verifying profile signature...", style("→").cyan());
         run_verify(repo_ref)?;
-        eprintln!(
-            "  {} signature verified",
-            style("✓").green().bold()
-        );
+        eprintln!("  {} signature verified", style("✓").green().bold());
     }
 
     // Phase 1: Collect all profile layers
@@ -839,6 +842,15 @@ pub fn run(config: &Config, repo_ref: &str, verify: bool, dry_run: bool) -> Resu
 /// For top-level profiles, `file` is "profile.toml".
 /// For compose fragments, `file` is a path like "shell/bash.toml".
 fn fetch_profile_file(repo_ref: &str, file: &str) -> Result<Profile> {
+    if let Some(path) = local_profile_file(repo_ref, file) {
+        output::status(&format!("reading {}...", path.display()));
+        let content = std::fs::read_to_string(&path)
+            .with_context(|| format!("reading {}", path.display()))?;
+        let profile: Profile =
+            toml::from_str(&content).with_context(|| format!("invalid {}", path.display()))?;
+        return Ok(profile);
+    }
+
     let repo = if repo_ref.starts_with("http") {
         repo_ref.to_string()
     } else {
@@ -858,6 +870,20 @@ fn fetch_profile_file(repo_ref: &str, file: &str) -> Result<Profile> {
         toml::from_str(&content).with_context(|| format!("invalid {file} from {repo}"))?;
 
     Ok(profile)
+}
+
+fn local_profile_file(repo_ref: &str, file: &str) -> Option<std::path::PathBuf> {
+    let path = Path::new(repo_ref);
+    if !path.exists() {
+        return None;
+    }
+    if path.is_dir() {
+        return Some(path.join(file));
+    }
+    if file == "profile.toml" {
+        return Some(path.to_path_buf());
+    }
+    path.parent().map(|parent| parent.join(file))
 }
 
 fn fetch_toml_via_gh(repo: &str, file: &str) -> Result<String> {
@@ -1962,7 +1988,7 @@ fn apply_linux(config: &Config, linux: &ProfileLinux, dry_run: bool) -> Result<(
     }
 
     let mut lines: Vec<String> = Vec::new();
-    lines.push("{ pkgs, lib, ... }:".to_string());
+    lines.push("{ pkgs, lib, username ? null, ... }:".to_string());
     lines.push(String::new());
     lines.push("{".to_string());
 
@@ -2165,6 +2191,23 @@ fn apply_linux(config: &Config, linux: &ProfileLinux, dry_run: bool) -> Result<(
         lines.push(format!("  boot.kernelParams = [ {params_str} ];"));
     }
 
+    // ── SSH authorized keys ──────────────────────────────────────────
+    if let Some(ref ssh) = linux.ssh {
+        let mut keys = Vec::new();
+        union_dedup(&mut keys, ssh.authorized_keys.as_deref());
+        union_dedup(&mut keys, ssh.authorized_keys_camel.as_deref());
+        if !keys.is_empty() {
+            lines.push(String::new());
+            lines.push("  users.users = lib.optionalAttrs (username != null) {".to_string());
+            lines.push("    \"${username}\".openssh.authorizedKeys.keys = [".to_string());
+            for key in keys {
+                lines.push(format!("      \"{}\"", escape_nix_string(&key)));
+            }
+            lines.push("    ];".to_string());
+            lines.push("  };".to_string());
+        }
+    }
+
     lines.push("}".to_string());
     lines.push(String::new());
 
@@ -2322,11 +2365,12 @@ pub fn run_sign(source: &str, detached: bool) -> Result<()> {
     }
 
     let signer_file = FileSigner::with_static_passphrase(&identity_path, &passphrase);
-    let root = signer_file.load(&passphrase)
-        .map_err(|e| match e {
-            styrene_identity::signer::SignerError::DecryptionFailed(_) => anyhow::anyhow!("wrong passphrase"),
-            e => anyhow::anyhow!("failed to load identity: {e}"),
-        })?;
+    let root = signer_file.load(&passphrase).map_err(|e| match e {
+        styrene_identity::signer::SignerError::DecryptionFailed(_) => {
+            anyhow::anyhow!("wrong passphrase")
+        }
+        e => anyhow::anyhow!("failed to load identity: {e}"),
+    })?;
 
     let att = identity_sign(&root, &canonical);
     drop(root);
