@@ -151,6 +151,8 @@ pub struct PolymerizeDefaults {
     pub timezone: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub install_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ssh_authorized_keys: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -1306,6 +1308,10 @@ fn request_from_evaluated_pkl(value: serde_json::Value) -> Result<ForgeRequest> 
             username: value_string(defaults, &["username"]).unwrap_or_default(),
             timezone: value_string(defaults, &["timezone"]).unwrap_or_default(),
             install_mode: value_string(defaults, &["installMode", "install_mode"]),
+            ssh_authorized_keys: value_string_array(
+                defaults,
+                &["sshAuthorizedKeys", "ssh_authorized_keys"],
+            ),
         });
     }
 
@@ -1562,6 +1568,15 @@ mod tests {
             "safety": {
                 "allowDestructiveFlash": true,
                 "requireOperatorConfirmation": true
+            },
+            "polymerizeDefaults": {
+                "username": "wilson",
+                "timezone": "America/New_York",
+                "installMode": "desktop",
+                "sshAuthorizedKeys": [
+                    "ssh-ed25519 AAAAC3Nza first",
+                    "ssh-ed25519 AAAAC3Nza second"
+                ]
             }
         }))?;
 
@@ -1581,6 +1596,20 @@ mod tests {
         assert!(request.network.require_wired);
         assert!(!request.network.wifi_allowed);
         assert!(request.safety.allow_destructive_flash);
+        let defaults = request
+            .polymerize_defaults
+            .as_ref()
+            .expect("polymerize defaults");
+        assert_eq!(defaults.username, "wilson");
+        assert_eq!(defaults.timezone, "America/New_York");
+        assert_eq!(defaults.install_mode.as_deref(), Some("desktop"));
+        assert_eq!(
+            defaults.ssh_authorized_keys,
+            vec![
+                "ssh-ed25519 AAAAC3Nza first".to_string(),
+                "ssh-ed25519 AAAAC3Nza second".to_string(),
+            ]
+        );
         Ok(())
     }
 

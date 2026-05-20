@@ -499,11 +499,15 @@ fn run_with_options(
         None
     };
 
-    let ssh_key = if options.prompt_optional_inputs && is_interactive {
+    let mut ssh_keys = Vec::new();
+    let prompted_ssh_key = if options.prompt_optional_inputs && is_interactive {
         prompt_ssh_key()?
     } else {
         None
     };
+    if let Some(key) = prompted_ssh_key {
+        ssh_keys.push(key);
+    }
 
     let bundle_name = profile_ref
         .map(|r| r.replace('/', "_"))
@@ -598,15 +602,22 @@ fn run_with_options(
         arch,
         &options,
         wifi.as_ref(),
-        ssh_key.as_deref(),
+        &ssh_keys,
     )?;
     if let Some((ref ssid, _)) = wifi {
         println!("  {} WiFi: {ssid}", style("✓").green().bold());
     }
-    if ssh_key.is_some() {
+    let ssh_key_count = options
+        .polymerize_defaults
+        .as_ref()
+        .map(|defaults| defaults.ssh_authorized_keys.len())
+        .unwrap_or_default()
+        + ssh_keys.len();
+    if ssh_key_count > 0 {
         println!(
-            "  {} SSH key baked for target access",
-            style("✓").green().bold()
+            "  {} SSH keys baked for target access ({})",
+            style("✓").green().bold(),
+            ssh_key_count
         );
     }
 
@@ -1397,7 +1408,7 @@ fn write_polymerize_defaults(
     arch: Arch,
     options: &ForgeRunOptions,
     wifi: Option<&(String, String)>,
-    ssh_key: Option<&str>,
+    ssh_keys: &[String],
 ) -> Result<()> {
     std::fs::create_dir_all(defaults_dir)?;
     std::fs::write(defaults_dir.join("hostname"), hostname)?;
@@ -1449,8 +1460,18 @@ fn write_polymerize_defaults(
         write_secret_file(&defaults_dir.join("wifi_psk"), psk)?;
     }
 
-    if let Some(key) = ssh_key {
-        std::fs::write(defaults_dir.join("ssh_authorized_keys"), key)?;
+    let mut all_ssh_keys = options
+        .polymerize_defaults
+        .as_ref()
+        .map(|defaults| defaults.ssh_authorized_keys.clone())
+        .unwrap_or_default();
+    all_ssh_keys.extend(ssh_keys.iter().cloned());
+
+    if !all_ssh_keys.is_empty() {
+        std::fs::write(
+            defaults_dir.join("ssh_authorized_keys"),
+            format!("{}\n", all_ssh_keys.join("\n")),
+        )?;
     }
 
     Ok(())
@@ -2823,6 +2844,7 @@ mod tests {
                 username: "styrene".to_string(),
                 timezone: "America/New_York".to_string(),
                 install_mode: Some("server".to_string()),
+                ssh_authorized_keys: vec!["ssh-ed25519 AAAAC3Nza request".to_string()],
             }),
             network: NetworkPolicy {
                 require_wired: true,
@@ -2837,7 +2859,7 @@ mod tests {
             Arch::X86_64,
             &options,
             Some(&wifi),
-            Some("ssh-ed25519 AAAAC3Nza seed\n"),
+            &["ssh-ed25519 AAAAC3Nza prompt".to_string()],
         )
         .unwrap();
 
@@ -2879,7 +2901,7 @@ mod tests {
         );
         assert_eq!(
             std::fs::read_to_string(defaults_dir.join("ssh_authorized_keys")).unwrap(),
-            "ssh-ed25519 AAAAC3Nza seed\n"
+            "ssh-ed25519 AAAAC3Nza request\nssh-ed25519 AAAAC3Nza prompt\n"
         );
 
         #[cfg(unix)]
