@@ -340,7 +340,7 @@ fn step_network(defaults: &Defaults) -> Result<()> {
 
     if let (Some(ssid), Some(psk)) = (&defaults.wifi_ssid, &defaults.wifi_psk) {
         println!("  No wired connection detected. Trying bundled WiFi: {ssid}");
-        let connected = connect_wifi_with_nmcli(ssid, Some(psk));
+        let connected = connect_wifi(ssid, Some(psk));
         std::thread::sleep(std::time::Duration::from_secs(3));
         if connected && has_network_connectivity(3) {
             println!(
@@ -360,88 +360,36 @@ fn step_network(defaults: &Defaults) -> Result<()> {
     // Bring up wlan interface
     let _ = Command::new("rfkill").arg("unblock").arg("wifi").output();
 
-    // Try nmcli first (available in NixOS live)
-    let scan = Command::new("nmcli")
-        .args([
-            "-t",
-            "-f",
-            "SSID,SIGNAL,SECURITY",
-            "device",
-            "wifi",
-            "list",
-            "--rescan",
-            "yes",
-        ])
-        .output();
-
-    let networks: Vec<(String, String, String)> = match scan {
-        Ok(output) if output.status.success() => String::from_utf8_lossy(&output.stdout)
-            .lines()
-            .filter(|l| !l.trim().is_empty())
-            .filter_map(|line| {
-                let parts: Vec<&str> = line.splitn(3, ':').collect();
-                if parts.len() >= 2 && !parts[0].is_empty() {
-                    Some((
-                        parts[0].to_string(),
-                        parts.get(1).unwrap_or(&"").to_string(),
-                        parts.get(2).unwrap_or(&"").to_string(),
-                    ))
-                } else {
-                    None
-                }
-            })
-            .collect(),
-        _ => Vec::new(),
-    };
+    let scan = scan_wifi_networks();
+    let networks = scan.networks;
 
     if networks.is_empty() {
-        // Offer wpa_supplicant fallback
-        let setup = crate::input::input().confirm(
-            "  No WiFi networks found via nmcli. Enter WiFi credentials manually?",
-            true,
-        )?;
+        match scan.source {
+            WifiScanSource::NmcliUnavailable => {
+                println!(
+                    "  {} WiFi scan tool nmcli is unavailable on this installer.",
+                    style("!").yellow()
+                );
+            }
+            WifiScanSource::NmcliFailed => {
+                println!("  {} WiFi scan via nmcli failed.", style("!").yellow());
+            }
+            WifiScanSource::Nmcli => {
+                println!(
+                    "  {} No WiFi networks were discovered.",
+                    style("!").yellow()
+                );
+            }
+        }
+
+        let setup = crate::input::input().confirm("  Enter WiFi credentials manually?", true)?;
 
         if setup {
             let ssid: String = crate::input::input().input_text("  SSID", None)?;
             let password: String = crate::input::input().password("  Password")?;
 
-            // Try nmcli first, fall back to wpa_supplicant
-            let connected = connect_wifi_with_nmcli(&ssid, Some(&password));
-
-            if !connected {
-                // wpa_supplicant fallback for environments without NetworkManager
-                println!("  nmcli unavailable, trying wpa_supplicant...");
-                // Escape quotes in SSID/PSK to prevent wpa_supplicant config injection
-                let safe_ssid = ssid.replace('\\', "\\\\").replace('"', "\\\"");
-                let safe_password = password.replace('\\', "\\\\").replace('"', "\\\"");
-                let wpa_conf =
-                    format!("network={{\n  ssid=\"{safe_ssid}\"\n  psk=\"{safe_password}\"\n}}\n");
-                let wpa_path = std::path::Path::new("/tmp/wpa_supplicant.conf");
-                // Write with restrictive permissions (0600) to protect credentials
-                {
-                    use std::os::unix::fs::OpenOptionsExt;
-                    let mut f = std::fs::OpenOptions::new()
-                        .write(true)
-                        .create(true)
-                        .truncate(true)
-                        .mode(0o600)
-                        .open(wpa_path)?;
-                    std::io::Write::write_all(&mut f, wpa_conf.as_bytes())?;
-                }
-                // Ensure cleanup on all exit paths
-                let _wpa_cleanup = scopeguard::WpaCleanup(wpa_path);
-                // Find the wireless interface
-                let iface = find_wifi_interface().unwrap_or_else(|| "wlan0".to_string());
-                let wpa_status = Command::new("wpa_supplicant")
-                    .args(["-B", "-i", &iface, "-c", &wpa_path.to_string_lossy()])
-                    .status();
-                if !wpa_status.map(|s| s.success()).unwrap_or(false) {
-                    eprintln!("  warning: wpa_supplicant failed to start");
-                }
-                let dhcp_status = Command::new("dhcpcd").arg(&iface).status();
-                if !dhcp_status.map(|s| s.success()).unwrap_or(false) {
-                    eprintln!("  warning: dhcpcd failed — may not get an IP address");
-                }
+            if !connect_wifi(&ssid, Some(&password)) {
+                eprintln!("  warning: WiFi connection attempt did not complete");
             }
 
             // Wait briefly for connection
@@ -467,18 +415,15 @@ fn step_network(defaults: &Defaults) -> Result<()> {
 
         if sec.is_empty() || sec.contains("--") {
             // Open network
-            let nmcli_status = Command::new("nmcli")
-                .args(["device", "wifi", "connect", ssid])
-                .status();
-            if !nmcli_status.map(|s| s.success()).unwrap_or(false) {
-                eprintln!("  warning: nmcli failed to connect to {ssid}");
+            if !connect_wifi(ssid, None) {
+                eprintln!("  warning: failed to connect to {ssid}");
             }
         } else {
             let password: String =
                 crate::input::input().password(&format!("  Password for {ssid}"))?;
 
-            if !connect_wifi_with_nmcli(ssid, Some(&password)) {
-                eprintln!("  warning: nmcli failed to connect to {ssid}");
+            if !connect_wifi(ssid, Some(&password)) {
+                eprintln!("  warning: failed to connect to {ssid}");
             }
         }
 
@@ -632,13 +577,197 @@ fn has_network_connectivity(timeout_seconds: u64) -> bool {
         .unwrap_or(false)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WifiScanSource {
+    Nmcli,
+    NmcliUnavailable,
+    NmcliFailed,
+}
+
+#[derive(Debug, Default)]
+struct WifiScan {
+    source: WifiScanSource,
+    networks: Vec<(String, String, String)>,
+}
+
+impl Default for WifiScanSource {
+    fn default() -> Self {
+        Self::NmcliUnavailable
+    }
+}
+
+fn scan_wifi_networks() -> WifiScan {
+    if !command_available("nmcli") {
+        return WifiScan {
+            source: WifiScanSource::NmcliUnavailable,
+            networks: Vec::new(),
+        };
+    }
+
+    let scan = Command::new("nmcli")
+        .args([
+            "-t",
+            "-f",
+            "SSID,SIGNAL,SECURITY",
+            "device",
+            "wifi",
+            "list",
+            "--rescan",
+            "yes",
+        ])
+        .output();
+
+    match scan {
+        Ok(output) if output.status.success() => WifiScan {
+            source: WifiScanSource::Nmcli,
+            networks: parse_nmcli_wifi_list(&String::from_utf8_lossy(&output.stdout)),
+        },
+        _ => WifiScan {
+            source: WifiScanSource::NmcliFailed,
+            networks: Vec::new(),
+        },
+    }
+}
+
+fn parse_nmcli_wifi_list(output: &str) -> Vec<(String, String, String)> {
+    output
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .filter_map(|line| {
+            let parts: Vec<&str> = line.splitn(3, ':').collect();
+            if parts.len() >= 2 && !parts[0].is_empty() {
+                Some((
+                    parts[0].to_string(),
+                    parts.get(1).unwrap_or(&"").to_string(),
+                    parts.get(2).unwrap_or(&"").to_string(),
+                ))
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+fn connect_wifi(ssid: &str, password: Option<&str>) -> bool {
+    if connect_wifi_with_nmcli(ssid, password) {
+        return true;
+    }
+
+    match connect_wifi_with_wpa_supplicant(ssid, password) {
+        Ok(connected) => connected,
+        Err(error) => {
+            eprintln!("  warning: wpa_supplicant WiFi path failed: {error}");
+            false
+        }
+    }
+}
+
 fn connect_wifi_with_nmcli(ssid: &str, password: Option<&str>) -> bool {
+    if !command_available("nmcli") {
+        return false;
+    }
     let mut command = Command::new("nmcli");
     command.args(["device", "wifi", "connect", ssid]);
     if let Some(password) = password {
         command.args(["password", password]);
     }
     command.status().map(|s| s.success()).unwrap_or(false)
+}
+
+fn connect_wifi_with_wpa_supplicant(ssid: &str, password: Option<&str>) -> Result<bool> {
+    if !command_available("wpa_supplicant") {
+        bail!("wpa_supplicant is unavailable");
+    }
+
+    let iface = find_wifi_interface().unwrap_or_else(|| "wlan0".to_string());
+    let wpa_path = std::path::Path::new("/tmp/nex-wpa_supplicant.conf");
+    write_wpa_supplicant_config(wpa_path, ssid, password)?;
+    let _wpa_cleanup = scopeguard::WpaCleanup(wpa_path);
+
+    let wpa_status = Command::new("wpa_supplicant")
+        .args(["-B", "-i", &iface, "-c", &wpa_path.to_string_lossy()])
+        .status()
+        .context("failed to start wpa_supplicant")?;
+    if !wpa_status.success() {
+        bail!("wpa_supplicant exited unsuccessfully");
+    }
+
+    std::thread::sleep(std::time::Duration::from_secs(2));
+    request_dhcp_lease(&iface)
+}
+
+fn write_wpa_supplicant_config(path: &Path, ssid: &str, password: Option<&str>) -> Result<()> {
+    let safe_ssid = escape_wpa_value(ssid)?;
+    let network = if let Some(password) = password {
+        let safe_password = escape_wpa_value(password)?;
+        format!("network={{\n  ssid=\"{safe_ssid}\"\n  psk=\"{safe_password}\"\n}}\n")
+    } else {
+        format!("network={{\n  ssid=\"{safe_ssid}\"\n  key_mgmt=NONE\n}}\n")
+    };
+
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)?;
+        std::io::Write::write_all(&mut f, network.as_bytes())?;
+    }
+    Ok(())
+}
+
+fn escape_wpa_value(value: &str) -> Result<String> {
+    if value.chars().any(char::is_control) {
+        bail!("WiFi values cannot contain control characters");
+    }
+    Ok(value.replace('\\', "\\\\").replace('"', "\\\""))
+}
+
+fn request_dhcp_lease(iface: &str) -> Result<bool> {
+    if command_available("dhcpcd") {
+        let config = std::path::Path::new("/tmp/nex-dhcpcd.conf");
+        std::fs::write(config, "hostname\nclientid\npersistent\n")?;
+        let status = Command::new("dhcpcd")
+            .args(["-f", &config.to_string_lossy(), iface])
+            .status()
+            .context("failed to run dhcpcd")?;
+        if status.success() {
+            return Ok(true);
+        }
+    }
+
+    if command_available("dhclient") {
+        let status = Command::new("dhclient")
+            .arg(iface)
+            .status()
+            .context("failed to run dhclient")?;
+        if status.success() {
+            return Ok(true);
+        }
+    }
+
+    if command_available("udhcpc") {
+        let status = Command::new("udhcpc")
+            .args(["-i", iface, "-q"])
+            .status()
+            .context("failed to run udhcpc")?;
+        if status.success() {
+            return Ok(true);
+        }
+    }
+
+    Ok(has_network_connectivity(3))
+}
+
+fn command_available(command: &str) -> bool {
+    Command::new(command)
+        .arg("--help")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok()
 }
 
 fn step_hostname(defaults: &Defaults) -> Result<String> {
@@ -1708,6 +1837,25 @@ mod tests {
     fn test_network_manager_wifi_connection_rejects_control_characters() {
         assert!(network_manager_wifi_connection("bad\nssid", "secret").is_err());
         assert!(network_manager_wifi_connection("seed-net", "bad\nsecret").is_err());
+    }
+
+    #[test]
+    fn test_parse_nmcli_wifi_list() {
+        let networks = parse_nmcli_wifi_list("SeedNet:83:WPA2\nOpenNet:42:\n:hidden\n");
+
+        assert_eq!(
+            networks,
+            vec![
+                ("SeedNet".to_string(), "83".to_string(), "WPA2".to_string()),
+                ("OpenNet".to_string(), "42".to_string(), "".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_escape_wpa_value_rejects_control_characters() {
+        assert_eq!(escape_wpa_value("a\"b\\c").unwrap(), "a\\\"b\\\\c");
+        assert!(escape_wpa_value("bad\nvalue").is_err());
     }
 
     #[test]
