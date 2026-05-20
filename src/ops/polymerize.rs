@@ -10,10 +10,11 @@
 //! user can accept or override.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use anyhow::{bail, Context, Result};
 use console::style;
+use zeroize::Zeroizing;
 
 // ── Drop guard for WiFi credential cleanup ──────────────────────────────
 
@@ -1733,32 +1734,77 @@ fn exec_chown_config(username: &str) -> Result<()> {
 fn exec_set_passwords(username: &str) -> Result<()> {
     println!("  {}", style("── Set passwords ──").bold());
 
-    println!("  Setting root password:");
-    let root_ok = Command::new("nixos-enter")
-        .args(["--root", "/mnt", "--", "passwd"])
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false);
+    let root_password = prompt_install_password("  Root password")?;
+    set_installed_password("root", &root_password)?;
+    verify_installed_password_set("root")?;
+    println!("  {} Root password set", style("✓").green().bold());
 
-    if !root_ok {
-        println!(
-            "  {} Root password not set. Set it after reboot with: sudo passwd",
-            style("!").yellow()
-        );
+    let user_password = prompt_install_password(&format!("  Password for {username}"))?;
+    set_installed_password(username, &user_password)?;
+    verify_installed_password_set(username)?;
+    println!("  {} User password set", style("✓").green().bold());
+
+    Ok(())
+}
+
+fn prompt_install_password(prompt: &str) -> Result<Zeroizing<String>> {
+    let password = Zeroizing::new(crate::input::input().password_with_confirm(prompt)?);
+    validate_install_password(&password)?;
+    Ok(password)
+}
+
+fn validate_install_password(password: &str) -> Result<()> {
+    if password.is_empty() {
+        bail!("password cannot be empty");
+    }
+    if password.contains('\n') || password.contains('\r') {
+        bail!("password cannot contain newlines");
+    }
+    Ok(())
+}
+
+fn set_installed_password(user: &str, password: &str) -> Result<()> {
+    let mut child = Command::new("nixos-enter")
+        .args(["--root", "/mnt", "--", "chpasswd"])
+        .stdin(Stdio::piped())
+        .spawn()
+        .context("failed to run nixos-enter chpasswd")?;
+
+    {
+        use std::io::Write;
+
+        let stdin = child
+            .stdin
+            .as_mut()
+            .context("failed to open chpasswd stdin")?;
+        stdin
+            .write_all(format!("{user}:{password}\n").as_bytes())
+            .context("failed to send password to chpasswd")?;
     }
 
-    println!("  Setting password for {username}:");
-    let user_ok = Command::new("nixos-enter")
-        .args(["--root", "/mnt", "--", "passwd", username])
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false);
+    let status = child.wait().context("failed waiting for chpasswd")?;
+    if !status.success() {
+        bail!("failed to set password for {user} in installed system");
+    }
 
-    if !user_ok {
-        println!(
-            "  {} User password not set. Set it after reboot with: sudo passwd {username}",
-            style("!").yellow()
-        );
+    Ok(())
+}
+
+fn verify_installed_password_set(user: &str) -> Result<()> {
+    let output = Command::new("nixos-enter")
+        .args(["--root", "/mnt", "--", "passwd", "--status", user])
+        .output()
+        .context("failed to verify installed password status")?;
+
+    if !output.status.success() {
+        bail!("failed to verify password status for {user}");
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let fields: Vec<&str> = stdout.split_whitespace().collect();
+    if fields.get(1) != Some(&"P") {
+        let state = fields.get(1).copied().unwrap_or("unknown");
+        bail!("password for {user} is not set in installed system (state: {state})");
     }
 
     Ok(())
@@ -1985,6 +2031,22 @@ mod tests {
     fn test_escape_wpa_value_rejects_control_characters() {
         assert_eq!(escape_wpa_value("a\"b\\c").unwrap(), "a\\\"b\\\\c");
         assert!(escape_wpa_value("bad\nvalue").is_err());
+    }
+
+    #[test]
+    fn test_validate_install_password_rejects_empty() {
+        assert!(validate_install_password("").is_err());
+    }
+
+    #[test]
+    fn test_validate_install_password_rejects_newlines() {
+        assert!(validate_install_password("bad\npassword").is_err());
+        assert!(validate_install_password("bad\rpassword").is_err());
+    }
+
+    #[test]
+    fn test_validate_install_password_accepts_symbols() {
+        assert!(validate_install_password("p:a$s w0rd!").is_ok());
     }
 
     #[test]
