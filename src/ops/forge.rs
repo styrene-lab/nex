@@ -2479,7 +2479,8 @@ echo "║  1. Set a root password:  nixos-enter --root /mnt    ║"
 echo "║                           passwd                     ║"
 echo "║     Set user password:    passwd {user}              ║"
 echo "║                                                      ║"
-echo "║  2. Reboot:               umount -R /mnt && reboot   ║"
+echo "║  2. Reboot:               sudo umount -R /mnt &&      ║"
+echo "║                           sudo reboot                ║"
 echo "╚══════════════════════════════════════════════════════╝"
 "##,
         profile_ref = profile_ref,
@@ -2655,8 +2656,8 @@ fn flash_to_usb(iso_path: &Path, device: &str, confirm_flash: bool) -> Result<()
 
     // Unmount
     if is_macos {
-        let _ = Command::new("diskutil")
-            .args(["unmountDisk", device])
+        let _ = Command::new("sudo")
+            .args(["diskutil", "unmountDisk", device])
             .status();
     } else {
         // Unmount all partitions
@@ -2673,8 +2674,8 @@ fn flash_to_usb(iso_path: &Path, device: &str, confirm_flash: bool) -> Result<()
 
     // Unmount all partitions before dd
     if is_macos {
-        let _ = Command::new("diskutil")
-            .args(["unmountDisk", device])
+        let _ = Command::new("sudo")
+            .args(["diskutil", "unmountDisk", device])
             .status();
     }
 
@@ -2707,7 +2708,9 @@ fn flash_to_usb(iso_path: &Path, device: &str, confirm_flash: bool) -> Result<()
     }
 
     if is_macos {
-        let _ = Command::new("diskutil").args(["eject", device]).status();
+        let _ = Command::new("sudo")
+            .args(["diskutil", "eject", device])
+            .status();
     }
 
     println!();

@@ -291,7 +291,7 @@ pub fn run(bundle: Option<&Path>) -> Result<()> {
     );
     println!(
         "  {}",
-        style("║  Reboot:   umount -R /mnt && reboot                   ║").green()
+        style("║  Reboot:   sudo umount -R /mnt && sudo reboot         ║").green()
     );
     println!(
         "  {}",
