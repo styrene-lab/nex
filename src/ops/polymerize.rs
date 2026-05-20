@@ -1056,6 +1056,7 @@ fn exec_partition(disk: &str) -> Result<()> {
     println!("  {} Partitioning {}...", style(">>>").bold(), disk);
 
     let is_efi = Path::new("/sys/firmware/efi").exists();
+    prepare_target_disk_for_partitioning(disk)?;
 
     let part_prefix = if disk.contains("nvme") || disk.contains("mmcblk") {
         format!("{disk}p")
@@ -1064,13 +1065,14 @@ fn exec_partition(disk: &str) -> Result<()> {
     };
 
     if is_efi {
-        run_cmd(
-            "parted",
+        run_parted(
+            disk,
             &[
-                disk, "--script", "--", "mklabel", "gpt", "mkpart", "ESP", "fat32", "1MiB",
-                "512MiB", "set", "1", "esp", "on", "mkpart", "root", "ext4", "512MiB", "100%",
+                "mklabel", "gpt", "mkpart", "ESP", "fat32", "1MiB", "512MiB", "set", "1", "esp",
+                "on", "mkpart", "root", "ext4", "512MiB", "100%",
             ],
         )?;
+        refresh_partition_table(disk);
 
         // Wait for partition device nodes to appear (kernel may take a moment)
         let part2 = format!("{part_prefix}2");
@@ -1087,13 +1089,14 @@ fn exec_partition(disk: &str) -> Result<()> {
         run_cmd("mkfs.ext4", &["-F", &format!("{part_prefix}2")])?;
     } else {
         // BIOS: MBR with single ext4 partition + GRUB
-        run_cmd(
-            "parted",
+        run_parted(
+            disk,
             &[
-                disk, "--script", "--", "mklabel", "msdos", "mkpart", "primary", "ext4", "1MiB",
-                "100%", "set", "1", "boot", "on",
+                "mklabel", "msdos", "mkpart", "primary", "ext4", "1MiB", "100%", "set", "1",
+                "boot", "on",
             ],
         )?;
+        refresh_partition_table(disk);
 
         // Wait for partition device nodes to appear (kernel may take a moment)
         let part1 = format!("{part_prefix}1");
@@ -1115,6 +1118,115 @@ fn exec_partition(disk: &str) -> Result<()> {
         if is_efi { "EFI" } else { "BIOS" }
     );
     Ok(())
+}
+
+fn prepare_target_disk_for_partitioning(disk: &str) -> Result<()> {
+    println!("  {} Preparing target disk...", style(">>>").bold());
+
+    let _ = Command::new("umount").args(["-R", "/mnt"]).status();
+    let _ = Command::new("swapoff").arg("-a").status();
+
+    let mut partitions = partition_paths(disk);
+    partitions.reverse();
+    for partition in &partitions {
+        let _ = Command::new("swapoff").arg(partition).status();
+        let _ = Command::new("umount").arg(partition).status();
+        if command_available("wipefs") {
+            let _ = Command::new("wipefs").args(["-a", partition]).status();
+        }
+    }
+
+    if command_available("partx") {
+        let _ = Command::new("partx").args(["-d", disk]).status();
+    }
+
+    if command_available("blockdev") {
+        let _ = Command::new("blockdev")
+            .args(["--flushbufs", disk])
+            .status();
+    }
+
+    if command_available("wipefs") {
+        let status = Command::new("wipefs")
+            .args(["-a", disk])
+            .status()
+            .context("failed to run wipefs")?;
+        if !status.success() {
+            bail!(
+                "target disk {disk} still appears to be in use; unmount/swapoff stale partitions or reboot the installer before retrying"
+            );
+        }
+    }
+
+    refresh_partition_table(disk);
+    Ok(())
+}
+
+fn partition_paths(disk: &str) -> Vec<String> {
+    let Ok(output) = Command::new("lsblk")
+        .args(["-ln", "-o", "PATH", disk])
+        .output()
+    else {
+        return Vec::new();
+    };
+    if !output.status.success() {
+        return Vec::new();
+    }
+
+    parse_lsblk_paths(&String::from_utf8_lossy(&output.stdout), disk)
+}
+
+fn parse_lsblk_paths(output: &str, disk: &str) -> Vec<String> {
+    output
+        .lines()
+        .map(str::trim)
+        .filter(|path| !path.is_empty() && *path != disk)
+        .map(str::to_string)
+        .collect()
+}
+
+fn run_parted(disk: &str, commands: &[&str]) -> Result<()> {
+    let mut args = vec![disk, "--script", "--"];
+    args.extend_from_slice(commands);
+    let output = Command::new("parted")
+        .args(&args)
+        .output()
+        .context("parted not found")?;
+
+    if output.status.success() {
+        return Ok(());
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    refresh_partition_table(disk);
+    if stderr.contains("unable to inform the kernel") {
+        bail!(
+            "parted wrote a partition table but the kernel refused to reload it because {disk} is still in use. Reboot the installer, then rerun polymerize."
+        );
+    }
+
+    let detail = stderr
+        .trim()
+        .lines()
+        .last()
+        .map(|line| format!(": {line}"))
+        .unwrap_or_default();
+    bail!("parted failed{detail}");
+}
+
+fn refresh_partition_table(disk: &str) {
+    if command_available("partprobe") {
+        let _ = Command::new("partprobe").arg(disk).status();
+    }
+    if command_available("partx") {
+        let _ = Command::new("partx").args(["-u", disk]).status();
+    }
+    if command_available("blockdev") {
+        let _ = Command::new("blockdev").args(["--rereadpt", disk]).status();
+    }
+    if command_available("udevadm") {
+        let _ = Command::new("udevadm").args(["settle"]).status();
+    }
 }
 
 fn exec_mount(disk: &str) -> Result<()> {
@@ -1848,6 +1960,23 @@ mod tests {
             vec![
                 ("SeedNet".to_string(), "83".to_string(), "WPA2".to_string()),
                 ("OpenNet".to_string(), "42".to_string(), "".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_parse_lsblk_paths_filters_target_disk() {
+        let paths = parse_lsblk_paths(
+            "/dev/nvme0n1\n/dev/nvme0n1p1\n/dev/nvme0n1p2\n/dev/nvme0n1p3\n",
+            "/dev/nvme0n1",
+        );
+
+        assert_eq!(
+            paths,
+            vec![
+                "/dev/nvme0n1p1".to_string(),
+                "/dev/nvme0n1p2".to_string(),
+                "/dev/nvme0n1p3".to_string(),
             ]
         );
     }
