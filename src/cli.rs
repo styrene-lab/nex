@@ -230,9 +230,13 @@ pub enum ForgeAction {
     },
     /// Evaluate a generated NixOS materialization workspace without building or flashing
     CheckMaterialization {
-        /// Directory containing a generated flake.nix workspace
+        /// Directory containing a generated flake.nix workspace. If omitted, --source is required.
         #[arg(value_name = "WORKSPACE")]
-        workspace: PathBuf,
+        workspace: Option<PathBuf>,
+
+        /// Machine/materialization TOML source to resolve and scaffold into a temporary workspace
+        #[arg(long)]
+        source: Option<String>,
 
         /// Hostname under nixosConfigurations.<hostname>
         #[arg(long)]

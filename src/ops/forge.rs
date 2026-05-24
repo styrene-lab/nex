@@ -1216,9 +1216,27 @@ fn execute_request(request: &ForgeRequest, events: EventMode) -> Result<()> {
     }
 }
 
-pub fn run_check_materialization(workspace: &Path, hostname: &str) -> Result<()> {
+pub fn run_check_materialization(
+    workspace: Option<&Path>,
+    source: Option<&str>,
+    hostname: &str,
+) -> Result<()> {
+    let temp_dir;
+    let workspace = match (workspace, source) {
+        (Some(workspace), None) => workspace.to_path_buf(),
+        (None, Some(source)) => {
+            output::status("resolving materialization payload...");
+            let resolved = resolve_profile_chain(source)?;
+            temp_dir = tempfile::tempdir().context("creating materialization check workspace")?;
+            scaffold_nixos_config(temp_dir.path(), hostname, &resolved.merged)?;
+            temp_dir.path().to_path_buf()
+        }
+        (Some(_), Some(_)) => bail!("provide either WORKSPACE or --source, not both"),
+        (None, None) => bail!("check-materialization requires WORKSPACE or --source"),
+    };
+
     let check = crate::materialization::MaterializationCheck {
-        workspace: workspace.to_path_buf(),
+        workspace: workspace.clone(),
         hostname: hostname.to_string(),
     };
     output::status(&format!(
