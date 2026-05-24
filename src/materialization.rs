@@ -1,7 +1,30 @@
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{bail, Context, Result};
+
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+pub struct MaterializationPayload {
+    #[serde(default)]
+    pub flake_inputs: BTreeMap<String, String>,
+}
+
+impl MaterializationPayload {
+    pub fn from_toml_str(content: &str) -> Result<Self> {
+        let payload: Self = toml::from_str(content).context("invalid materialization TOML")?;
+        payload.validate()?;
+        Ok(payload)
+    }
+
+    pub fn validate(&self) -> Result<()> {
+        for (name, reference) in &self.flake_inputs {
+            validate_flake_input_name(name)?;
+            validate_flake_input_ref(reference)?;
+        }
+        Ok(())
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct MaterializationCheck {
@@ -82,6 +105,51 @@ pub fn validate_workspace(workspace: &Path) -> Result<()> {
     Ok(())
 }
 
+pub fn validate_flake_input_name(name: &str) -> Result<()> {
+    if name.is_empty() {
+        bail!("flake input name cannot be empty");
+    }
+    let mut chars = name.chars();
+    let first = chars.next().expect("checked non-empty");
+    if !(first.is_ascii_alphabetic() || first == '_') {
+        bail!("flake input name '{name}' must start with a letter or underscore");
+    }
+    if !chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
+        bail!("flake input name '{name}' may only contain [A-Za-z0-9_-]");
+    }
+    Ok(())
+}
+
+pub fn validate_flake_input_ref(reference: &str) -> Result<()> {
+    if reference.trim().is_empty() {
+        bail!("flake input ref cannot be empty");
+    }
+    if reference.chars().any(|c| c.is_control() || c.is_whitespace()) {
+        bail!("flake input ref '{reference}' cannot contain whitespace or control characters");
+    }
+    if reference.contains('"')
+        || reference.contains('\'')
+        || reference.contains('`')
+        || reference.contains('$')
+        || reference.contains(';')
+        || reference.contains('|')
+        || reference.contains('&')
+        || reference.contains('>')
+        || reference.contains('<')
+    {
+        bail!("flake input ref '{reference}' contains unsupported shell/template characters");
+    }
+    Ok(())
+}
+
+pub fn render_flake_inputs(inputs: &BTreeMap<String, String>) -> String {
+    let mut lines = String::new();
+    for (name, reference) in inputs {
+        lines.push_str(&format!("    {name}.url = \"{reference}\";\n"));
+    }
+    lines
+}
+
 pub fn find_nix() -> String {
     if std::env::var_os("NEX_TESTING").is_some() {
         return "nix".to_string();
@@ -149,5 +217,46 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let error = validate_workspace(dir.path()).expect_err("missing flake rejected");
         assert!(format!("{error:#}").contains("does not contain flake.nix"));
+    }
+
+    #[test]
+    fn parses_and_renders_flake_inputs() {
+        let payload = MaterializationPayload::from_toml_str(
+            r#"
+[flake_inputs]
+dns-dhcp = "github:styrene-lab/dhcp-dns-work"
+nixos-hardware = "github:NixOS/nixos-hardware"
+"#,
+        )
+        .expect("valid payload");
+
+        let rendered = render_flake_inputs(&payload.flake_inputs);
+
+        assert!(rendered.contains("    dns-dhcp.url = \"github:styrene-lab/dhcp-dns-work\";"));
+        assert!(rendered.contains("    nixos-hardware.url = \"github:NixOS/nixos-hardware\";"));
+    }
+
+    #[test]
+    fn rejects_invalid_flake_input_names() {
+        let error = MaterializationPayload::from_toml_str(
+            r#"
+[flake_inputs]
+"9bad" = "github:owner/repo"
+"#,
+        )
+        .expect_err("invalid input name rejected");
+        assert!(format!("{error:#}").contains("must start with a letter or underscore"));
+    }
+
+    #[test]
+    fn rejects_suspicious_flake_input_refs() {
+        let error = MaterializationPayload::from_toml_str(
+            r#"
+[flake_inputs]
+bad = "github:owner/repo;rm-rf"
+"#,
+        )
+        .expect_err("invalid input ref rejected");
+        assert!(format!("{error:#}").contains("unsupported shell/template characters"));
     }
 }
