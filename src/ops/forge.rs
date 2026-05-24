@@ -1779,8 +1779,10 @@ fn scaffold_nixos_config(config_dir: &Path, hostname: &str, profile_toml: &str) 
     let user = std::env::var("USER").unwrap_or_else(|_| "user".to_string());
     let system = discover::detect_system();
 
-    // Parse profile to extract linux settings
-    let profile: toml::Value = toml::from_str(profile_toml).context("invalid machine-profile.toml")?;
+    // Parse profile to extract linux settings and materialization metadata.
+    let profile: toml::Value = toml::from_str(profile_toml).context("invalid materialization TOML")?;
+    let payload = crate::materialization::MaterializationPayload::from_toml_str(profile_toml)?;
+    let extra_inputs = crate::materialization::render_flake_inputs(&payload.flake_inputs);
 
     // flake.nix
     std::fs::write(
@@ -1795,13 +1797,13 @@ fn scaffold_nixos_config(config_dir: &Path, hostname: &str, profile_toml: &str) 
       url = "github:nix-community/home-manager";
       inputs.nixpkgs.follows = "nixpkgs";
     }};
-  }};
+{extra_inputs}  }};
 
-  outputs = {{ self, nixpkgs, home-manager }}:
+  outputs = {{ self, nixpkgs, home-manager, ... }}@inputs:
   {{
     nixosConfigurations."{hostname}" = nixpkgs.lib.nixosSystem {{
       system = "{system}";
-      specialArgs = {{ username = "{user}"; hostname = "{hostname}"; }};
+      specialArgs = {{ inherit inputs; username = "{user}"; hostname = "{hostname}"; }};
       modules = [
         ./configuration.nix
         ./hardware-configuration.nix
@@ -2814,6 +2816,40 @@ fn chrono_now() -> String {
 #[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scaffold_nixos_config_includes_materialization_flake_inputs() {
+        let dir = tempfile::tempdir().unwrap();
+        let profile = r#"
+[flake_inputs]
+dns-dhcp = "github:styrene-lab/dhcp-dns-work"
+nixos-hardware = "github:NixOS/nixos-hardware"
+
+[linux]
+extra_config = ""
+"#;
+
+        scaffold_nixos_config(dir.path(), "test-host", profile).unwrap();
+        let flake = std::fs::read_to_string(dir.path().join("flake.nix")).unwrap();
+
+        assert!(flake.contains("dns-dhcp.url = \"github:styrene-lab/dhcp-dns-work\";"));
+        assert!(flake.contains("nixos-hardware.url = \"github:NixOS/nixos-hardware\";"));
+        assert!(flake.contains("outputs = { self, nixpkgs, home-manager, ... }@inputs:"));
+        assert!(flake.contains("specialArgs = { inherit inputs; username ="));
+    }
+
+    #[test]
+    fn scaffold_nixos_config_rejects_invalid_flake_inputs() {
+        let dir = tempfile::tempdir().unwrap();
+        let profile = r#"
+[flake_inputs]
+bad = "github:owner/repo;rm-rf"
+"#;
+
+        let error = scaffold_nixos_config(dir.path(), "test-host", profile)
+            .expect_err("invalid flake input rejected");
+        assert!(format!("{error:#}").contains("unsupported shell/template characters"));
+    }
 
     fn write_minimal_elf(path: &Path, machine: u16) {
         let mut bytes = vec![0u8; 64];
