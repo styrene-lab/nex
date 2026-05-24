@@ -11,8 +11,10 @@ All notable changes to nex are documented here. Format follows [Keep a Changelog
 
 ### Added
 - First-class Nex machine profiles with a canonical `machine-profile.toml` schema for materialization policy, defaults, safety posture, secret-name contracts, targets, and dependencies.
+- First-class profile fragment metadata with `io.styrene.nex.profile-fragment.v1` validation for reusable partial machine configuration catalogs.
 - `nex machine-profile validate` and `nex machine-profile inspect` commands.
-- Machine-profile boundary documentation for Omegon Armory indexing and OCI artifact metadata.
+- `nex profile-fragment validate` and `nex profile-fragment inspect` commands.
+- Machine-profile and profile-fragment boundary documentation for Omegon Armory indexing and OCI artifact metadata.
 
 ### Changed
 - Forge and build-image profile inputs now use `machine-profile.toml` as the canonical Nex machine-profile manifest name.

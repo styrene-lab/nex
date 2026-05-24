@@ -11,6 +11,7 @@ mod menu;
 mod nixfile;
 mod ops;
 mod output;
+mod profile_fragment;
 mod resolve;
 
 use anyhow::Result;
@@ -124,6 +125,16 @@ fn main() -> Result<()> {
                 }
             }
         }
+        Command::ProfileFragment { ref action } => {
+            return match action {
+                cli::ProfileFragmentAction::Validate { path } => {
+                    ops::profile_fragment::run_validate(path)
+                }
+                cli::ProfileFragmentAction::Inspect { path } => {
+                    ops::profile_fragment::run_inspect(path)
+                }
+            }
+        }
         Command::Profile { ref action } => match action {
             cli::ProfileAction::Sign { source, detached } => {
                 return ops::profile::run_sign(source, *detached)
@@ -196,6 +207,7 @@ fn main() -> Result<()> {
         | Command::Develop { .. }
         | Command::Dev { .. }
         | Command::MachineProfile { .. }
+        | Command::ProfileFragment { .. }
         | Command::Identity { .. }
         | Command::Rbac { .. } => {
             unreachable!()

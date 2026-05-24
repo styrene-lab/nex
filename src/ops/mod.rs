@@ -15,6 +15,7 @@ pub mod migrate;
 pub mod machine_profile;
 pub mod polymerize;
 pub mod profile;
+pub mod profile_fragment;
 pub mod rbac;
 pub mod relocate;
 pub mod remove;

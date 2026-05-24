@@ -92,6 +92,11 @@ pub enum Command {
         #[command(subcommand)]
         action: MachineProfileAction,
     },
+    /// Inspect and validate Nex profile fragments
+    ProfileFragment {
+        #[command(subcommand)]
+        action: ProfileFragmentAction,
+    },
     /// Manage and apply machine profiles
     #[command(
         after_help = "Note: `nex profile <source>` was renamed to `nex profile apply <source>` in v0.16.0"
@@ -286,6 +291,22 @@ pub enum MachineProfileAction {
     /// Inspect a machine-profile.toml manifest
     Inspect {
         /// Path to machine-profile.toml or a directory containing it
+        #[arg(value_name = "PATH")]
+        path: PathBuf,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ProfileFragmentAction {
+    /// Validate a profile fragment TOML file or directory of fragments
+    Validate {
+        /// Path to a fragment TOML file or a directory containing fragments
+        #[arg(value_name = "PATH")]
+        path: PathBuf,
+    },
+    /// Inspect a profile fragment TOML file
+    Inspect {
+        /// Path to a fragment TOML file
         #[arg(value_name = "PATH")]
         path: PathBuf,
     },
