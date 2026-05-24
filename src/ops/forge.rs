@@ -1216,6 +1216,25 @@ fn execute_request(request: &ForgeRequest, events: EventMode) -> Result<()> {
     }
 }
 
+pub fn run_check_materialization(workspace: &Path, hostname: &str) -> Result<()> {
+    let check = crate::materialization::MaterializationCheck {
+        workspace: workspace.to_path_buf(),
+        hostname: hostname.to_string(),
+    };
+    output::status(&format!(
+        "checking materialization {} in {}...",
+        check.eval_attr(),
+        workspace.display()
+    ));
+    check.run()?;
+    println!(
+        "  {} materialization evaluates: {}",
+        style("✓").green().bold(),
+        check.eval_attr()
+    );
+    Ok(())
+}
+
 pub fn run_check(
     template_path: &Path,
     metadata_path: Option<&Path>,

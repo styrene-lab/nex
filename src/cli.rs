@@ -228,6 +228,16 @@ pub enum ForgeAction {
         #[arg(long)]
         no_execute: bool,
     },
+    /// Evaluate a generated NixOS materialization workspace without building or flashing
+    CheckMaterialization {
+        /// Directory containing a generated flake.nix workspace
+        #[arg(value_name = "WORKSPACE")]
+        workspace: PathBuf,
+
+        /// Hostname under nixosConfigurations.<hostname>
+        #[arg(long)]
+        hostname: String,
+    },
 }
 
 #[derive(Subcommand)]

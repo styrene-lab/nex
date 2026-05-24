@@ -7,6 +7,7 @@ mod exec;
 pub mod forge;
 pub mod input;
 pub mod machine_profile;
+mod materialization;
 mod menu;
 mod nixfile;
 mod ops;
@@ -65,6 +66,9 @@ fn main() -> Result<()> {
                         json,
                         no_execute,
                     } => ops::forge::run_check(path, metadata.as_deref(), *json, *no_execute),
+                    cli::ForgeAction::CheckMaterialization { workspace, hostname } => {
+                        ops::forge::run_check_materialization(workspace, hostname)
+                    }
                 };
             }
             return ops::forge::run(
