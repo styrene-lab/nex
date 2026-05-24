@@ -373,6 +373,98 @@ fn machine_profile_validate_rejects_secret_values() {
         .stderr(predicate::str::contains("must be a name"));
 }
 
+// ── Profile fragment tests ────────────────────────────────────────────────
+
+fn valid_profile_fragment_toml() -> &'static str {
+    r#"
+[fragment]
+schema = "io.styrene.nex.profile-fragment.v1"
+id = "gpu/amd"
+name = "amd"
+description = "AMD GPU"
+category = "gpu"
+requires = ["platform/linux"]
+conflicts = ["gpu/nvidia", "gpu/intel"]
+platforms = ["linux"]
+visibility = "public"
+
+[fragment.safety]
+mutates_system_services = false
+mutates_hardware_drivers = true
+requires_confirmation = true
+"#
+}
+
+#[test]
+fn profile_fragment_validate_accepts_valid_manifest() {
+    let sb = Sandbox::new();
+    let fragment_path = sb.home.path().join("amd.toml");
+    fs::write(&fragment_path, valid_profile_fragment_toml()).expect("write fragment");
+
+    sb.nex()
+        .args(["profile-fragment", "validate", fragment_path.to_str().unwrap()])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("amd.toml is valid"));
+}
+
+#[test]
+fn profile_fragment_inspect_prints_metadata() {
+    let sb = Sandbox::new();
+    let fragment_path = sb.home.path().join("amd.toml");
+    fs::write(&fragment_path, valid_profile_fragment_toml()).expect("write fragment");
+
+    sb.nex()
+        .args(["profile-fragment", "inspect", fragment_path.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Profile Fragment"))
+        .stdout(predicate::str::contains("ID: gpu/amd"))
+        .stdout(predicate::str::contains("Requires: platform/linux"))
+        .stdout(predicate::str::contains("Conflicts: gpu/nvidia, gpu/intel"));
+}
+
+#[test]
+fn profile_fragment_directory_validation_checks_path_id() {
+    let sb = Sandbox::new();
+    let fragment_dir = sb.home.path().join("fragments/gpu");
+    fs::create_dir_all(&fragment_dir).expect("create fragment dir");
+    fs::write(fragment_dir.join("amd.toml"), valid_profile_fragment_toml())
+        .expect("write fragment");
+
+    sb.nex()
+        .args([
+            "profile-fragment",
+            "validate",
+            sb.home.path().join("fragments").to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("1 profile fragments valid"));
+}
+
+#[test]
+fn profile_fragment_directory_validation_rejects_path_id_mismatch() {
+    let sb = Sandbox::new();
+    let fragment_dir = sb.home.path().join("fragments/gpu");
+    fs::create_dir_all(&fragment_dir).expect("create fragment dir");
+    fs::write(
+        fragment_dir.join("amd.toml"),
+        valid_profile_fragment_toml().replace("id = \"gpu/amd\"", "id = \"audio/amd\""),
+    )
+    .expect("write fragment");
+
+    sb.nex()
+        .args([
+            "profile-fragment",
+            "validate",
+            sb.home.path().join("fragments").to_str().unwrap(),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("must start with its category prefix"));
+}
+
 // ── Machine profile signing tests ───────────────────────────────────────────────────────────
 
 #[test]
@@ -392,7 +484,7 @@ fn profile_sign_creates_signed_toml() {
         .current_dir(sb.home.path())
         .assert()
         .success()
-        .stderr(predicate::str::contains("machine profile signed"));
+        .stderr(predicate::str::contains("profile signed"));
 }
 
 #[test]
