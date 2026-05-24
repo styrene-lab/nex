@@ -6,7 +6,8 @@ mod edit;
 mod exec;
 pub mod forge;
 pub mod input;
-pub mod menu;
+pub mod machine_profile;
+mod menu;
 mod nixfile;
 mod ops;
 mod output;
@@ -113,6 +114,16 @@ fn main() -> Result<()> {
                 }
             }
         }
+        Command::MachineProfile { ref action } => {
+            return match action {
+                cli::MachineProfileAction::Validate { path } => {
+                    ops::machine_profile::run_validate(path)
+                }
+                cli::MachineProfileAction::Inspect { path } => {
+                    ops::machine_profile::run_inspect(path)
+                }
+            }
+        }
         Command::Profile { ref action } => match action {
             cli::ProfileAction::Sign { source, detached } => {
                 return ops::profile::run_sign(source, *detached)
@@ -184,6 +195,7 @@ fn main() -> Result<()> {
         | Command::BuildImage { .. }
         | Command::Develop { .. }
         | Command::Dev { .. }
+        | Command::MachineProfile { .. }
         | Command::Identity { .. }
         | Command::Rbac { .. } => {
             unreachable!()

@@ -201,7 +201,7 @@ fn list_removable_disks_linux() -> Vec<DiskInfo> {
 fn prompt_profile() -> Result<Option<String>> {
     let input: String = input()
         .input_text(
-            "  Profile (GitHub user/repo, local path, or blank for generic)",
+            "  Machine profile (GitHub user/repo, local path, or blank for generic)",
             Some(""),
         )
         .context("failed to read profile")?;
@@ -218,7 +218,10 @@ fn prompt_profile() -> Result<Option<String>> {
 
     // Local path?
     let path = std::path::Path::new(&input);
-    if path.exists() && (path.join("profile.toml").exists() || input.ends_with(".toml")) {
+    if path.exists()
+        && (path.join(crate::machine_profile::MACHINE_PROFILE_FILE).exists()
+            || input.ends_with(".toml"))
+    {
         return Ok(Some(input));
     }
 
@@ -525,9 +528,9 @@ fn run_with_options(
             bundle_dir.display()
         ));
         if let Some(p) = profile_ref {
-            output::dry_run(&format!("profile: {p}"));
+            output::dry_run(&format!("machine profile: {p}"));
         } else {
-            output::dry_run("mode: generic styx installer (no profile)");
+            output::dry_run("mode: generic styx installer (no machine profile)");
         }
         output::dry_run(&format!("hostname default: {hostname}"));
         if let Some(d) = disk {
@@ -536,12 +539,12 @@ fn run_with_options(
         return Ok(());
     }
 
-    // ── 1. Fetch and resolve profile chain ─────────────────────────
+    // ── 1. Fetch and resolve machine profile chain ───────────────────
     let profile_toml = if let Some(pref) = profile_ref {
-        output::status("resolving profile chain...");
+        output::status("resolving machine profile chain...");
         let resolved = resolve_profile_chain(pref)?;
         println!(
-            "  {} profile: {} ({})",
+            "  {} machine profile: {} ({})",
             style("✓").green().bold(),
             style(pref).cyan(),
             if resolved.chain.len() > 1 {
@@ -556,7 +559,7 @@ fn run_with_options(
         Some(resolved.merged)
     } else {
         println!(
-            "  {} generic styx installer (no profile baked in)",
+            "  {} generic styx installer (no machine profile baked in)",
             style("i").cyan()
         );
         None
@@ -621,11 +624,14 @@ fn run_with_options(
         );
     }
 
-    // ── 5. Write profile into bundle (if specified) ──────────────────
+    // ── 5. Write machine profile into bundle (if specified) ──────────
     if let Some(ref toml_content) = profile_toml {
         let profile_dir = styrene_dir.join("profile");
         std::fs::create_dir_all(&profile_dir)?;
-        std::fs::write(profile_dir.join("profile.toml"), toml_content)?;
+        std::fs::write(
+            profile_dir.join(crate::machine_profile::MACHINE_PROFILE_FILE),
+            toml_content,
+        )?;
         if let Some(pref) = profile_ref {
             std::fs::write(profile_dir.join("source"), format!("{pref}\n"))?;
         }
@@ -971,7 +977,7 @@ fn preflight_request(request: &ForgeRequest, plan: &ForgePlan) -> ForgePreflight
         if looks_like_local_profile(profile) {
             let profile_path = Path::new(profile);
             let profile_file = if profile_path.is_dir() {
-                profile_path.join("profile.toml")
+                profile_path.join(crate::machine_profile::MACHINE_PROFILE_FILE)
             } else {
                 profile_path.to_path_buf()
             };
@@ -1242,7 +1248,7 @@ pub fn run_check(
     std::process::exit(exit_code);
 }
 
-/// Resolved profile chain — base profiles merged in order.
+/// Resolved machine profile chain — base profiles merged in order.
 pub struct ResolvedProfile {
     /// The merged TOML content (base first, overlays applied in order).
     pub merged: String,
@@ -1250,7 +1256,7 @@ pub struct ResolvedProfile {
     pub chain: Vec<String>,
 }
 
-/// Recursively resolve a profile's `extends` chain and merge all layers.
+/// Recursively resolve a machine profile's `extends` chain and merge all layers.
 /// Base profile values are set first, then each overlay adds/overrides.
 pub fn resolve_profile_chain(repo_ref: &str) -> Result<ResolvedProfile> {
     let mut chain: Vec<String> = Vec::new();
@@ -1267,7 +1273,7 @@ pub fn resolve_profile_chain(repo_ref: &str) -> Result<ResolvedProfile> {
 
         let toml_str = fetch_profile_toml(pref)?;
         let value: toml::Value = toml::from_str(&toml_str)
-            .with_context(|| format!("invalid profile.toml from {pref}"))?;
+            .with_context(|| format!("invalid machine-profile.toml from {pref}"))?;
 
         // Check for extends
         current_ref = value
@@ -1291,7 +1297,7 @@ pub fn resolve_profile_chain(repo_ref: &str) -> Result<ResolvedProfile> {
 
     // Serialize back to TOML string
     let merged_str =
-        toml::to_string_pretty(&merged).context("failed to serialize merged profile")?;
+        toml::to_string_pretty(&merged).context("failed to serialize merged machine profile")?;
 
     Ok(ResolvedProfile {
         merged: merged_str,
@@ -1333,20 +1339,22 @@ fn merge_toml(base: &mut toml::Value, overlay: toml::Value) {
     }
 }
 
-/// Fetch profile.toml content from a local path or GitHub.
+/// Fetch machine-profile.toml content from a local path or GitHub.
 fn fetch_profile_toml(repo_ref: &str) -> Result<String> {
+    let manifest_name = crate::machine_profile::MACHINE_PROFILE_FILE;
     let path = Path::new(repo_ref);
     if path.exists() {
         let profile_path = if path.is_dir() {
-            path.join("profile.toml")
+            path.join(manifest_name)
         } else {
             path.to_path_buf()
         };
 
         if !profile_path.exists() {
             bail!(
-                "local profile path {} does not contain profile.toml",
-                path.display()
+                "local machine profile path {} does not contain {}",
+                path.display(),
+                manifest_name
             );
         }
 
@@ -1358,7 +1366,7 @@ fn fetch_profile_toml(repo_ref: &str) -> Result<String> {
     if let Ok(output) = Command::new("gh")
         .args([
             "api",
-            &format!("repos/{repo_ref}/contents/profile.toml"),
+            &format!("repos/{repo_ref}/contents/{manifest_name}"),
             "-H",
             "Accept: application/vnd.github.raw+json",
         ])
@@ -1370,14 +1378,14 @@ fn fetch_profile_toml(repo_ref: &str) -> Result<String> {
     }
 
     // Fallback to curl
-    let url = format!("https://raw.githubusercontent.com/{repo_ref}/main/profile.toml");
+    let url = format!("https://raw.githubusercontent.com/{repo_ref}/main/{manifest_name}");
     let output = Command::new("curl")
         .args(["-fsSL", &url])
         .output()
         .context("curl failed")?;
 
     if !output.status.success() {
-        bail!("could not fetch profile.toml from {repo_ref}");
+        bail!("could not fetch {manifest_name} from {repo_ref}");
     }
 
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
@@ -1735,7 +1743,7 @@ fn scaffold_nixos_config(config_dir: &Path, hostname: &str, profile_toml: &str) 
     let system = discover::detect_system();
 
     // Parse profile to extract linux settings
-    let profile: toml::Value = toml::from_str(profile_toml).context("invalid profile.toml")?;
+    let profile: toml::Value = toml::from_str(profile_toml).context("invalid machine-profile.toml")?;
 
     // flake.nix
     std::fs::write(
@@ -2374,7 +2382,7 @@ fn generate_polymerize(hostname: &str, profile_ref: &str) -> String {
     format!(
         r##"#!/usr/bin/env bash
 # polymerize.sh — NixOS installer generated by nex forge
-# Profile: {profile_ref}
+# Machine profile: {profile_ref}
 # Hostname: {hostname}
 set -euo pipefail
 
@@ -2384,7 +2392,7 @@ NEX_DIR="$SCRIPT_DIR/nex"
 
 echo "╔══════════════════════════════════════════════════════╗"
 echo "║  nex forge — NixOS installer                        ║"
-echo "║  Profile: {profile_ref}"
+echo "║  Machine profile: {profile_ref}"
 echo "║  Hostname: {hostname}"
 echo "╚══════════════════════════════════════════════════════╝"
 echo ""
@@ -2452,9 +2460,9 @@ echo ">>> Running nixos-install (this takes a while)..."
 nixos-install --flake /mnt/etc/nixos#{hostname} --no-root-passwd
 
 # ── Post-install: install nex and apply profile ──────────────────────
-echo ">>> Installing nex and applying profile..."
+echo ">>> Installing nex and applying machine profile..."
 
-# Copy nex profile into the installed system for first-boot apply
+# Copy nex machine profile into the installed system for first-boot apply
 mkdir -p /mnt/etc/nex-forge
 cp -r "$NEX_DIR"/* /mnt/etc/nex-forge/ 2>/dev/null || true
 
@@ -2469,7 +2477,7 @@ if [ -f "$MARKER" ]; then
     exit 0
 fi
 
-echo "nex forge: applying profile on first boot..."
+echo "nex forge: applying machine profile on first boot..."
 
 # Install nex if not present
 if ! command -v nex &>/dev/null; then
@@ -2478,7 +2486,7 @@ if ! command -v nex &>/dev/null; then
     fi
 fi
 
-# Apply the bundled profile
+# Apply the bundled machine profile
 if command -v nex &>/dev/null && [ -f /etc/nex-forge/source ]; then
     PROFILE=$(cat /etc/nex-forge/source | tr -d '[:space:]')
     nex profile apply "$PROFILE" || true
@@ -2486,7 +2494,7 @@ if command -v nex &>/dev/null && [ -f /etc/nex-forge/source ]; then
 fi
 
 touch "$MARKER"
-echo "nex forge: first-boot profile applied."
+echo "nex forge: first-boot machine profile applied."
 FIRSTBOOT
 
 chmod +x /mnt/etc/nixos/nex-firstboot.sh
@@ -3424,12 +3432,14 @@ mod tests {
 
     #[test]
     fn test_resolve_profile_chain_local_directory() {
-        let dir =
-            std::env::temp_dir().join(format!("nex-forge-local-profile-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "nex-forge-local-machine-profile-{}",
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(
-            dir.join("profile.toml"),
+            dir.join(crate::machine_profile::MACHINE_PROFILE_FILE),
             r#"
             [meta]
             name = "local-profile"

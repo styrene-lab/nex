@@ -7,6 +7,21 @@ All notable changes to nex are documented here. Format follows [Keep a Changelog
 ### Added
 - `nex build-image` now accepts `styrene-package.toml` inputs. Package manifests resolve `[nex].profile`, use `[image]` defaults for name/tag/entrypoint/cmd/ports, and emit Styrene OCI labels for package and agent metadata.
 
+## [0.18.0] - 2026-05-24
+
+### Added
+- First-class Nex machine profiles with a canonical `machine-profile.toml` schema for materialization policy, defaults, safety posture, secret-name contracts, targets, and dependencies.
+- `nex machine-profile validate` and `nex machine-profile inspect` commands.
+- Machine-profile boundary documentation for Omegon Armory indexing and OCI artifact metadata.
+
+### Changed
+- Forge and build-image profile inputs now use `machine-profile.toml` as the canonical Nex machine-profile manifest name.
+- CLI/help text now distinguishes Nex machine profiles from Omegon/Armory agent profiles.
+- Flat-layout Linux profile application now merges `./desktop.nix` into existing imports or inserts it into the Nix module body instead of the function-argument header.
+
+### Fixed
+- Fixed `nex profile apply` corrupting flat-layout NixOS `configuration.nix` files when adding `./desktop.nix` imports.
+
 ## [0.16.0] - 2026-04-29
 
 ### Added

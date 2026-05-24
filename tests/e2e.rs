@@ -291,13 +291,95 @@ fn identity_git_show_works() {
         .stderr(predicate::str::contains("git signing config"));
 }
 
-// ── Profile tests ───────────────────────────────────────────────────────────
+// ── Machine profile tests ─────────────────────────────────────────────────
+
+fn valid_machine_profile_toml() -> &'static str {
+    r#"
+[machine_profile]
+schema = "io.styrene.nex.machine-profile.v1"
+id = "io.styrene.nex.machine-profile.test"
+slug = "test"
+name = "Test Machine Profile"
+version = "1.0.0"
+min_nex = "0.18.0"
+
+[machine_profile.defaults]
+mode = "plan-only"
+target = "oci-image"
+
+[machine_profile.safety]
+default_destructive = false
+requires_confirmation = true
+requires_target_attestation = true
+allowed_targets = ["nix-devshell", "oci-image", "vm", "physical-machine"]
+
+[machine_profile.secrets]
+required = ["GITHUB_TOKEN"]
+optional = ["AWS_PROFILE"]
+
+[[dependencies]]
+kind = "forge-template"
+id = "nixos-workstation"
+version = ">=1.0.0"
+required = true
+"#
+}
+
+#[test]
+fn machine_profile_validate_accepts_valid_manifest() {
+    let sb = Sandbox::new();
+    let profile_dir = sb.home.path().join("machine-profile");
+    fs::create_dir_all(&profile_dir).expect("create profile dir");
+    fs::write(profile_dir.join("machine-profile.toml"), valid_machine_profile_toml())
+        .expect("write machine profile");
+
+    sb.nex()
+        .args(["machine-profile", "validate", profile_dir.to_str().unwrap()])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("machine-profile.toml is valid"));
+}
+
+#[test]
+fn machine_profile_inspect_prints_metadata() {
+    let sb = Sandbox::new();
+    let profile_path = sb.home.path().join("machine-profile.toml");
+    fs::write(&profile_path, valid_machine_profile_toml()).expect("write machine profile");
+
+    sb.nex()
+        .args(["machine-profile", "inspect", profile_path.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Machine Profile"))
+        .stdout(predicate::str::contains("ID: io.styrene.nex.machine-profile.test"))
+        .stdout(predicate::str::contains("Mode: plan-only"))
+        .stdout(predicate::str::contains("forge-template:nixos-workstation"));
+}
+
+#[test]
+fn machine_profile_validate_rejects_secret_values() {
+    let sb = Sandbox::new();
+    let profile_path = sb.home.path().join("machine-profile.toml");
+    fs::write(
+        &profile_path,
+        valid_machine_profile_toml().replace("GITHUB_TOKEN", "GITHUB_TOKEN=secret"),
+    )
+    .expect("write machine profile");
+
+    sb.nex()
+        .args(["machine-profile", "validate", profile_path.to_str().unwrap()])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("must be a name"));
+}
+
+// ── Machine profile signing tests ───────────────────────────────────────────────────────────
 
 #[test]
 fn profile_sign_creates_signed_toml() {
     let sb = Sandbox::new().with_identity();
 
-    let profile_path = sb.home.path().join("test-profile.toml");
+    let profile_path = sb.home.path().join("test-machine-profile.toml");
     fs::write(
         &profile_path,
         "[meta]\nname = \"test\"\n\n[packages]\nnix = [\"git\"]\n",
@@ -310,7 +392,7 @@ fn profile_sign_creates_signed_toml() {
         .current_dir(sb.home.path())
         .assert()
         .success()
-        .stderr(predicate::str::contains("profile signed"));
+        .stderr(predicate::str::contains("machine profile signed"));
 }
 
 #[test]
@@ -578,7 +660,7 @@ fn build_image_accepts_styrene_package_manifest() {
     let package_dir = sb.home.path().join("agent-package");
     fs::create_dir_all(&package_dir).expect("create package dir");
     fs::write(
-        package_dir.join("profile.toml"),
+        package_dir.join("machine-profile.toml"),
         r#"
 [meta]
 name = "profile-fallback"
@@ -596,7 +678,7 @@ name = "styrene.agent.primary"
 version = "0.1.0"
 
 [nex]
-profile = "./profile.toml"
+profile = "./machine-profile.toml"
 
 [image]
 name = "ghcr.io/styrene-lab/primary"
@@ -672,12 +754,12 @@ fn identity_age_exports_key() {
         .stderr(predicate::str::contains("age"));
 }
 
-// ── Profile verify tests ───────────────────────────────────────────────────
+// ── Machine profile verify tests ───────────────────────────────────────────────────
 
 #[test]
 fn profile_apply_verify_unsigned_fails() {
     let sb = Sandbox::new().with_identity().with_config();
-    let profile_path = sb.home.path().join("test-profile.toml");
+    let profile_path = sb.home.path().join("test-machine-profile.toml");
     std::fs::write(
         &profile_path,
         "[meta]\nname = \"test\"\n\n[packages]\nnix = [\"git\"]\n",

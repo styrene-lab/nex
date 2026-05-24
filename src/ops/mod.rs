@@ -12,6 +12,7 @@ pub mod init;
 pub mod install;
 pub mod list;
 pub mod migrate;
+pub mod machine_profile;
 pub mod polymerize;
 pub mod profile;
 pub mod rbac;

@@ -2256,16 +2256,12 @@ fn apply_linux(config: &Config, linux: &ProfileLinux, dry_run: bool) -> Result<(
         if config_nix.exists() {
             let content = std::fs::read_to_string(&config_nix)?;
             if !content.contains("desktop.nix") {
-                // Insert import after the opening "{"
-                if let Some(brace_pos) = content.find('{') {
-                    let mut patched = content[..=brace_pos].to_string();
-                    patched.push_str("\n  imports = [ ./desktop.nix ];");
-                    patched.push_str(&content[brace_pos + 1..]);
+                if let Some(patched) = patch_flat_configuration_import(&content) {
                     crate::edit::atomic_write_bytes(&config_nix, patched.as_bytes())?;
                 } else {
-                    tracing::warn!(file = %config_nix.display(), "no opening brace found — cannot insert desktop.nix import");
+                    tracing::warn!(file = %config_nix.display(), "could not insert desktop.nix import");
                     crate::output::warn(&format!(
-                        "could not wire desktop.nix import — no opening '{{' found in {}; manual edit may be required",
+                        "could not wire desktop.nix import in {}; manual edit may be required",
                         config_nix.display()
                     ));
                 }
@@ -2280,6 +2276,79 @@ fn apply_linux(config: &Config, linux: &ProfileLinux, dry_run: bool) -> Result<(
     println!("    {}", style(desktop_nix.display()).dim());
 
     Ok(())
+}
+
+fn patch_flat_configuration_import(content: &str) -> Option<String> {
+    if content.contains("./desktop.nix") || content.contains("desktop.nix") {
+        return Some(content.to_string());
+    }
+
+    if let Some(imports_pos) = content.find("imports") {
+        if let Some(open_rel) = content[imports_pos..].find('[') {
+            let open = imports_pos + open_rel;
+            if let Some(close_rel) = content[open..].find(']') {
+                let close = open + close_rel;
+                let mut patched = String::with_capacity(content.len() + " ./desktop.nix".len());
+                patched.push_str(&content[..close]);
+                patched.push_str(" ./desktop.nix");
+                patched.push_str(&content[close..]);
+                return Some(patched);
+            }
+        }
+    }
+
+    let insert_pos = find_nix_module_body_open(content)?;
+    let mut patched = String::with_capacity(content.len() + "\n  imports = [ ./desktop.nix ];".len());
+    patched.push_str(&content[..=insert_pos]);
+    patched.push_str("\n  imports = [ ./desktop.nix ];");
+    patched.push_str(&content[insert_pos + 1..]);
+    Some(patched)
+}
+
+fn find_nix_module_body_open(content: &str) -> Option<usize> {
+    if let Some(colon) = content.find(':') {
+        content[colon + 1..].find('{').map(|pos| colon + 1 + pos)
+    } else {
+        content.find('{')
+    }
+}
+
+#[cfg(test)]
+mod flat_configuration_import_tests {
+    use super::patch_flat_configuration_import;
+
+    #[test]
+    fn inserts_import_after_module_body_brace_not_function_args() {
+        let input = r#"{ pkgs, lib, username, hostname, ... }:
+
+{
+  networking.hostName = "gamingpc";
+}
+"#;
+
+        let patched = patch_flat_configuration_import(input).expect("patched");
+
+        assert!(patched.contains("{ pkgs, lib, username, hostname, ... }:\n\n{\n  imports = [ ./desktop.nix ];"));
+        assert!(!patched.contains("imports = [ ./desktop.nix ]; pkgs"));
+    }
+
+    #[test]
+    fn merges_existing_imports_instead_of_replacing_them() {
+        let input = r#"{ pkgs, ... }:
+
+{
+  imports = [ ./keyd.nix ];
+
+  networking.hostName = "gamingpc";
+}
+"#;
+
+        let patched = patch_flat_configuration_import(input).expect("patched");
+
+        assert!(patched.contains("./keyd.nix"));
+        assert!(patched.contains("./desktop.nix"));
+        assert!(patched.find("./keyd.nix").unwrap() < patched.find("./desktop.nix").unwrap());
+    }
 }
 
 // ── Profile signing ─────────────────────────────────────────────────────────

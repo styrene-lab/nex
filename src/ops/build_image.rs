@@ -7,7 +7,7 @@ use console::style;
 use crate::exec;
 use crate::ops::forge;
 
-/// Run `nex build-image` — build an OCI container image from a profile or package manifest.
+/// Run `nex build-image` — build an OCI container image from a machine profile or package manifest.
 pub fn run(source: &str, name: Option<&str>, tag: Option<&str>, dry_run: bool) -> Result<()> {
     println!();
     println!(
@@ -18,7 +18,7 @@ pub fn run(source: &str, name: Option<&str>, tag: Option<&str>, dry_run: bool) -
 
     let build_source = resolve_build_source(source)?;
     let profile: toml::Value =
-        toml::from_str(&build_source.resolved.merged).context("invalid profile.toml")?;
+        toml::from_str(&build_source.resolved.merged).context("invalid machine-profile.toml")?;
 
     let image_name = name
         .map(ToOwned::to_owned)
@@ -300,8 +300,9 @@ fn resolve_build_source(source: &str) -> Result<BuildSource> {
 }
 
 fn resolve_profile_input(profile_ref: &str) -> Result<forge::ResolvedProfile> {
-    if Path::new(profile_ref).join("profile.toml").exists() {
-        let content = std::fs::read_to_string(Path::new(profile_ref).join("profile.toml"))?;
+    let manifest_path = Path::new(profile_ref).join(crate::machine_profile::MACHINE_PROFILE_FILE);
+    if manifest_path.exists() {
+        let content = std::fs::read_to_string(&manifest_path)?;
         Ok(forge::ResolvedProfile {
             merged: content,
             chain: vec![profile_ref.to_string()],
@@ -749,7 +750,7 @@ version = "0.1.0"
 source = "github:styrene-lab/packages/primary"
 
 [nex]
-profile = "./profile.toml"
+profile = "./machine-profile.toml"
 
 [image]
 name = "ghcr.io/styrene-lab/primary"
@@ -778,7 +779,7 @@ model = "anthropic:claude-sonnet-4-6"
         assert_eq!(package.expose, Some(vec![7842]));
         assert_eq!(package.agent_role.as_deref(), Some("primary-driver"));
         assert_eq!(
-            package.labels("./profile.toml"),
+            package.labels("./machine-profile.toml"),
             vec![
                 (
                     "io.styrene.package.name".to_string(),
@@ -786,7 +787,7 @@ model = "anthropic:claude-sonnet-4-6"
                 ),
                 (
                     "io.styrene.nex.profile".to_string(),
-                    "./profile.toml".to_string()
+                    "./machine-profile.toml".to_string()
                 ),
                 (
                     "org.opencontainers.image.version".to_string(),

@@ -87,6 +87,11 @@ pub enum Command {
     },
     /// Identify brew packages that can migrate to nix
     Migrate,
+    /// Inspect and validate Nex machine profiles
+    MachineProfile {
+        #[command(subcommand)]
+        action: MachineProfileAction,
+    },
     /// Manage and apply machine profiles
     #[command(
         after_help = "Note: `nex profile <source>` was renamed to `nex profile apply <source>` in v0.16.0"
@@ -95,13 +100,13 @@ pub enum Command {
         #[command(subcommand)]
         action: ProfileAction,
     },
-    /// Build a bootable NixOS installer USB, optionally with a baked-in profile
+    /// Build a bootable NixOS installer USB, optionally with a baked-in machine profile
     Forge {
         #[command(subcommand)]
         action: Option<ForgeAction>,
 
-        /// Nex profile (GitHub user/repo) to bake in. Omit for generic styx installer.
-        #[arg(value_name = "PROFILE")]
+        /// Nex machine profile (GitHub user/repo) to bake in. Omit for generic styx installer.
+        #[arg(value_name = "MACHINE_PROFILE")]
         profile: Option<String>,
 
         /// Hostname default for the target system (user can override at install time)
@@ -126,9 +131,9 @@ pub enum Command {
         #[arg(long)]
         bundle: Option<PathBuf>,
     },
-    /// Build an OCI container image from a profile or Styrene package manifest
+    /// Build an OCI container image from a machine profile or Styrene package manifest
     BuildImage {
-        /// Nex profile, local profile.toml, or styrene-package.toml
+        /// Nex machine profile, local machine-profile.toml, or styrene-package.toml
         #[arg(value_name = "SOURCE")]
         source: String,
 
@@ -271,28 +276,44 @@ pub enum IdentityAction {
 }
 
 #[derive(Subcommand)]
+pub enum MachineProfileAction {
+    /// Validate a machine-profile.toml manifest
+    Validate {
+        /// Path to machine-profile.toml or a directory containing it
+        #[arg(value_name = "PATH")]
+        path: PathBuf,
+    },
+    /// Inspect a machine-profile.toml manifest
+    Inspect {
+        /// Path to machine-profile.toml or a directory containing it
+        #[arg(value_name = "PATH")]
+        path: PathBuf,
+    },
+}
+
+#[derive(Subcommand)]
 pub enum ProfileAction {
-    /// Apply a profile to this machine
+    /// Apply a machine profile to this machine
     Apply {
         /// GitHub repo (user/repo), URL, or local path
         #[arg(value_name = "SOURCE")]
         source: String,
-        /// Verify the profile signature before applying (local .signed.toml files only)
+        /// Verify the machine profile signature before applying (local .signed.toml files only)
         #[arg(long)]
         verify: bool,
     },
-    /// Sign a profile with your Styrene identity
+    /// Sign a machine profile with your Styrene identity
     Sign {
-        /// GitHub repo (user/repo) or local path to profile.toml
+        /// GitHub repo (user/repo) or local path to machine-profile.toml
         #[arg(value_name = "SOURCE")]
         source: String,
         /// Write signature to a detached .sig file instead of embedding in [meta]
         #[arg(long)]
         detached: bool,
     },
-    /// Verify a signed profile
+    /// Verify a signed machine profile
     Verify {
-        /// GitHub repo (user/repo) or local path to profile.toml
+        /// GitHub repo (user/repo) or local path to machine-profile.toml
         #[arg(value_name = "SOURCE")]
         source: String,
     },
