@@ -535,6 +535,68 @@ fn list_shows_packages() {
         .stdout(predicate::str::contains("vim"));
 }
 
+// ── Forge materialization tests ────────────────────────────────────────────
+
+#[test]
+fn forge_check_materialization_evaluates_workspace() {
+    let sb = Sandbox::new();
+    let workspace = sb.home.path().join("materialization");
+    fs::create_dir_all(&workspace).expect("create workspace");
+    fs::write(workspace.join("flake.nix"), "{}").expect("write flake");
+
+    sb.nex()
+        .args([
+            "forge",
+            "check-materialization",
+            workspace.to_str().unwrap(),
+            "--hostname",
+            "test-host",
+        ])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("checking materialization"))
+        .stdout(predicate::str::contains("materialization evaluates"));
+}
+
+#[test]
+fn forge_check_materialization_rejects_invalid_hostname() {
+    let sb = Sandbox::new();
+    let workspace = sb.home.path().join("materialization");
+    fs::create_dir_all(&workspace).expect("create workspace");
+    fs::write(workspace.join("flake.nix"), "{}").expect("write flake");
+
+    sb.nex()
+        .args([
+            "forge",
+            "check-materialization",
+            workspace.to_str().unwrap(),
+            "--hostname",
+            "bad/host",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("hostname must contain only"));
+}
+
+#[test]
+fn forge_check_materialization_rejects_workspace_without_flake() {
+    let sb = Sandbox::new();
+    let workspace = sb.home.path().join("materialization");
+    fs::create_dir_all(&workspace).expect("create workspace");
+
+    sb.nex()
+        .args([
+            "forge",
+            "check-materialization",
+            workspace.to_str().unwrap(),
+            "--hostname",
+            "test-host",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("does not contain flake.nix"));
+}
+
 // ── Forge tests ─────────────────────────────────────────────────────────────
 
 #[test]

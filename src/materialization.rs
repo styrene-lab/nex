@@ -83,6 +83,10 @@ pub fn validate_workspace(workspace: &Path) -> Result<()> {
 }
 
 pub fn find_nix() -> String {
+    if std::env::var_os("NEX_TESTING").is_some() {
+        return "nix".to_string();
+    }
+
     let candidates = [
         "/nix/var/nix/profiles/default/bin/nix",
         "/run/current-system/sw/bin/nix",

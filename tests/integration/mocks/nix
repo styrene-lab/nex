@@ -26,6 +26,13 @@ declare -A NIXPKGS=(
 cmd="${1:-}"
 shift || true
 
+# Ignore global experimental-feature flags used by materialization checks.
+if [[ "$cmd" == "--extra-experimental-features" ]]; then
+  shift || true
+  cmd="${1:-}"
+  shift || true
+fi
+
 case "$cmd" in
   eval)
     # nix eval nixpkgs#pkg.version --raw
