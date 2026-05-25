@@ -306,6 +306,31 @@ pub fn write_initial_config(repo_path: &Path, hostname: &str) -> Result<PathBuf>
     Ok(path)
 }
 
+pub fn migrate_to_pkl(keep_toml: bool) -> Result<PathBuf> {
+    let source = resolve_config_source()?;
+    let value = match source {
+        Some(LocalConfigSource { path, format: LocalConfigFormat::Pkl }) => {
+            read_config_value_for_write(&path)?
+        }
+        Some(LocalConfigSource { path, format: LocalConfigFormat::TomlCompat }) => {
+            read_config_value_for_write(&path)?
+        }
+        None => toml::Value::Table(toml::map::Map::new()),
+    };
+
+    let canonical = canonical_config_path()?;
+    write_config_value(&canonical, &value)?;
+
+    if keep_toml {
+        let compat = toml_compat_config_path()?;
+        let rendered = toml::to_string_pretty(&value).context("serializing compatibility TOML")?;
+        crate::edit::atomic_write_bytes(&compat, rendered.as_bytes())
+            .with_context(|| format!("writing {}", compat.display()))?;
+    }
+
+    Ok(canonical)
+}
+
 pub fn export_config_toml() -> Result<String> {
     let config = load_file_config()?;
     let value = toml::Value::try_from(config).context("converting config to TOML value")?;
@@ -497,4 +522,18 @@ mod tests {
         assert_eq!(config_format_for_path(&pkl).unwrap(), LocalConfigFormat::Pkl);
         assert_eq!(config_format_for_path(&toml).unwrap(), LocalConfigFormat::TomlCompat);
     }
+    #[test]
+    fn migrate_preserves_toml_export_shape() {
+        let mut table = toml::map::Map::new();
+        table.insert("repo_path".to_string(), toml::Value::String("/tmp/repo".to_string()));
+        table.insert("hostname".to_string(), toml::Value::String("test-host".to_string()));
+        let value = toml::Value::Table(table);
+        let pkl = serialize_config_value(&value, LocalConfigFormat::Pkl).unwrap();
+        let toml = serialize_config_value(&value, LocalConfigFormat::TomlCompat).unwrap();
+
+        assert!(pkl.contains("repo_path = \"/tmp/repo\""));
+        assert!(toml.contains("repo_path = \"/tmp/repo\""));
+        assert!(toml::from_str::<toml::Value>(&toml).is_ok());
+    }
+
 }

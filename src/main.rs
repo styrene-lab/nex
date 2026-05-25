@@ -96,6 +96,14 @@ fn main() -> Result<()> {
         } => return ops::build_image::run(source, name.as_deref(), tag.as_deref(), cli.dry_run),
         Command::Develop { ref flake } => return ops::develop::run(flake),
         Command::Dev { ref project } => return ops::dev::run(project),
+        Command::Config { ref action } => {
+            return match action {
+                cli::ConfigAction::Export { format, output } => {
+                    ops::config::run_export(format, output.as_deref())
+                }
+                cli::ConfigAction::Migrate { keep_toml } => ops::config::run_migrate(*keep_toml),
+            }
+        }
         Command::Rbac { ref action } => {
             return match action {
                 cli::RbacAction::Sync {
@@ -220,6 +228,7 @@ fn main() -> Result<()> {
         | Command::Dev { .. }
         | Command::MachineProfile { .. }
         | Command::ProfileFragment { .. }
+        | Command::Config { .. }
         | Command::Identity { .. }
         | Command::Rbac { .. } => {
             unreachable!()

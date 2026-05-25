@@ -162,6 +162,11 @@ pub enum Command {
         #[arg(value_name = "PROJECT")]
         project: String,
     },
+    /// Manage local Nex configuration
+    Config {
+        #[command(subcommand)]
+        action: ConfigAction,
+    },
     /// Manage Styrene identity (key generation, display)
     Identity {
         #[command(subcommand)]
@@ -180,6 +185,26 @@ pub enum Command {
     Diff,
     /// Garbage collect nix store
     Gc,
+}
+
+#[derive(Subcommand)]
+pub enum ConfigAction {
+    /// Export effective local config from canonical Pkl to compatibility formats
+    Export {
+        /// Output format
+        #[arg(long, value_name = "FORMAT", default_value = "toml")]
+        format: String,
+
+        /// Write to a file instead of stdout
+        #[arg(long)]
+        output: Option<PathBuf>,
+    },
+    /// Create canonical config.pkl from existing compatibility config.toml
+    Migrate {
+        /// Keep or regenerate compatibility config.toml after migration
+        #[arg(long)]
+        keep_toml: bool,
+    },
 }
 
 #[derive(Subcommand)]
