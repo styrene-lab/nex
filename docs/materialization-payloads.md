@@ -84,3 +84,21 @@ nixos_hardware = "github:NixOS/nixos-hardware"
 
 Humans should prefer Pkl. TOML should be treated as generated or legacy
 interchange.
+
+## nixosModule export
+
+The 0.19.0 module-export surface is:
+
+```text
+nex forge build-module <payload.pkl> --name <name> --output <dir>
+```
+
+The command validates the canonical Pkl materialization payload and writes a
+small flake exposing:
+
+```nix
+nixosModules.<name> = import ./module.nix;
+```
+
+This establishes the composable output boundary for issue #5. Later slices can
+fill `module.nix` with generated fragment/materialization content.

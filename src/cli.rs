@@ -267,6 +267,20 @@ pub enum ForgeAction {
         #[arg(long)]
         hostname: String,
     },
+    /// Export a composable nixosModule from a materialization source
+    BuildModule {
+        /// Canonical Pkl materialization source; TOML is compatibility/interchange
+        #[arg(value_name = "SOURCE")]
+        source: PathBuf,
+
+        /// nixosModules.<name> output name
+        #[arg(long)]
+        name: String,
+
+        /// Output directory for generated flake/module
+        #[arg(long, short)]
+        output: PathBuf,
+    },
 }
 
 #[derive(Subcommand)]

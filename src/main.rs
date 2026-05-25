@@ -77,6 +77,9 @@ fn main() -> Result<()> {
                         source.as_deref(),
                         hostname,
                     ),
+                    cli::ForgeAction::BuildModule { source, name, output } => {
+                        ops::forge::run_build_module(source, name, output)
+                    }
                 };
             }
             return ops::forge::run(

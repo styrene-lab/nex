@@ -3361,3 +3361,14 @@ mod tests {
         assert!(output.contains("'kitty.desktop'"));
     }
 }
+
+pub fn run_build_module(source: &Path, name: &str, output: &Path) -> Result<()> {
+    crate::materialization::MaterializationPayload::from_source(source)?;
+    let export = crate::materialization::NixosModuleExport {
+        workspace: output.to_path_buf(),
+        name: name.to_string(),
+    };
+    export.write()?;
+    println!("nixosModule exported: {}", output.display());
+    Ok(())
+}
