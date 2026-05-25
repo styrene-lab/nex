@@ -325,28 +325,57 @@ required = true
 "#
 }
 
+fn valid_machine_profile_pkl_json() -> &'static str {
+    r#"{
+  "machine_profile": {
+    "schema": "io.styrene.nex.machine-profile.v1",
+    "id": "io.styrene.nex.machine-profile.test",
+    "slug": "test",
+    "name": "Test Machine Profile",
+    "version": "1.0.0",
+    "min_nex": "0.18.0",
+    "defaults": { "mode": "plan-only", "target": "oci-image" },
+    "safety": {
+      "default_destructive": false,
+      "requires_confirmation": true,
+      "requires_target_attestation": true,
+      "allowed_targets": ["nix-devshell", "oci-image", "vm", "physical-machine"]
+    },
+    "secrets": { "required": ["GITHUB_TOKEN"], "optional": ["AWS_PROFILE"] }
+  },
+  "dependencies": [
+    { "kind": "forge-template", "id": "nixos-workstation", "version": ">=1.0.0", "required": true }
+  ]
+}
+"#
+}
+
 #[test]
 fn machine_profile_validate_accepts_valid_manifest() {
     let sb = Sandbox::new();
     let profile_dir = sb.home.path().join("machine-profile");
     fs::create_dir_all(&profile_dir).expect("create profile dir");
-    fs::write(profile_dir.join("machine-profile.toml"), valid_machine_profile_toml())
+    fs::write(profile_dir.join("machine-profile.pkl"), valid_machine_profile_pkl_json())
         .expect("write machine profile");
 
+    let fake_pkl = write_fake_pkl(sb.home.path(), valid_machine_profile_pkl_json());
     sb.nex()
+        .env("NEX_PKL", &fake_pkl)
         .args(["machine-profile", "validate", profile_dir.to_str().unwrap()])
         .assert()
         .success()
-        .stderr(predicate::str::contains("machine-profile.toml is valid"));
+        .stderr(predicate::str::contains("machine-profile.pkl is valid"));
 }
 
 #[test]
 fn machine_profile_inspect_prints_metadata() {
     let sb = Sandbox::new();
-    let profile_path = sb.home.path().join("machine-profile.toml");
-    fs::write(&profile_path, valid_machine_profile_toml()).expect("write machine profile");
+    let profile_path = sb.home.path().join("machine-profile.pkl");
+    fs::write(&profile_path, valid_machine_profile_pkl_json()).expect("write machine profile");
+    let fake_pkl = write_fake_pkl(sb.home.path(), valid_machine_profile_pkl_json());
 
     sb.nex()
+        .env("NEX_PKL", &fake_pkl)
         .args(["machine-profile", "inspect", profile_path.to_str().unwrap()])
         .assert()
         .success()
@@ -359,14 +388,14 @@ fn machine_profile_inspect_prints_metadata() {
 #[test]
 fn machine_profile_validate_rejects_secret_values() {
     let sb = Sandbox::new();
-    let profile_path = sb.home.path().join("machine-profile.toml");
-    fs::write(
-        &profile_path,
-        valid_machine_profile_toml().replace("GITHUB_TOKEN", "GITHUB_TOKEN=secret"),
-    )
+    let profile_path = sb.home.path().join("machine-profile.pkl");
+    let invalid = valid_machine_profile_pkl_json().replace("GITHUB_TOKEN", "GITHUB_TOKEN=secret");
+    fs::write(&profile_path, &invalid)
     .expect("write machine profile");
 
+    let fake_pkl = write_fake_pkl(sb.home.path(), &invalid);
     sb.nex()
+        .env("NEX_PKL", &fake_pkl)
         .args(["machine-profile", "validate", profile_path.to_str().unwrap()])
         .assert()
         .failure()
@@ -375,46 +404,52 @@ fn machine_profile_validate_rejects_secret_values() {
 
 // ── Profile fragment tests ────────────────────────────────────────────────
 
-fn valid_profile_fragment_toml() -> &'static str {
-    r#"
-[fragment]
-schema = "io.styrene.nex.profile-fragment.v1"
-id = "gpu/amd"
-name = "amd"
-description = "AMD GPU"
-category = "gpu"
-requires = ["platform/linux"]
-conflicts = ["gpu/nvidia", "gpu/intel"]
-platforms = ["linux"]
-visibility = "public"
-
-[fragment.safety]
-mutates_system_services = false
-mutates_hardware_drivers = true
-requires_confirmation = true
+fn valid_profile_fragment_pkl_json() -> &'static str {
+    r#"{
+  "fragment": {
+    "schema": "io.styrene.nex.profile-fragment.v1",
+    "id": "gpu/amd",
+    "name": "amd",
+    "description": "AMD GPU",
+    "category": "gpu",
+    "requires": ["platform/linux"],
+    "conflicts": ["gpu/nvidia", "gpu/intel"],
+    "platforms": ["linux"],
+    "visibility": "public",
+    "safety": {
+      "mutates_system_services": false,
+      "mutates_hardware_drivers": true,
+      "requires_confirmation": true
+    }
+  }
+}
 "#
 }
 
 #[test]
 fn profile_fragment_validate_accepts_valid_manifest() {
     let sb = Sandbox::new();
-    let fragment_path = sb.home.path().join("amd.toml");
-    fs::write(&fragment_path, valid_profile_fragment_toml()).expect("write fragment");
+    let fragment_path = sb.home.path().join("amd.pkl");
+    fs::write(&fragment_path, valid_profile_fragment_pkl_json()).expect("write fragment");
+    let fake_pkl = write_fake_pkl(sb.home.path(), valid_profile_fragment_pkl_json());
 
     sb.nex()
+        .env("NEX_PKL", &fake_pkl)
         .args(["profile-fragment", "validate", fragment_path.to_str().unwrap()])
         .assert()
         .success()
-        .stderr(predicate::str::contains("amd.toml is valid"));
+        .stderr(predicate::str::contains("amd.pkl is valid"));
 }
 
 #[test]
 fn profile_fragment_inspect_prints_metadata() {
     let sb = Sandbox::new();
-    let fragment_path = sb.home.path().join("amd.toml");
-    fs::write(&fragment_path, valid_profile_fragment_toml()).expect("write fragment");
+    let fragment_path = sb.home.path().join("amd.pkl");
+    fs::write(&fragment_path, valid_profile_fragment_pkl_json()).expect("write fragment");
+    let fake_pkl = write_fake_pkl(sb.home.path(), valid_profile_fragment_pkl_json());
 
     sb.nex()
+        .env("NEX_PKL", &fake_pkl)
         .args(["profile-fragment", "inspect", fragment_path.to_str().unwrap()])
         .assert()
         .success()
@@ -427,16 +462,18 @@ fn profile_fragment_inspect_prints_metadata() {
 #[test]
 fn profile_fragment_directory_validation_checks_path_id() {
     let sb = Sandbox::new();
-    let fragment_dir = sb.home.path().join("fragments/gpu");
-    fs::create_dir_all(&fragment_dir).expect("create fragment dir");
-    fs::write(fragment_dir.join("amd.toml"), valid_profile_fragment_toml())
+    let fragment_dir = sb.home.path().join("fragments");
+    fs::create_dir_all(fragment_dir.join("gpu")).expect("create fragment dir");
+    fs::write(fragment_dir.join("gpu").join("amd.pkl"), valid_profile_fragment_pkl_json())
         .expect("write fragment");
+    let fake_pkl = write_fake_pkl(sb.home.path(), valid_profile_fragment_pkl_json());
 
     sb.nex()
+        .env("NEX_PKL", &fake_pkl)
         .args([
             "profile-fragment",
             "validate",
-            sb.home.path().join("fragments").to_str().unwrap(),
+            fragment_dir.to_str().unwrap(),
         ])
         .assert()
         .success()
@@ -446,19 +483,19 @@ fn profile_fragment_directory_validation_checks_path_id() {
 #[test]
 fn profile_fragment_directory_validation_rejects_path_id_mismatch() {
     let sb = Sandbox::new();
-    let fragment_dir = sb.home.path().join("fragments/gpu");
-    fs::create_dir_all(&fragment_dir).expect("create fragment dir");
-    fs::write(
-        fragment_dir.join("amd.toml"),
-        valid_profile_fragment_toml().replace("id = \"gpu/amd\"", "id = \"audio/amd\""),
-    )
-    .expect("write fragment");
+    let fragment_dir = sb.home.path().join("fragments");
+    fs::create_dir_all(fragment_dir.join("gpu")).expect("create fragment dir");
+    let invalid = valid_profile_fragment_pkl_json()
+        .replace("\"id\": \"gpu/amd\"", "\"id\": \"audio/amd\"");
+    fs::write(fragment_dir.join("gpu").join("amd.pkl"), &invalid).expect("write fragment");
+    let fake_pkl = write_fake_pkl(sb.home.path(), &invalid);
 
     sb.nex()
+        .env("NEX_PKL", &fake_pkl)
         .args([
             "profile-fragment",
             "validate",
-            sb.home.path().join("fragments").to_str().unwrap(),
+            fragment_dir.to_str().unwrap(),
         ])
         .assert()
         .failure()

@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 
-pub const MACHINE_PROFILE_FILE: &str = "machine-profile.toml";
+pub const MACHINE_PROFILE_FILE: &str = "machine-profile.pkl";
+pub const MACHINE_PROFILE_TOML_COMPAT_FILE: &str = "machine-profile.toml";
 pub const MACHINE_PROFILE_SCHEMA_V1: &str = "io.styrene.nex.machine-profile.v1";
 
 #[derive(Debug, Clone, Deserialize)]
@@ -118,13 +119,16 @@ impl fmt::Display for MachineProfileDependencyKind {
 impl MachineProfileDocument {
     pub fn from_path(path: &Path) -> Result<Self> {
         let manifest_path = resolve_manifest_path(path)?;
-        let content = std::fs::read_to_string(&manifest_path)
-            .with_context(|| format!("reading {}", manifest_path.display()))?;
-        Self::from_str(&content).with_context(|| format!("parsing {}", manifest_path.display()))
+        let loaded = crate::document::load_document::<Self>(&manifest_path, "machine profile")?;
+        loaded
+            .value
+            .validate()
+            .with_context(|| format!("validating {}", manifest_path.display()))?;
+        Ok(loaded.value)
     }
 
     pub fn from_str(content: &str) -> Result<Self> {
-        let document: Self = toml::from_str(content).context("invalid machine profile TOML")?;
+        let document: Self = toml::from_str(content).context("invalid compatibility machine profile TOML")?;
         document.validate()?;
         Ok(document)
     }
@@ -186,7 +190,15 @@ impl MachineProfileDocument {
 
 pub fn resolve_manifest_path(path: &Path) -> Result<PathBuf> {
     if path.is_dir() {
-        Ok(path.join(MACHINE_PROFILE_FILE))
+        let canonical = path.join(MACHINE_PROFILE_FILE);
+        if canonical.exists() {
+            return Ok(canonical);
+        }
+        let compat = path.join(MACHINE_PROFILE_TOML_COMPAT_FILE);
+        if compat.exists() {
+            return Ok(compat);
+        }
+        Ok(canonical)
     } else {
         Ok(path.to_path_buf())
     }

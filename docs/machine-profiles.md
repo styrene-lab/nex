@@ -28,7 +28,7 @@ Machine profiles do **not** define agent persona, skills, model policy, or tool 
 The canonical file name is:
 
 ```text
-machine-profile.toml
+machine-profile.pkl
 ```
 
 The top-level schema table is `[machine_profile]`. The v1 schema id is:

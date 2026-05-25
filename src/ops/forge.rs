@@ -1224,10 +1224,13 @@ pub fn run_check_materialization(
     let workspace = match (workspace, source) {
         (Some(workspace), None) => workspace.to_path_buf(),
         (None, Some(source)) => {
-            output::status("resolving materialization payload...");
-            let resolved = resolve_profile_chain(source)?;
+            output::status("resolving canonical materialization source...");
             temp_dir = tempfile::tempdir().context("creating materialization check workspace")?;
-            crate::materialization::scaffold_nixos_config(temp_dir.path(), hostname, &resolved.merged)?;
+            crate::materialization::scaffold_nixos_config_from_source(
+                temp_dir.path(),
+                hostname,
+                Path::new(source),
+            )?;
             temp_dir.path().to_path_buf()
         }
         (Some(_), Some(_)) => bail!("provide either WORKSPACE or --source, not both"),
@@ -1309,7 +1312,7 @@ pub fn resolve_profile_chain(repo_ref: &str) -> Result<ResolvedProfile> {
 
         let toml_str = fetch_profile_toml(pref)?;
         let value: toml::Value = toml::from_str(&toml_str)
-            .with_context(|| format!("invalid machine-profile.toml from {pref}"))?;
+            .with_context(|| format!("invalid machine-profile source from {pref}"))?;
 
         // Check for extends
         current_ref = value
@@ -1375,7 +1378,7 @@ fn merge_toml(base: &mut toml::Value, overlay: toml::Value) {
     }
 }
 
-/// Fetch machine-profile.toml content from a local path or GitHub.
+/// Fetch machine profile content from a local path or GitHub.
 fn fetch_profile_toml(repo_ref: &str) -> Result<String> {
     let manifest_name = crate::machine_profile::MACHINE_PROFILE_FILE;
     let path = Path::new(repo_ref);

@@ -6,7 +6,7 @@
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+
 
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -437,7 +437,7 @@ pub fn check_template(
         validate_public_template_source_safety(&source, &mut source_errors);
     }
 
-    let evaluated = evaluate_pkl_json(template_path)?;
+    let evaluated = crate::pkl::evaluate_json(template_path)?;
     let request = request_from_evaluated_pkl(evaluated.clone())?;
     if !public_by_metadata && evaluated_visibility_is_public(&evaluated) {
         validate_public_template_source_safety(&source, &mut source_errors);
@@ -1147,95 +1147,8 @@ impl PklRequestBuilder {
 }
 
 fn evaluate_pkl_request(path: &Path) -> Result<ForgeRequest> {
-    let value = evaluate_pkl_json(path)?;
+    let value = crate::pkl::evaluate_json(path)?;
     request_from_evaluated_pkl(value)
-}
-
-fn evaluate_pkl_json(path: &Path) -> Result<serde_json::Value> {
-    let output = run_pkl_eval(path)?;
-    serde_json::from_slice(&output)
-        .with_context(|| format!("Pkl evaluator did not emit JSON for {}", path.display()))
-}
-
-fn run_pkl_eval(path: &Path) -> Result<Vec<u8>> {
-    let path_arg = path.to_string_lossy().to_string();
-    let mut attempts = Vec::new();
-
-    if let Ok(bin) = std::env::var("NEX_PKL") {
-        attempts.push(PklCommand {
-            program: bin,
-            args: vec![
-                "eval".into(),
-                "--format".into(),
-                "json".into(),
-                path_arg.clone(),
-            ],
-        });
-    }
-    attempts.push(PklCommand {
-        program: "pkl".into(),
-        args: vec![
-            "eval".into(),
-            "--format".into(),
-            "json".into(),
-            path_arg.clone(),
-        ],
-    });
-    attempts.push(PklCommand {
-        program: "nix".into(),
-        args: vec![
-            "shell".into(),
-            "nixpkgs#pkl".into(),
-            "-c".into(),
-            "pkl".into(),
-            "eval".into(),
-            "--format".into(),
-            "json".into(),
-            path_arg,
-        ],
-    });
-
-    let mut missing = Vec::new();
-    for attempt in attempts {
-        let output = Command::new(&attempt.program)
-            .args(&attempt.args)
-            .stdin(Stdio::null())
-            .output();
-        match output {
-            Ok(output) if output.status.success() => return Ok(output.stdout),
-            Ok(output) => {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                bail!(
-                    "Pkl evaluator command failed: {} {}\n{}",
-                    attempt.program,
-                    attempt.args.join(" "),
-                    stderr.trim()
-                );
-            }
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-                missing.push(attempt.program);
-            }
-            Err(err) => {
-                return Err(err).with_context(|| {
-                    format!(
-                        "starting Pkl evaluator command: {} {}",
-                        attempt.program,
-                        attempt.args.join(" ")
-                    )
-                });
-            }
-        }
-    }
-
-    bail!(
-        "Pkl evaluator unavailable; install `pkl`, set NEX_PKL, or provide `nix` so Nex can run nixpkgs#pkl (tried: {})",
-        missing.join(", ")
-    )
-}
-
-struct PklCommand {
-    program: String,
-    args: Vec<String>,
 }
 
 fn request_from_evaluated_pkl(value: serde_json::Value) -> Result<ForgeRequest> {

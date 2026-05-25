@@ -18,7 +18,7 @@ pub fn run(source: &str, name: Option<&str>, tag: Option<&str>, dry_run: bool) -
 
     let build_source = resolve_build_source(source)?;
     let profile: toml::Value =
-        toml::from_str(&build_source.resolved.merged).context("invalid machine-profile.toml")?;
+        toml::from_str(&build_source.resolved.merged).context("invalid machine profile source")?;
 
     let image_name = name
         .map(ToOwned::to_owned)

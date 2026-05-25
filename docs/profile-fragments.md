@@ -75,7 +75,7 @@ Initial categories:
 - `shell`
 - `role`
 
-The ID category must match the declared `category` field. When validating a repository directory, Nex also checks that the metadata ID matches the path-derived ID, e.g. `gpu/amd.toml` must declare `id = "gpu/amd"`.
+The ID category must match the declared `category` field. When validating a repository directory, Nex also checks that the metadata ID matches the path-derived ID, e.g. `gpu/amd.pkl` must declare `id = "gpu/amd"`.
 
 ## Dependency and conflict semantics
 
@@ -112,7 +112,7 @@ If Armory indexes fragments, use:
 {
   "kind": "profile-fragment",
   "id": "gpu/amd",
-  "sourcePath": "gpu/amd.toml",
+  "sourcePath": "gpu/amd.pkl",
   "artifactType": "application/vnd.styrene.nex.profile-fragment.v1+toml",
   "dependencies": [
     { "kind": "profile-fragment", "id": "platform/linux", "required": true }

@@ -11,10 +11,28 @@ pub struct MaterializationPayload {
 }
 
 impl MaterializationPayload {
+    pub fn from_source(path: &Path) -> Result<Self> {
+        let loaded = crate::document::load_document::<Self>(path, "materialization payload")?;
+        loaded.value.validate()?;
+        Ok(loaded.value)
+    }
+
     pub fn from_toml_str(content: &str) -> Result<Self> {
-        let payload: Self = toml::from_str(content).context("invalid materialization TOML")?;
+        let payload: Self = toml::from_str(content).context("invalid compatibility materialization TOML")?;
         payload.validate()?;
         Ok(payload)
+    }
+
+
+    pub fn to_compat_toml(&self) -> String {
+        if self.flake_inputs.is_empty() {
+            return String::new();
+        }
+        let mut lines = vec!["[flake_inputs]".to_string()];
+        for (name, reference) in &self.flake_inputs {
+            lines.push(format!("{name} = {reference:?}"));
+        }
+        lines.join("\n")
     }
 
     pub fn validate(&self) -> Result<()> {
@@ -168,8 +186,26 @@ pub fn find_nix() -> String {
     "nix".to_string()
 }
 
+
+/// Scaffold a minimal NixOS configuration from a canonical Pkl source or compatibility TOML source.
+pub fn scaffold_nixos_config_from_source(config_dir: &Path, hostname: &str, source: &Path) -> Result<()> {
+    match source.extension().and_then(|ext| ext.to_str()) {
+        Some("toml") => {
+            let content = std::fs::read_to_string(source)
+                .with_context(|| format!("reading compatibility materialization TOML {}", source.display()))?;
+            scaffold_nixos_config(config_dir, hostname, &content)
+        }
+        Some("pkl") => {
+            let payload = MaterializationPayload::from_source(source)?;
+            scaffold_nixos_config(config_dir, hostname, &payload.to_compat_toml())
+        }
+        Some(ext) => bail!("unsupported materialization source extension .{ext}; canonical Nex sources use .pkl (.toml is compatibility/interchange)"),
+        None => bail!("materialization source path must have an extension; canonical Nex sources use .pkl"),
+    }
+}
+
 /// Scaffold a minimal NixOS configuration for the installer.
-/// Retained for potential future use (pre-baking configs at forge time).
+/// Retained for compatibility TOML interchange and tests.
 #[allow(dead_code)]
 pub fn scaffold_nixos_config(config_dir: &Path, hostname: &str, profile_toml: &str) -> Result<()> {
     std::fs::create_dir_all(config_dir)?;

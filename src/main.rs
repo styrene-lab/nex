@@ -2,6 +2,7 @@ mod aliases;
 mod cli;
 mod config;
 mod discover;
+mod document;
 mod edit;
 mod exec;
 pub mod forge;
@@ -12,6 +13,7 @@ mod menu;
 mod nixfile;
 mod ops;
 mod output;
+mod pkl;
 mod profile_fragment;
 mod resolve;
 

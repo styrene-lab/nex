@@ -97,13 +97,16 @@ pub struct ProfileFragmentSafety {
 
 impl ProfileFragmentDocument {
     pub fn from_path(path: &Path) -> Result<Self> {
-        let content = std::fs::read_to_string(path)
-            .with_context(|| format!("reading profile fragment {}", path.display()))?;
-        Self::from_str(&content).with_context(|| format!("parsing profile fragment {}", path.display()))
+        let loaded = crate::document::load_document::<Self>(path, "profile fragment")?;
+        loaded
+            .value
+            .validate()
+            .with_context(|| format!("validating profile fragment {}", path.display()))?;
+        Ok(loaded.value)
     }
 
     pub fn from_str(content: &str) -> Result<Self> {
-        let document: Self = toml::from_str(content).context("invalid profile fragment TOML")?;
+        let document: Self = toml::from_str(content).context("invalid compatibility profile fragment TOML")?;
         document.validate()?;
         Ok(document)
     }
@@ -213,7 +216,7 @@ fn visit_fragment_files(path: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
         let path = entry.path();
         if path.is_dir() {
             visit_fragment_files(&path, files)?;
-        } else if path.extension().and_then(|ext| ext.to_str()) == Some("toml") {
+        } else if matches!(path.extension().and_then(|ext| ext.to_str()), Some("pkl" | "toml")) {
             files.push(path);
         }
     }

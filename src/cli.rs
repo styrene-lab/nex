@@ -138,7 +138,7 @@ pub enum Command {
     },
     /// Build an OCI container image from a machine profile or Styrene package manifest
     BuildImage {
-        /// Nex machine profile, local machine-profile.toml, or styrene-package.toml
+        /// Nex machine profile, local machine-profile.pkl, compatibility machine-profile.toml, or styrene package manifest
         #[arg(value_name = "SOURCE")]
         source: String,
 
@@ -234,7 +234,7 @@ pub enum ForgeAction {
         #[arg(value_name = "WORKSPACE")]
         workspace: Option<PathBuf>,
 
-        /// Machine/materialization TOML source to resolve and scaffold into a temporary workspace
+        /// Canonical Pkl machine/materialization source to scaffold into a temporary workspace; TOML is compatibility/interchange.
         #[arg(long)]
         source: Option<String>,
 
@@ -296,15 +296,15 @@ pub enum IdentityAction {
 
 #[derive(Subcommand)]
 pub enum MachineProfileAction {
-    /// Validate a machine-profile.toml manifest
+    /// Validate a machine-profile.pkl manifest
     Validate {
-        /// Path to machine-profile.toml or a directory containing it
+        /// Path to machine-profile.pkl or a directory containing it; TOML is compatibility/interchange
         #[arg(value_name = "PATH")]
         path: PathBuf,
     },
-    /// Inspect a machine-profile.toml manifest
+    /// Inspect a machine-profile.pkl manifest
     Inspect {
-        /// Path to machine-profile.toml or a directory containing it
+        /// Path to machine-profile.pkl or a directory containing it; TOML is compatibility/interchange
         #[arg(value_name = "PATH")]
         path: PathBuf,
     },
@@ -339,7 +339,7 @@ pub enum ProfileAction {
     },
     /// Sign a machine profile with your Styrene identity
     Sign {
-        /// GitHub repo (user/repo) or local path to machine-profile.toml
+        /// GitHub repo (user/repo) or local path to machine-profile.pkl; TOML is compatibility/interchange
         #[arg(value_name = "SOURCE")]
         source: String,
         /// Write signature to a detached .sig file instead of embedding in [meta]
@@ -348,7 +348,7 @@ pub enum ProfileAction {
     },
     /// Verify a signed machine profile
     Verify {
-        /// GitHub repo (user/repo) or local path to machine-profile.toml
+        /// GitHub repo (user/repo) or local path to machine-profile.pkl; TOML is compatibility/interchange
         #[arg(value_name = "SOURCE")]
         source: String,
     },

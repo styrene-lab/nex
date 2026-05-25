@@ -23,7 +23,7 @@ pub fn run_validate(path: &Path) -> Result<()> {
 
 pub fn run_inspect(path: &Path) -> Result<()> {
     if path.is_dir() {
-        bail!("profile-fragment inspect expects a TOML file, not a directory");
+        bail!("profile-fragment inspect expects a Pkl file or compatibility TOML file, not a directory");
     }
     let document = ProfileFragmentDocument::from_path(path)?;
     let fragment = &document.fragment;
@@ -70,11 +70,15 @@ pub fn run_inspect(path: &Path) -> Result<()> {
 }
 
 fn validate_file(path: &Path) -> Result<bool> {
-    let content = std::fs::read_to_string(path)?;
-    if !content.contains("[fragment]") {
+    let is_toml_fragment = if path.extension().and_then(|ext| ext.to_str()) == Some("toml") {
+        std::fs::read_to_string(path)?.contains("[fragment]")
+    } else {
+        true
+    };
+    if !is_toml_fragment {
         return Ok(false);
     }
-    let document = ProfileFragmentDocument::from_str(&content)?;
+    let document = ProfileFragmentDocument::from_path(path)?;
     if let Some(path_id) = infer_fragment_path_id(path) {
         if document.fragment.id != path_id {
             bail!(
