@@ -122,3 +122,20 @@ This intentionally prevents validation from mutating lock files or fetching new
 inputs. The flake lock must already contain everything needed for the selected
 target. That makes validation predictable enough to gate disk writes, target
 installs, and airgap handoff.
+
+## Module payload content
+
+A materialization payload may include NixOS module fragments:
+
+```pkl
+nixos_module {
+  extra_config = List(
+    "services.openssh.enable = true;"
+  )
+}
+```
+
+`extra_config` is rendered into generated `module.nix` and into the temporary
+workspace used by `check-materialization`. Impure fetch escape hatches such as
+`builtins.getFlake` and `builtins.fetchGit` are rejected; use `flake_inputs`
+instead so validation can remain offline and deterministic.
