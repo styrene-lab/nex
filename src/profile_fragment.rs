@@ -2,6 +2,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
+use semver::Version;
 use serde::Deserialize;
 
 pub const PROFILE_FRAGMENT_SCHEMA_V1: &str = "io.styrene.nex.profile-fragment.v1";
@@ -16,6 +17,7 @@ pub struct ProfileFragment {
     pub schema: String,
     pub id: String,
     pub name: String,
+    pub version: String,
     pub description: Option<String>,
     pub category: ProfileFragmentCategory,
     #[serde(default)]
@@ -116,6 +118,7 @@ impl ProfileFragmentDocument {
         require_non_empty("fragment.schema", &fragment.schema)?;
         require_non_empty("fragment.id", &fragment.id)?;
         require_non_empty("fragment.name", &fragment.name)?;
+        validate_fragment_version(&fragment.version)?;
 
         if fragment.schema != PROFILE_FRAGMENT_SCHEMA_V1 {
             bail!(
@@ -175,6 +178,12 @@ impl ProfileFragmentDocument {
 
         Ok(())
     }
+}
+
+pub fn validate_fragment_version(version: &str) -> Result<()> {
+    require_non_empty("fragment.version", version)?;
+    Version::parse(version).with_context(|| format!("fragment.version '{version}' must be valid SemVer"))?;
+    Ok(())
 }
 
 pub fn validate_fragment_id(id: &str) -> Result<()> {
@@ -240,6 +249,7 @@ mod tests {
 schema = "io.styrene.nex.profile-fragment.v1"
 id = "gpu/amd"
 name = "amd"
+version = "0.1.0"
 description = "AMD GPU"
 category = "gpu"
 requires = ["platform/linux"]
@@ -257,6 +267,20 @@ requires_confirmation = true
     #[test]
     fn valid_profile_fragment_passes() {
         ProfileFragmentDocument::from_str(valid_fragment()).expect("valid fragment");
+    }
+
+    #[test]
+    fn rejects_missing_version() {
+        let manifest = valid_fragment().replace("version = \"0.1.0\"\n", "");
+        let error = ProfileFragmentDocument::from_str(&manifest).expect_err("missing version");
+        assert!(format!("{error:#}").contains("missing field `version`"));
+    }
+
+    #[test]
+    fn rejects_invalid_version() {
+        let manifest = valid_fragment().replace("version = \"0.1.0\"", "version = \"latest\"");
+        let error = ProfileFragmentDocument::from_str(&manifest).expect_err("invalid version");
+        assert!(format!("{error:#}").contains("must be valid SemVer"));
     }
 
     #[test]

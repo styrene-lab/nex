@@ -31,6 +31,7 @@ pub fn run_inspect(path: &Path) -> Result<()> {
     println!("\nProfile Fragment");
     print_kv("ID", &fragment.id);
     print_kv("Name", &fragment.name);
+    print_kv("Version", &fragment.version);
     print_kv("Category", &fragment.category.to_string());
     print_kv(
         "Platforms",

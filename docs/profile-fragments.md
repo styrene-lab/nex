@@ -18,12 +18,12 @@ Fragments are **first-class semantic objects inside a fragment catalog/repositor
 
 Implications:
 
-- fragments have stable IDs
+- fragments carry explicit SemVer versions for catalog compatibility
 - fragments have validation semantics
 - fragments can declare dependencies, conflicts, platforms, and safety markers
 - Armory may index them as catalog entries if a repo opts in
 - Nex does not install or materialize an individual fragment by itself
-- fragments inherit distribution/version context from their containing repository/catalog unless a later spec adds independent versioning
+- fragments are versioned individually but can still be distributed inside a containing repository/catalog unless a later spec adds independent artifact publishing
 
 ## Canonical embedded metadata
 
@@ -34,6 +34,7 @@ Fragment metadata lives inside each fragment TOML file:
 schema = "io.styrene.nex.profile-fragment.v1"
 id = "gpu/amd"
 name = "amd"
+version = "0.1.0"
 description = "AMD GPU — amdgpu, mesa, Vulkan, VA-API, 32-bit"
 category = "gpu"
 requires = ["platform/linux"]
@@ -46,6 +47,16 @@ mutates_system_services = false
 mutates_hardware_drivers = true
 requires_confirmation = true
 ```
+
+## Versioning
+
+`version` is required and must be valid SemVer. Initial migrated fragments should start at `0.1.0`.
+
+Version increments follow ordinary SemVer discipline:
+
+- `PATCH`: metadata, docs, or package-list corrections that should not alter broad behavior
+- `MINOR`: new options, packages, services, supported platforms, or compatibility expansion
+- `MAJOR`: breaking config behavior, removed fields/options, changed safety assumptions, or incompatible merge behavior
 
 ## IDs and categories
 
@@ -112,6 +123,7 @@ If Armory indexes fragments, use:
 {
   "kind": "profile-fragment",
   "id": "gpu/amd",
+  "version": "0.1.0",
   "sourcePath": "gpu/amd.pkl",
   "artifactType": "application/vnd.styrene.nex.profile-fragment.v1+toml",
   "dependencies": [

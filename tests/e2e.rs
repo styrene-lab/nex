@@ -423,6 +423,7 @@ fn valid_profile_fragment_pkl_json() -> &'static str {
     "schema": "io.styrene.nex.profile-fragment.v1",
     "id": "gpu/amd",
     "name": "amd",
+    "version": "0.1.0",
     "description": "AMD GPU",
     "category": "gpu",
     "requires": ["platform/linux"],
@@ -468,8 +469,41 @@ fn profile_fragment_inspect_prints_metadata() {
         .success()
         .stdout(predicate::str::contains("Profile Fragment"))
         .stdout(predicate::str::contains("ID: gpu/amd"))
+        .stdout(predicate::str::contains("Version: 0.1.0"))
         .stdout(predicate::str::contains("Requires: platform/linux"))
         .stdout(predicate::str::contains("Conflicts: gpu/nvidia, gpu/intel"));
+}
+
+#[test]
+fn profile_fragment_validate_rejects_missing_version() {
+    let sb = Sandbox::new();
+    let fragment_path = sb.home.path().join("amd.pkl");
+    let invalid = valid_profile_fragment_pkl_json().replace("    \"version\": \"0.1.0\",\n", "");
+    fs::write(&fragment_path, &invalid).expect("write fragment");
+    let fake_pkl = write_fake_pkl(sb.home.path(), &invalid);
+
+    sb.nex()
+        .env("NEX_PKL", &fake_pkl)
+        .args(["profile-fragment", "validate", fragment_path.to_str().unwrap()])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("missing field `version`"));
+}
+
+#[test]
+fn profile_fragment_validate_rejects_invalid_version() {
+    let sb = Sandbox::new();
+    let fragment_path = sb.home.path().join("amd.pkl");
+    let invalid = valid_profile_fragment_pkl_json().replace("\"version\": \"0.1.0\"", "\"version\": \"latest\"");
+    fs::write(&fragment_path, &invalid).expect("write fragment");
+    let fake_pkl = write_fake_pkl(sb.home.path(), &invalid);
+
+    sb.nex()
+        .env("NEX_PKL", &fake_pkl)
+        .args(["profile-fragment", "validate", fragment_path.to_str().unwrap()])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("must be valid SemVer"));
 }
 
 #[test]
