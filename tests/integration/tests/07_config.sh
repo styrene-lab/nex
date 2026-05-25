@@ -47,7 +47,7 @@ setup_clean_home
 setup_repo "$HOME/macos-nix"
 
 # Remove config file — force discovery
-rm -f "$HOME/.config/nex/config.toml"
+rm -f "$HOME/.config/nex/config.pkl"
 
 assert_output_contains "discovery finds ~/macos-nix" \
   "git" \
@@ -56,7 +56,7 @@ assert_output_contains "discovery finds ~/macos-nix" \
 # ── No config, no discoverable repo → error ──────────────────────────────
 
 setup_clean_home
-rm -f "$HOME/.config/nex/config.toml"
+rm -f "$HOME/.config/nex/config.pkl"
 
 assert_fail "fails with no config and no discoverable repo" \
   nex list

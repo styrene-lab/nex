@@ -9,15 +9,15 @@ setup_clean_home
 assert_ok "init scaffold succeeds" \
   nex init
 
-assert_file_exists "config.toml created" \
-  "$HOME/.config/nex/config.toml"
+assert_file_exists "config.pkl created" \
+  "$HOME/.config/nex/config.pkl"
 
 assert_file_contains "config points to ~/macos-nix" \
-  "$HOME/.config/nex/config.toml" \
+  "$HOME/.config/nex/config.pkl" \
   "repo_path = \"$HOME/macos-nix\""
 
 assert_file_contains "config has hostname" \
-  "$HOME/.config/nex/config.toml" \
+  "$HOME/.config/nex/config.pkl" \
   "hostname = \"test-host\""
 
 assert_file_exists "flake.nix created" \
@@ -56,8 +56,8 @@ assert_ok "init --dry-run succeeds" \
   nex init --dry-run
 
 # Dry run should NOT create any files
-assert_file_not_contains "no config.toml on dry-run" \
-  "$HOME/.config/nex/config.toml" \
+assert_file_not_contains "no config.pkl on dry-run" \
+  "$HOME/.config/nex/config.pkl" \
   "repo_path"
 
 finish

@@ -56,7 +56,20 @@ impl Sandbox {
                 self.repo.display()
             ),
         )
-        .expect("write config");
+        .expect("write compatibility config");
+        self
+    }
+
+    fn with_pkl_config(self) -> Self {
+        let config_dir = self.home.path().join(".config/nex");
+        fs::create_dir_all(&config_dir).expect("create nex config dir");
+        fs::write(config_dir.join("config.pkl"), "// canonical test config\n").expect("write config.pkl");
+        let json = format!(
+            r#"{{"repo_path":"{}","hostname":"test-host"}}"#,
+            self.repo.display()
+        );
+        let fake_pkl = write_fake_pkl(self.home.path(), &json);
+        std::env::set_var("NEX_E2E_PKL", fake_pkl);
         self
     }
 
@@ -977,4 +990,43 @@ fn help_shows_version() {
         .assert()
         .success()
         .stdout(predicate::str::contains("nex"));
+}
+
+#[test]
+fn config_export_toml_from_pkl() {
+    let sb = Sandbox::new().with_pkl_config();
+    let fake_pkl = std::env::var_os("NEX_E2E_PKL").expect("fake pkl path");
+
+    sb.nex()
+        .env("NEX_PKL", fake_pkl)
+        .args(["config", "export", "--format", "toml"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("repo_path"))
+        .stdout(predicate::str::contains("hostname = \"test-host\""));
+}
+
+#[test]
+fn config_migrate_creates_pkl_from_toml() {
+    let sb = Sandbox::new();
+    let config_dir = sb.home.path().join(".config/nex");
+    fs::create_dir_all(&config_dir).expect("create config dir");
+    fs::write(
+        config_dir.join("config.toml"),
+        format!(
+            "repo_path = \"{}\"\nhostname = \"test-host\"\n",
+            sb.repo.display()
+        ),
+    )
+    .expect("write compat config");
+
+    sb.nex()
+        .args(["config", "migrate", "--keep-toml"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("migrated local Nex config"));
+
+    let pkl = fs::read_to_string(config_dir.join("config.pkl")).expect("read config.pkl");
+    assert!(pkl.contains("repo_path"));
+    assert!(config_dir.join("config.toml").exists());
 }

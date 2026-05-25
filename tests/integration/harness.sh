@@ -99,11 +99,11 @@ setup_clean_home() {
   git config --global user.email "test@test" 2>/dev/null || true
 }
 
-# Write a nex config.toml pointing at the given repo.
+# Write a nex config.pkl pointing at the given repo.
 setup_nex_config() {
   local repo="$1" hostname="${2:-test-host}"
   mkdir -p "$HOME/.config/nex"
-  cat > "$HOME/.config/nex/config.toml" <<EOF
+  cat > "$HOME/.config/nex/config.pkl" <<EOF
 repo_path = "${repo}"
 hostname = "${hostname}"
 EOF
