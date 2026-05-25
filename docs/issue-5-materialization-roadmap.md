@@ -208,3 +208,17 @@ Rationale:
 - Should `build-module` accept fragment catalogs directly, or only resolved materialization payloads?
 - How much Nix evaluation should run in unit tests vs integration tests?
 - What is the minimum supported hardware image target for first release?
+
+## 0.19.0 milestone decision
+
+Issue #5 is assigned to milestone `0.19.0`: Nex materialization modules and
+hermetic NixOS builds.
+
+First implementation slice:
+
+- canonical Pkl materialization payloads;
+- validated `flake_inputs` contract;
+- generated `flake.nix` input rendering;
+- local `check-materialization --source <payload.pkl>` pre-validation.
+
+See [[materialization-payloads]] for the current payload contract.

@@ -4,7 +4,7 @@ use std::process::Command;
 
 use anyhow::{bail, Context, Result};
 
-#[derive(Debug, Clone, Default, serde::Deserialize)]
+#[derive(Debug, Clone, Default, serde::Deserialize, serde::Serialize)]
 pub struct MaterializationPayload {
     #[serde(default)]
     pub flake_inputs: BTreeMap<String, String>,
