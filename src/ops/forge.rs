@@ -1219,7 +1219,9 @@ pub fn run_check_materialization(
     workspace: Option<&Path>,
     source: Option<&str>,
     hostname: &str,
+    target: &str,
 ) -> Result<()> {
+    let target = crate::materialization::MaterializationTarget::parse(target)?;
     let temp_dir;
     let workspace = match (workspace, source) {
         (Some(workspace), None) => workspace.to_path_buf(),
@@ -1240,6 +1242,7 @@ pub fn run_check_materialization(
     let check = crate::materialization::MaterializationCheck {
         workspace: workspace.clone(),
         hostname: hostname.to_string(),
+        target,
     };
     output::status(&format!(
         "checking materialization {} in {}...",

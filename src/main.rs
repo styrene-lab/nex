@@ -72,10 +72,12 @@ fn main() -> Result<()> {
                         workspace,
                         source,
                         hostname,
+                        target,
                     } => ops::forge::run_check_materialization(
                         workspace.as_deref(),
                         source.as_deref(),
                         hostname,
+                        target,
                     ),
                     cli::ForgeAction::BuildModule { source, name, output } => {
                         ops::forge::run_build_module(source, name, output)

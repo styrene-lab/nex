@@ -44,15 +44,39 @@ impl MaterializationPayload {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MaterializationTarget {
+    Toplevel,
+    SdImage,
+}
+
+impl MaterializationTarget {
+    pub fn parse(value: &str) -> Result<Self> {
+        match value {
+            "toplevel" => Ok(Self::Toplevel),
+            "sd-image" => Ok(Self::SdImage),
+            other => bail!("unsupported materialization target '{other}'; supported: toplevel, sd-image"),
+        }
+    }
+
+    pub fn attr(self, hostname: &str) -> String {
+        match self {
+            Self::Toplevel => nixos_toplevel_attr(hostname),
+            Self::SdImage => nixos_sd_image_attr(hostname),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct MaterializationCheck {
     pub workspace: PathBuf,
     pub hostname: String,
+    pub target: MaterializationTarget,
 }
 
 impl MaterializationCheck {
     pub fn eval_attr(&self) -> String {
-        nixos_toplevel_attr(&self.hostname)
+        self.target.attr(&self.hostname)
     }
 
     pub fn command(&self) -> Result<Command> {
@@ -61,8 +85,16 @@ impl MaterializationCheck {
 
         let mut command = Command::new(find_nix());
         command
-            .args(["--extra-experimental-features", "nix-command flakes"])
-            .arg("eval")
+            .env("NIX_CONFIG", "experimental-features = nix-command flakes")
+            .env("NIX_SHOW_STATS", "0")
+            .args([
+                "--extra-experimental-features",
+                "nix-command flakes",
+                "eval",
+                "--no-update-lock-file",
+                "--no-write-lock-file",
+                "--offline",
+            ])
             .arg(self.eval_attr())
             .current_dir(&self.workspace);
         Ok(command)
@@ -961,6 +993,7 @@ bad = "github:owner/repo;rm-rf"
         let check = MaterializationCheck {
             workspace: dir.path().to_path_buf(),
             hostname: "test-host".to_string(),
+            target: MaterializationTarget::Toplevel,
         };
         let command = check.command().expect("valid command");
         let args = command
@@ -974,6 +1007,9 @@ bad = "github:owner/repo;rm-rf"
                 "--extra-experimental-features".to_string(),
                 "nix-command flakes".to_string(),
                 "eval".to_string(),
+                "--no-update-lock-file".to_string(),
+                "--no-write-lock-file".to_string(),
+                "--offline".to_string(),
                 nixos_toplevel_attr("test-host"),
             ]
         );
@@ -1033,4 +1069,13 @@ bad = "github:owner/repo;rm-rf"
         .expect_err("invalid input ref rejected");
         assert!(format!("{error:#}").contains("unsupported shell/template characters"));
     }
+    #[test]
+    fn materialization_target_builds_sd_image_attr() {
+        let target = MaterializationTarget::parse("sd-image").unwrap();
+        assert_eq!(
+            target.attr("test-host"),
+            ".#nixosConfigurations.test-host.config.system.build.sdImage"
+        );
+    }
+
 }

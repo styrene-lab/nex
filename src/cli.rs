@@ -266,6 +266,10 @@ pub enum ForgeAction {
         /// Hostname under nixosConfigurations.<hostname>
         #[arg(long)]
         hostname: String,
+
+        /// Materialization target to evaluate deterministically
+        #[arg(long, default_value = "toplevel")]
+        target: String,
     },
     /// Export a composable nixosModule from a materialization source
     BuildModule {

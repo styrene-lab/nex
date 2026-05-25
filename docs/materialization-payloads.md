@@ -102,3 +102,23 @@ nixosModules.<name> = import ./module.nix;
 
 This establishes the composable output boundary for issue #5. Later slices can
 fill `module.nix` with generated fragment/materialization content.
+
+## Deterministic validation targets
+
+Materialization validation supports explicit targets:
+
+```text
+nex forge check-materialization --source payload.pkl --hostname host --target toplevel
+nex forge check-materialization --source payload.pkl --hostname host --target sd-image
+```
+
+The checker uses deterministic evaluation flags:
+
+```text
+nix eval --no-update-lock-file --no-write-lock-file --offline <attr>
+```
+
+This intentionally prevents validation from mutating lock files or fetching new
+inputs. The flake lock must already contain everything needed for the selected
+target. That makes validation predictable enough to gate disk writes, target
+installs, and airgap handoff.
