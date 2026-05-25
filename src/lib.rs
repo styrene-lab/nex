@@ -1,3 +1,4 @@
+pub mod discover;
 pub mod forge;
 pub mod input;
 pub mod materialization;
