@@ -4,8 +4,23 @@ All notable changes to nex are documented here. Format follows [Keep a Changelog
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-05-24
+
 ### Added
+- Pkl-first Nex document loading shared across forge/materialization, machine profiles, profile fragments, and local config, with TOML retained as compatibility/interchange.
+- Canonical `~/.config/nex/config.pkl` local config with `nex config migrate` and `nex config export --format toml`.
+- Canonical `machine-profile.pkl` machine profiles and `.pkl` profile-fragment catalogs, with TOML compatibility fallback.
+- Pkl materialization payloads with validated `flake_inputs` for deterministic generated flake inputs.
+- `nex forge check-materialization` for local deterministic NixOS evaluation, including `--target toplevel` and `--target sd-image`.
+- `nex forge build-module` to export composable `nixosModules.<name>` flakes from materialization payloads.
+- `nex forge build-materialization` for deterministic offline `nix build` of toplevel and sd-image targets.
+- Materialization `nixos_module.extra_config` rendering into generated modules, with impure fetch escape hatches rejected in favor of `flake_inputs`.
+- Future physical hardware machine-profile inventory covering Raspberry Pi 4B, custom AMD `gamingpc`, Asus Q502A, Asus T100TA, and Intel/T2 MacBook Pro targets.
 - `nex build-image` now accepts `styrene-package.toml` inputs. Package manifests resolve `[nex].profile`, use `[image]` defaults for name/tag/entrypoint/cmd/ports, and emit Styrene OCI labels for package and agent metadata.
+
+### Changed
+- New `nex init` and polymerize-installed configs write `config.pkl`; existing `config.toml` installs remain readable and writable during the compatibility window.
+- Materialization validation/build commands use deterministic Nix flags: `--offline`, `--no-update-lock-file`, and `--no-write-lock-file`.
 
 ## [0.18.0] - 2026-05-24
 
