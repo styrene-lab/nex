@@ -647,6 +647,122 @@ fn forge_check_materialization_rejects_workspace_without_flake() {
         .stderr(predicate::str::contains("does not contain flake.nix"));
 }
 
+
+#[test]
+fn forge_check_materialization_evaluates_sd_image_target() {
+    let sb = Sandbox::new();
+    let workspace = sb.home.path().join("materialization-sd");
+    fs::create_dir_all(&workspace).expect("create workspace");
+    fs::write(workspace.join("flake.nix"), "{}").expect("write flake");
+
+    sb.nex()
+        .args([
+            "forge",
+            "check-materialization",
+            workspace.to_str().unwrap(),
+            "--hostname",
+            "test-host",
+            "--target",
+            "sd-image",
+        ])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("checking materialization"))
+        .stdout(predicate::str::contains("build.sdImage"));
+}
+
+#[test]
+fn forge_build_materialization_uses_pkl_source_and_output_link() {
+    let sb = Sandbox::new();
+    let source = sb.home.path().join("payload.pkl");
+    fs::write(&source, "// materialization payload
+").expect("write payload");
+    let fake_pkl = write_fake_pkl(
+        sb.home.path(),
+        r#"{"flake_inputs":{"dns_dhcp":"github:styrene-lab/dhcp-dns-work"},"nixos_module":{"extra_config":["services.openssh.enable = true;"]}}"#,
+    );
+    let out_link = sb.home.path().join("result-sd-image");
+
+    sb.nex()
+        .env("NEX_PKL", &fake_pkl)
+        .args([
+            "forge",
+            "build-materialization",
+            source.to_str().unwrap(),
+            "--hostname",
+            "test-host",
+            "--target",
+            "sd-image",
+            "--output",
+            out_link.to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("building materialization"))
+        .stdout(predicate::str::contains("materialization built"));
+}
+
+#[test]
+fn forge_build_module_writes_module_flake() {
+    let sb = Sandbox::new();
+    let source = sb.home.path().join("payload.pkl");
+    fs::write(&source, "// materialization payload
+").expect("write payload");
+    let fake_pkl = write_fake_pkl(
+        sb.home.path(),
+        r#"{"nixos_module":{"extra_config":["services.openssh.enable = true;"]}}"#,
+    );
+    let output = sb.home.path().join("module-export");
+
+    sb.nex()
+        .env("NEX_PKL", &fake_pkl)
+        .args([
+            "forge",
+            "build-module",
+            source.to_str().unwrap(),
+            "--name",
+            "test_module",
+            "--output",
+            output.to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("nixosModule exported"));
+
+    let module = fs::read_to_string(output.join("module.nix")).expect("read module");
+    let flake = fs::read_to_string(output.join("flake.nix")).expect("read flake");
+    assert!(module.contains("services.openssh.enable = true;"));
+    assert!(flake.contains("nixosModules.test_module"));
+}
+
+#[test]
+fn forge_build_module_rejects_impure_extra_config() {
+    let sb = Sandbox::new();
+    let source = sb.home.path().join("payload.pkl");
+    fs::write(&source, "// materialization payload
+").expect("write payload");
+    let fake_pkl = write_fake_pkl(
+        sb.home.path(),
+        r#"{"nixos_module":{"extra_config":["let x = builtins.getFlake \"github:owner/repo\"; in {}"]}}"#,
+    );
+    let output = sb.home.path().join("module-export");
+
+    sb.nex()
+        .env("NEX_PKL", &fake_pkl)
+        .args([
+            "forge",
+            "build-module",
+            source.to_str().unwrap(),
+            "--name",
+            "test_module",
+            "--output",
+            output.to_str().unwrap(),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("declare flake_inputs instead"));
+}
+
 // ── Forge tests ─────────────────────────────────────────────────────────────
 
 #[test]
