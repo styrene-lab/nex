@@ -1,9 +1,23 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::discover::{self, Platform};
+
+pub const CONFIG_FILE: &str = "config.pkl";
+pub const CONFIG_TOML_COMPAT_FILE: &str = "config.toml";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LocalConfigFormat {
+    Pkl,
+    TomlCompat,
+}
+
+struct LocalConfigSource {
+    path: PathBuf,
+    format: LocalConfigFormat,
+}
 
 /// Resolved configuration for a nex session.
 pub struct Config {
@@ -23,8 +37,8 @@ pub struct Config {
     pub platform: Platform,
 }
 
-/// Optional config file at ~/.config/nex/config.toml.
-#[derive(Deserialize, Default)]
+/// Optional config file at ~/.config/nex/config.pkl; config.toml is compatibility.
+#[derive(Deserialize, Serialize, Default)]
 struct FileConfig {
     repo_path: Option<String>,
     hostname: Option<String>,
@@ -33,7 +47,7 @@ struct FileConfig {
 }
 
 /// Identity-related configuration.
-#[derive(Deserialize, Default, Clone)]
+#[derive(Deserialize, Serialize, Default, Clone)]
 pub struct IdentityConfig {
     /// Git commit signing settings.
     pub git: Option<IdentityGitConfig>,
@@ -42,14 +56,14 @@ pub struct IdentityConfig {
 }
 
 /// Git signing config stored in nex config.
-#[derive(Deserialize, Default, Clone)]
+#[derive(Deserialize, Serialize, Default, Clone)]
 pub struct IdentityGitConfig {
     pub name: Option<String>,
     pub email: Option<String>,
 }
 
 /// SSH key labels registered for this identity.
-#[derive(Deserialize, Default, Clone)]
+#[derive(Deserialize, Serialize, Default, Clone)]
 pub struct IdentitySshConfig {
     pub labels: Option<Vec<String>>,
 }
@@ -64,11 +78,11 @@ impl Config {
         let not_found_msg = match platform {
             Platform::Darwin => {
                 "Could not find nix-darwin repo. Run `nex init`, set NEX_REPO, \
-                 or create ~/.config/nex/config.toml with repo_path."
+                 or create ~/.config/nex/config.pkl with repo_path."
             }
             Platform::Linux => {
                 "Could not find NixOS config repo. Run `nex init`, set NEX_REPO, \
-                 or create ~/.config/nex/config.toml with repo_path."
+                 or create ~/.config/nex/config.pkl with repo_path."
             }
         };
 
@@ -174,21 +188,14 @@ impl Config {
 /// Persist a key=value into the config file, preserving existing content.
 pub fn set_preference(key: &str, value: &str) -> Result<()> {
     tracing::debug!(%key, %value, "setting preference");
-    let path = config_dir()?.join("config.toml");
-    let content = if path.exists() {
-        std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?
-    } else {
-        String::new()
+    let path = writable_config_path()?;
+    let content = read_config_value_for_write(&path)?;
+
+    let mut table = match content {
+        toml::Value::Table(table) => table,
+        _ => bail!("local Nex config root must be a table"),
     };
 
-    // Parse existing config as a TOML table
-    let mut table: toml::map::Map<String, toml::Value> = if content.is_empty() {
-        toml::map::Map::new()
-    } else {
-        toml::from_str(&content).with_context(|| format!("parsing {}", path.display()))?
-    };
-
-    // Parse the value string as a TOML value
     let parsed_value: toml::Value =
         toml::from_str::<toml::map::Map<String, toml::Value>>(&format!("v = {value}"))
             .with_context(|| format!("invalid TOML value: {value}"))
@@ -200,13 +207,7 @@ pub fn set_preference(key: &str, value: &str) -> Result<()> {
             })?;
 
     table.insert(key.to_string(), parsed_value);
-
-    let serialized = toml::to_string(&table).context("serializing config")?;
-
-    std::fs::create_dir_all(config_dir()?)?;
-    crate::edit::atomic_write_bytes(&path, serialized.as_bytes())
-        .with_context(|| format!("writing {}", path.display()))?;
-    Ok(())
+    write_config_value(&path, &toml::Value::Table(table))
 }
 
 /// Canonical config directory: ~/.config/nex/
@@ -215,27 +216,25 @@ pub fn config_dir() -> Result<PathBuf> {
     Ok(home.join(".config/nex"))
 }
 
+pub fn canonical_config_path() -> Result<PathBuf> {
+    Ok(config_dir()?.join(CONFIG_FILE))
+}
+
+pub fn toml_compat_config_path() -> Result<PathBuf> {
+    Ok(config_dir()?.join(CONFIG_TOML_COMPAT_FILE))
+}
+
 /// Load just the identity portion of the config (does not require a nix repo).
 pub fn load_identity_config() -> Result<IdentityConfig> {
     let fc = load_file_config().unwrap_or_default();
     Ok(fc.identity.unwrap_or_default())
 }
 
-/// Set a nested TOML key using dotted notation (e.g. "identity.git.name").
+/// Set a nested config key using dotted notation (e.g. "identity.git.name").
 /// Creates intermediate tables as needed.
 pub fn set_nested_preference(dotted_key: &str, value: toml::Value) -> Result<()> {
-    let path = config_dir()?.join("config.toml");
-    let content = if path.exists() {
-        std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?
-    } else {
-        String::new()
-    };
-
-    let mut root: toml::Value = if content.is_empty() {
-        toml::Value::Table(toml::map::Map::new())
-    } else {
-        toml::from_str(&content).with_context(|| format!("parsing {}", path.display()))?
-    };
+    let path = writable_config_path()?;
+    let mut root = read_config_value_for_write(&path)?;
 
     let parts: Vec<&str> = dotted_key.split('.').collect();
     let mut current = &mut root;
@@ -256,28 +255,14 @@ pub fn set_nested_preference(dotted_key: &str, value: toml::Value) -> Result<()>
         .context("leaf parent is not a table")?
         .insert(leaf.to_string(), value);
 
-    let serialized = toml::to_string_pretty(&root).context("serializing config")?;
-    std::fs::create_dir_all(config_dir()?)?;
-    crate::edit::atomic_write_bytes(&path, serialized.as_bytes())
-        .with_context(|| format!("writing {}", path.display()))?;
-    Ok(())
+    write_config_value(&path, &root)
 }
 
 /// Append a string to an array config value, creating it if it doesn't exist.
 /// Skips duplicates.
 pub fn append_to_list(dotted_key: &str, item: &str) -> Result<()> {
-    let path = config_dir()?.join("config.toml");
-    let content = if path.exists() {
-        std::fs::read_to_string(&path).with_context(|| format!("reading {}", path.display()))?
-    } else {
-        String::new()
-    };
-
-    let mut root: toml::Value = if content.is_empty() {
-        toml::Value::Table(toml::map::Map::new())
-    } else {
-        toml::from_str(&content).with_context(|| format!("parsing {}", path.display()))?
-    };
+    let path = writable_config_path()?;
+    let mut root = read_config_value_for_write(&path)?;
 
     let parts: Vec<&str> = dotted_key.split('.').collect();
     let mut current = &mut root;
@@ -298,42 +283,218 @@ pub fn append_to_list(dotted_key: &str, item: &str) -> Result<()> {
         .or_insert_with(|| toml::Value::Array(Vec::new()));
 
     let arr = arr.as_array_mut().context("config key is not an array")?;
-
-    // Skip duplicates
     let item_val = toml::Value::String(item.to_string());
     if !arr.contains(&item_val) {
         arr.push(item_val);
     }
 
-    let serialized = toml::to_string_pretty(&root).context("serializing config")?;
-    std::fs::create_dir_all(config_dir()?)?;
-    crate::edit::atomic_write_bytes(&path, serialized.as_bytes())
-        .with_context(|| format!("writing {}", path.display()))?;
-    Ok(())
+    write_config_value(&path, &root)
+}
+
+pub fn write_initial_config(repo_path: &Path, hostname: &str) -> Result<PathBuf> {
+    let path = canonical_config_path()?;
+    let mut table = toml::map::Map::new();
+    table.insert(
+        "repo_path".to_string(),
+        toml::Value::String(repo_path.display().to_string()),
+    );
+    table.insert(
+        "hostname".to_string(),
+        toml::Value::String(hostname.to_string()),
+    );
+    write_config_value(&path, &toml::Value::Table(table))?;
+    Ok(path)
+}
+
+pub fn export_config_toml() -> Result<String> {
+    let config = load_file_config()?;
+    let value = toml::Value::try_from(config).context("converting config to TOML value")?;
+    toml::to_string_pretty(&value).context("serializing config TOML")
 }
 
 fn load_file_config() -> Result<FileConfig> {
-    // Primary: ~/.config/nex/config.toml (documented, discoverable)
-    let primary = config_dir()?.join("config.toml");
-    if primary.exists() {
-        tracing::debug!(path = %primary.display(), "loaded config file");
-        let content = std::fs::read_to_string(&primary)
-            .with_context(|| format!("reading {}", primary.display()))?;
-        return toml::from_str(&content)
-            .with_context(|| format!("invalid config in {}", primary.display()));
+    match resolve_config_source()? {
+        Some(source) => match source.format {
+            LocalConfigFormat::Pkl => {
+                tracing::debug!(path = %source.path.display(), "loaded canonical Pkl config file");
+                crate::document::load_document::<FileConfig>(&source.path, "local Nex config")
+                    .map(|loaded| loaded.value)
+            }
+            LocalConfigFormat::TomlCompat => {
+                tracing::debug!(path = %source.path.display(), "loaded compatibility TOML config file");
+                let content = std::fs::read_to_string(&source.path)
+                    .with_context(|| format!("reading {}", source.path.display()))?;
+                toml::from_str(&content)
+                    .with_context(|| format!("invalid config in {}", source.path.display()))
+            }
+        },
+        None => Ok(FileConfig::default()),
+    }
+}
+
+fn resolve_config_source() -> Result<Option<LocalConfigSource>> {
+    let canonical = canonical_config_path()?;
+    if canonical.exists() {
+        return Ok(Some(LocalConfigSource {
+            path: canonical,
+            format: LocalConfigFormat::Pkl,
+        }));
     }
 
-    // Fallback: platform config dir (~/Library/Application Support/nex/ on macOS)
-    // for backwards compatibility with configs written before this fix.
+    let compat = toml_compat_config_path()?;
+    if compat.exists() {
+        return Ok(Some(LocalConfigSource {
+            path: compat,
+            format: LocalConfigFormat::TomlCompat,
+        }));
+    }
+
     if let Some(platform_dir) = dirs::config_dir() {
-        let legacy = platform_dir.join("nex/config.toml");
+        let legacy = platform_dir.join(format!("nex/{CONFIG_TOML_COMPAT_FILE}"));
         if legacy.exists() {
-            let content = std::fs::read_to_string(&legacy)
-                .with_context(|| format!("reading {}", legacy.display()))?;
-            return toml::from_str(&content)
-                .with_context(|| format!("invalid config in {}", legacy.display()));
+            return Ok(Some(LocalConfigSource {
+                path: legacy,
+                format: LocalConfigFormat::TomlCompat,
+            }));
         }
     }
 
-    Ok(FileConfig::default())
+    Ok(None)
+}
+
+fn writable_config_path() -> Result<PathBuf> {
+    let canonical = canonical_config_path()?;
+    if canonical.exists() {
+        return Ok(canonical);
+    }
+    let compat = toml_compat_config_path()?;
+    if compat.exists() {
+        return Ok(compat);
+    }
+    Ok(canonical)
+}
+
+fn read_config_value_for_write(path: &Path) -> Result<toml::Value> {
+    if !path.exists() {
+        return Ok(toml::Value::Table(toml::map::Map::new()));
+    }
+    match config_format_for_path(path)? {
+        LocalConfigFormat::Pkl => {
+            let config = crate::document::load_document::<FileConfig>(path, "local Nex config")?.value;
+            toml::Value::try_from(config).context("converting config to mutable value")
+        }
+        LocalConfigFormat::TomlCompat => {
+            let content = std::fs::read_to_string(path)
+                .with_context(|| format!("reading {}", path.display()))?;
+            if content.trim().is_empty() {
+                Ok(toml::Value::Table(toml::map::Map::new()))
+            } else {
+                toml::from_str(&content).with_context(|| format!("parsing {}", path.display()))
+            }
+        }
+    }
+}
+
+fn write_config_value(path: &Path, value: &toml::Value) -> Result<()> {
+    let serialized = serialize_config_value(value, config_format_for_path(path)?)?;
+    std::fs::create_dir_all(config_dir()?)?;
+    crate::edit::atomic_write_bytes(path, serialized.as_bytes())
+        .with_context(|| format!("writing {}", path.display()))
+}
+
+fn config_format_for_path(path: &Path) -> Result<LocalConfigFormat> {
+    match path.extension().and_then(|ext| ext.to_str()) {
+        Some("pkl") => Ok(LocalConfigFormat::Pkl),
+        Some("toml") => Ok(LocalConfigFormat::TomlCompat),
+        Some(ext) => bail!("unsupported config extension .{ext}; canonical Nex config uses .pkl"),
+        None => bail!("config path must have an extension"),
+    }
+}
+
+fn serialize_config_value(value: &toml::Value, format: LocalConfigFormat) -> Result<String> {
+    match format {
+        LocalConfigFormat::Pkl => serialize_pkl_document(value),
+        LocalConfigFormat::TomlCompat => toml::to_string_pretty(value).context("serializing config TOML"),
+    }
+}
+
+fn serialize_pkl_document(value: &toml::Value) -> Result<String> {
+    let mut out = String::from("// Generated by nex. Edit config.pkl as the canonical local config.\n");
+    let table = value.as_table().context("config root must be a table")?;
+    for (key, value) in table {
+        write_pkl_entry(&mut out, key, value, 0)?;
+    }
+    Ok(out)
+}
+
+fn write_pkl_entry(out: &mut String, key: &str, value: &toml::Value, indent: usize) -> Result<()> {
+    let padding = "  ".repeat(indent);
+    match value {
+        toml::Value::Table(table) => {
+            out.push_str(&format!("{padding}{key} {{\n"));
+            for (child_key, child_value) in table {
+                write_pkl_entry(out, child_key, child_value, indent + 1)?;
+            }
+            out.push_str(&format!("{padding}}}\n"));
+        }
+        _ => {
+            out.push_str(&format!(
+                "{padding}{key} = {}\n",
+                pkl_literal(value).with_context(|| format!("serializing config key {key}"))?
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn pkl_literal(value: &toml::Value) -> Result<String> {
+    match value {
+        toml::Value::String(value) => Ok(format!("{value:?}")),
+        toml::Value::Boolean(value) => Ok(value.to_string()),
+        toml::Value::Integer(value) => Ok(value.to_string()),
+        toml::Value::Float(value) => Ok(value.to_string()),
+        toml::Value::Array(values) => {
+            let rendered = values
+                .iter()
+                .map(pkl_literal)
+                .collect::<Result<Vec<_>>>()?
+                .join(", ");
+            Ok(format!("List({rendered})"))
+        }
+        toml::Value::Datetime(value) => Ok(format!("{:?}", value.to_string())),
+        toml::Value::Table(_) => bail!("nested table should be serialized as a Pkl block"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn serializes_generated_pkl_config() {
+        let mut table = toml::map::Map::new();
+        table.insert("repo_path".to_string(), toml::Value::String("/tmp/repo".to_string()));
+        table.insert("hostname".to_string(), toml::Value::String("test-host".to_string()));
+        table.insert("prefer_nix_on_equal".to_string(), toml::Value::Boolean(true));
+
+        let rendered = serialize_pkl_document(&toml::Value::Table(table)).unwrap();
+        assert!(rendered.contains("repo_path = \"/tmp/repo\""));
+        assert!(rendered.contains("hostname = \"test-host\""));
+        assert!(rendered.contains("prefer_nix_on_equal = true"));
+    }
+
+    #[test]
+    fn resolves_pkl_before_toml() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join(CONFIG_FILE), "repo_path = \"/pkl\"\n").unwrap();
+        fs::write(dir.path().join(CONFIG_TOML_COMPAT_FILE), "repo_path = \"/toml\"\n").unwrap();
+
+        let pkl = dir.path().join(CONFIG_FILE);
+        let toml = dir.path().join(CONFIG_TOML_COMPAT_FILE);
+        assert!(pkl.exists());
+        assert!(toml.exists());
+        assert_eq!(config_format_for_path(&pkl).unwrap(), LocalConfigFormat::Pkl);
+        assert_eq!(config_format_for_path(&toml).unwrap(), LocalConfigFormat::TomlCompat);
+    }
 }

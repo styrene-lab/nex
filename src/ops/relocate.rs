@@ -9,7 +9,7 @@ use crate::discover;
 use crate::output;
 
 /// Move a system-owned nix config (typically /etc/nixos) into a user-writable
-/// directory and update ~/.config/nex/config.toml to point at the new path.
+/// directory and update ~/.config/nex/config.pkl to point at the new path.
 ///
 /// Why: NixOS installers drop the config in /etc/nixos, which is root-owned.
 /// nex then needs sudo for every read and edit. After relocation, only the
@@ -67,7 +67,7 @@ pub fn run(target_arg: Option<&Path>, dry_run: bool) -> Result<()> {
             ));
         }
         output::dry_run(&format!(
-            "would update ~/.config/nex/config.toml: repo_path = {}",
+            "would update Nex local config: repo_path = {}",
             target.display()
         ));
         return Ok(());
@@ -214,7 +214,7 @@ fn write_config(target: &Path) -> Result<()> {
     config::set_preference("repo_path", &format!("\"{}\"", target.display()))?;
     output::status(&format!(
         "updated {} → repo_path = {}",
-        dir.join("config.toml").display(),
+        dir.join(crate::config::CONFIG_FILE).display(),
         target.display()
     ));
     Ok(())

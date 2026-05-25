@@ -44,23 +44,16 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
             let config_dir = crate::config::config_dir()?;
 
             if !dry_run {
-                std::fs::create_dir_all(&config_dir)?;
-                let config_content = format!(
-                    "repo_path = \"{}\"\nhostname = \"{}\"\n",
-                    existing.display(),
-                    hostname
+                let written = crate::config::write_initial_config(&existing, &hostname)?;
+                ok("config", &written.display().to_string());
+            } else {
+                ok(
+                    "config",
+                    &config_dir.join(crate::config::CONFIG_FILE).display().to_string(),
                 );
-                crate::edit::atomic_write_bytes(
-                    &config_dir.join("config.toml"),
-                    config_content.as_bytes(),
-                )?;
             }
 
             ok("config repo", &existing.display().to_string());
-            ok(
-                "config",
-                &config_dir.join("config.toml").display().to_string(),
-            );
             eprintln!();
             eprintln!(
                 "  nex is now using {}. Run {} to activate.",
@@ -163,21 +156,14 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
     let config_dir = crate::config::config_dir()?;
 
     if !dry_run {
-        std::fs::create_dir_all(&config_dir)?;
-        let config_content = format!(
-            "repo_path = \"{}\"\nhostname = \"{}\"\n",
-            repo_path.display(),
-            hostname
+        let written = crate::config::write_initial_config(&repo_path, &hostname)?;
+        ok("config", &written.display().to_string());
+    } else {
+        ok(
+            "config",
+            &config_dir.join(crate::config::CONFIG_FILE).display().to_string(),
         );
-        crate::edit::atomic_write_bytes(
-            &config_dir.join("config.toml"),
-            config_content.as_bytes(),
-        )?;
     }
-    ok(
-        "config",
-        &config_dir.join("config.toml").display().to_string(),
-    );
 
     // 7. First build + switch
     if dry_run {
