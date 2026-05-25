@@ -136,3 +136,108 @@ nex forge check-materialization \
   --hostname <host> \
   --target sd-image
 ```
+
+## Known physical hardware inventory to model
+
+These are hardware targets already mentioned for eventual Styrene-flavored Nix
+coverage. They should become explicit machine-profile/materialization targets as
+we formalize physical hardware support.
+
+### `gamingpc`
+
+Custom AMD desktop machine.
+
+Known from repository references:
+
+- existing test/example hostname references use `gamingpc`;
+- should probably become the first desktop-class physical-machine profile because
+  it is known local hardware and likely easiest to validate.
+
+Initial profile direction:
+
+- `x86_64-linux`
+- AMD GPU fragment
+- gaming/Steam hardware fragment if applicable
+- desktop fragment selected by actual use
+- physical-machine attestation required before destructive install
+
+Open questions:
+
+- exact CPU/GPU/motherboard
+- disk layout expectations
+- Wi-Fi/Bluetooth requirements
+- target desktop/session
+
+### Asus Q502A
+
+Older Asus laptop target.
+
+Initial profile direction:
+
+- `x86_64-linux`
+- generic laptop power/input profile
+- Intel graphics unless hardware inspection says otherwise
+- likely lower-risk than T2 MacBook, but still physical-machine destructive ops
+  require confirmation and attestation
+
+Open questions:
+
+- exact CPU/GPU/Wi-Fi chipset
+- UEFI/BIOS boot quirks
+- touchpad/input quirks
+- suspend/resume behavior
+
+### Asus T100TA
+
+Older Asus Transformer Book / Bay Trail-class tablet-laptop target.
+
+Initial profile direction:
+
+- likely low-power Intel/Bay Trail hardware
+- may need 32-bit UEFI handling despite 64-bit CPU class
+- tablet/input/orientation/audio quirks likely matter
+- should be treated as a special hardware profile rather than a generic laptop
+
+Open questions:
+
+- exact boot architecture constraints
+- kernel/firmware requirements
+- internal storage type and installer target
+- touchscreen/rotation/audio support
+
+### Raspberry Pi 4B
+
+ARM single-board computer target.
+
+Initial profile direction:
+
+- `aarch64-linux`
+- hermetic `sd-image` materialization target
+- profile should exercise the 0.19.0 deterministic `sd-image` validation/build
+  path
+- likely the best first non-x86 hardware image target
+
+Open questions:
+
+- RAM variants in use
+- boot from SD vs USB/NVMe
+- headless vs desktop
+- network provisioning defaults
+- whether to use upstream NixOS Raspberry Pi modules, `nixos-hardware`, or a
+  Styrene-specific board fragment
+
+### Apple Intel MacBook Pro T2, circa 2020
+
+Tracked above as a high-risk T2 Linux physical-machine target.
+
+## Suggested implementation order
+
+1. Raspberry Pi 4B — best fit for deterministic `sd-image` output and airgap
+   artifact testing.
+2. `gamingpc` — best x86_64 desktop validation target and likely good for AMD GPU
+   / gaming fragments.
+3. Asus Q502A — generic-ish older laptop profile after desktop path is stable.
+4. Asus T100TA — likely special boot/input quirks; handle after the simpler x86
+   laptop path.
+5. Intel MacBook Pro T2 — high-risk but well-scoped via T2 Linux; do after the
+   physical-machine safety and hardware attestation flow is mature.
