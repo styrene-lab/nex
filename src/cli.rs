@@ -285,6 +285,24 @@ pub enum ForgeAction {
         #[arg(long, short)]
         output: PathBuf,
     },
+    /// Build a deterministic materialization output after validation
+    BuildMaterialization {
+        /// Canonical Pkl materialization source; TOML is compatibility/interchange
+        #[arg(value_name = "SOURCE")]
+        source: PathBuf,
+
+        /// Hostname under nixosConfigurations.<hostname>
+        #[arg(long)]
+        hostname: String,
+
+        /// Materialization target to build
+        #[arg(long, default_value = "sd-image")]
+        target: String,
+
+        /// Output link path for nix build
+        #[arg(long, short)]
+        output: PathBuf,
+    },
 }
 
 #[derive(Subcommand)]

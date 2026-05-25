@@ -147,6 +147,71 @@ impl MaterializationCheck {
 }
 
 #[derive(Debug, Clone)]
+pub struct MaterializationBuild {
+    pub workspace: PathBuf,
+    pub hostname: String,
+    pub target: MaterializationTarget,
+    pub out_link: PathBuf,
+}
+
+impl MaterializationBuild {
+    pub fn eval_attr(&self) -> String {
+        self.target.attr(&self.hostname)
+    }
+
+    pub fn command(&self) -> Result<Command> {
+        validate_hostname(&self.hostname)?;
+        validate_workspace(&self.workspace)?;
+        if let Some(parent) = self.out_link.parent() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("creating {}", parent.display()))?;
+        }
+        let mut command = Command::new(find_nix());
+        command
+            .env("NIX_CONFIG", "experimental-features = nix-command flakes")
+            .env("NIX_SHOW_STATS", "0")
+            .args([
+                "--extra-experimental-features",
+                "nix-command flakes",
+                "build",
+                "--no-update-lock-file",
+                "--no-write-lock-file",
+                "--offline",
+                "--out-link",
+            ])
+            .arg(&self.out_link)
+            .arg(self.eval_attr())
+            .current_dir(&self.workspace);
+        Ok(command)
+    }
+
+    pub fn run(&self) -> Result<()> {
+        let check = MaterializationCheck {
+            workspace: self.workspace.clone(),
+            hostname: self.hostname.clone(),
+            target: self.target,
+        };
+        check.run()?;
+
+        let output = self
+            .command()?
+            .output()
+            .with_context(|| format!("running nix build in {}", self.workspace.display()))?;
+        if output.status.success() {
+            return Ok(());
+        }
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        bail!(
+            "materialization build failed for {}\n{}{}",
+            self.eval_attr(),
+            stdout,
+            stderr
+        );
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct NixosModuleExport {
     pub workspace: PathBuf,
     pub name: String,
@@ -1155,6 +1220,30 @@ extra_config = ["let x = builtins.getFlake \"github:owner/repo\"; in {}"]
         )
         .expect_err("impure fetch rejected");
         assert!(format!("{error:#}").contains("declare flake_inputs instead"));
+    }
+
+    #[test]
+    fn build_command_uses_deterministic_flags_and_out_link() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::write(dir.path().join("flake.nix"), "{}").expect("write flake");
+        let build = MaterializationBuild {
+            workspace: dir.path().to_path_buf(),
+            hostname: "test-host".to_string(),
+            target: MaterializationTarget::SdImage,
+            out_link: dir.path().join("result-sd-image"),
+        };
+        let command = build.command().expect("valid command");
+        let args = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().to_string())
+            .collect::<Vec<_>>();
+
+        assert!(args.contains(&"build".to_string()));
+        assert!(args.contains(&"--offline".to_string()));
+        assert!(args.contains(&"--no-update-lock-file".to_string()));
+        assert!(args.contains(&"--no-write-lock-file".to_string()));
+        assert!(args.contains(&"--out-link".to_string()));
+        assert!(args.contains(&nixos_sd_image_attr("test-host")));
     }
 
 }

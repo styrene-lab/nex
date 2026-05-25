@@ -139,3 +139,28 @@ nixos_module {
 workspace used by `check-materialization`. Impure fetch escape hatches such as
 `builtins.getFlake` and `builtins.fetchGit` are rejected; use `flake_inputs`
 instead so validation can remain offline and deterministic.
+
+## Deterministic build output
+
+Hermetic materialization builds use the same scaffold and validation path before
+building:
+
+```text
+nex forge build-materialization payload.pkl --hostname host --target sd-image --output ./dist/host-sd-image
+```
+
+The build first runs deterministic validation for the selected target, then runs:
+
+```text
+nix build --no-update-lock-file --no-write-lock-file --offline --out-link <output> <attr>
+```
+
+For `--target sd-image`, the built attr is:
+
+```text
+.#nixosConfigurations.<host>.config.system.build.sdImage
+```
+
+The command writes a Nix out-link at `--output`. The flake lock and store must
+already contain everything needed; the build will not fetch or rewrite lock
+state.

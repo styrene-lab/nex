@@ -3375,3 +3375,28 @@ pub fn run_build_module(source: &Path, name: &str, output: &Path) -> Result<()> 
     println!("nixosModule exported: {}", output.display());
     Ok(())
 }
+
+pub fn run_build_materialization(
+    source: &Path,
+    hostname: &str,
+    target: &str,
+    output: &Path,
+) -> Result<()> {
+    let target = crate::materialization::MaterializationTarget::parse(target)?;
+    let temp_dir = tempfile::tempdir().context("creating materialization build workspace")?;
+    crate::materialization::scaffold_nixos_config_from_source(temp_dir.path(), hostname, source)?;
+    let build = crate::materialization::MaterializationBuild {
+        workspace: temp_dir.path().to_path_buf(),
+        hostname: hostname.to_string(),
+        target,
+        out_link: output.to_path_buf(),
+    };
+    output::status(&format!(
+        "building materialization {} in {}...",
+        build.eval_attr(),
+        temp_dir.path().display()
+    ));
+    build.run()?;
+    println!("materialization built: {}", output.display());
+    Ok(())
+}
