@@ -108,7 +108,8 @@ impl ProfileFragmentDocument {
     }
 
     pub fn from_str(content: &str) -> Result<Self> {
-        let document: Self = toml::from_str(content).context("invalid compatibility profile fragment TOML")?;
+        let document: Self =
+            toml::from_str(content).context("invalid compatibility profile fragment TOML")?;
         document.validate()?;
         Ok(document)
     }
@@ -155,7 +156,9 @@ impl ProfileFragmentDocument {
         if fragment.platforms.is_empty() {
             bail!("fragment.platforms must contain at least one platform");
         }
-        if fragment.platforms.contains(&ProfileFragmentPlatform::Any) && fragment.platforms.len() > 1 {
+        if fragment.platforms.contains(&ProfileFragmentPlatform::Any)
+            && fragment.platforms.len() > 1
+        {
             bail!("fragment.platforms cannot combine 'any' with specific platforms");
         }
 
@@ -182,7 +185,8 @@ impl ProfileFragmentDocument {
 
 pub fn validate_fragment_version(version: &str) -> Result<()> {
     require_non_empty("fragment.version", version)?;
-    Version::parse(version).with_context(|| format!("fragment.version '{version}' must be valid SemVer"))?;
+    Version::parse(version)
+        .with_context(|| format!("fragment.version '{version}' must be valid SemVer"))?;
     Ok(())
 }
 
@@ -225,7 +229,10 @@ fn visit_fragment_files(path: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
         let path = entry.path();
         if path.is_dir() {
             visit_fragment_files(&path, files)?;
-        } else if matches!(path.extension().and_then(|ext| ext.to_str()), Some("pkl" | "toml")) {
+        } else if matches!(
+            path.extension().and_then(|ext| ext.to_str()),
+            Some("pkl" | "toml")
+        ) {
             files.push(path);
         }
     }
@@ -292,8 +299,14 @@ requires_confirmation = true
 
     #[test]
     fn rejects_hardware_mutation_without_confirmation() {
-        let manifest = valid_fragment().replace("requires_confirmation = true", "requires_confirmation = false");
-        let error = ProfileFragmentDocument::from_str(&manifest).expect_err("confirmation required");
-        assert!(format!("{error:#}").contains("hardware-driver fragments must require confirmation"));
+        let manifest = valid_fragment().replace(
+            "requires_confirmation = true",
+            "requires_confirmation = false",
+        );
+        let error =
+            ProfileFragmentDocument::from_str(&manifest).expect_err("confirmation required");
+        assert!(
+            format!("{error:#}").contains("hardware-driver fragments must require confirmation")
+        );
     }
 }

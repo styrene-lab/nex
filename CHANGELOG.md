@@ -4,6 +4,15 @@ All notable changes to nex are documented here. Format follows [Keep a Changelog
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-05-24
+
+### Changed
+- Profile fragments now require explicit SemVer `version` metadata and `profile-fragment inspect` displays the fragment version.
+- Profile fragment docs now define initial migration version `0.1.0` and SemVer increment guidance for downstream catalogs.
+
+### Breaking
+- Existing profile fragments without `version = "0.1.0"` fail validation under Nex 0.20.0.
+
 ## [0.19.0] - 2026-05-24
 
 ### Added

@@ -2,7 +2,9 @@ use std::path::Path;
 
 use anyhow::{bail, Result};
 
-use crate::profile_fragment::{find_fragment_files, infer_fragment_path_id, ProfileFragmentDocument};
+use crate::profile_fragment::{
+    find_fragment_files, infer_fragment_path_id, ProfileFragmentDocument,
+};
 
 pub fn run_validate(path: &Path) -> Result<()> {
     if path.is_dir() {
@@ -64,7 +66,10 @@ pub fn run_inspect(path: &Path) -> Result<()> {
             "Mutates hardware drivers",
             &safety.mutates_hardware_drivers.to_string(),
         );
-        print_kv("Requires confirmation", &safety.requires_confirmation.to_string());
+        print_kv(
+            "Requires confirmation",
+            &safety.requires_confirmation.to_string(),
+        );
     }
 
     Ok(())

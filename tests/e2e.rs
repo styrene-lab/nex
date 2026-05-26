@@ -63,7 +63,8 @@ impl Sandbox {
     fn with_pkl_config(self) -> Self {
         let config_dir = self.home.path().join(".config/nex");
         fs::create_dir_all(&config_dir).expect("create nex config dir");
-        fs::write(config_dir.join("config.pkl"), "// canonical test config\n").expect("write config.pkl");
+        fs::write(config_dir.join("config.pkl"), "// canonical test config\n")
+            .expect("write config.pkl");
         let json = format!(
             r#"{{"repo_path":"{}","hostname":"test-host"}}"#,
             self.repo.display()
@@ -368,8 +369,11 @@ fn machine_profile_validate_accepts_valid_manifest() {
     let sb = Sandbox::new();
     let profile_dir = sb.home.path().join("machine-profile");
     fs::create_dir_all(&profile_dir).expect("create profile dir");
-    fs::write(profile_dir.join("machine-profile.pkl"), valid_machine_profile_pkl_json())
-        .expect("write machine profile");
+    fs::write(
+        profile_dir.join("machine-profile.pkl"),
+        valid_machine_profile_pkl_json(),
+    )
+    .expect("write machine profile");
 
     let fake_pkl = write_fake_pkl(sb.home.path(), valid_machine_profile_pkl_json());
     sb.nex()
@@ -393,7 +397,9 @@ fn machine_profile_inspect_prints_metadata() {
         .assert()
         .success()
         .stdout(predicate::str::contains("Machine Profile"))
-        .stdout(predicate::str::contains("ID: io.styrene.nex.machine-profile.test"))
+        .stdout(predicate::str::contains(
+            "ID: io.styrene.nex.machine-profile.test",
+        ))
         .stdout(predicate::str::contains("Mode: plan-only"))
         .stdout(predicate::str::contains("forge-template:nixos-workstation"));
 }
@@ -403,13 +409,16 @@ fn machine_profile_validate_rejects_secret_values() {
     let sb = Sandbox::new();
     let profile_path = sb.home.path().join("machine-profile.pkl");
     let invalid = valid_machine_profile_pkl_json().replace("GITHUB_TOKEN", "GITHUB_TOKEN=secret");
-    fs::write(&profile_path, &invalid)
-    .expect("write machine profile");
+    fs::write(&profile_path, &invalid).expect("write machine profile");
 
     let fake_pkl = write_fake_pkl(sb.home.path(), &invalid);
     sb.nex()
         .env("NEX_PKL", &fake_pkl)
-        .args(["machine-profile", "validate", profile_path.to_str().unwrap()])
+        .args([
+            "machine-profile",
+            "validate",
+            profile_path.to_str().unwrap(),
+        ])
         .assert()
         .failure()
         .stderr(predicate::str::contains("must be a name"));
@@ -449,7 +458,11 @@ fn profile_fragment_validate_accepts_valid_manifest() {
 
     sb.nex()
         .env("NEX_PKL", &fake_pkl)
-        .args(["profile-fragment", "validate", fragment_path.to_str().unwrap()])
+        .args([
+            "profile-fragment",
+            "validate",
+            fragment_path.to_str().unwrap(),
+        ])
         .assert()
         .success()
         .stderr(predicate::str::contains("amd.pkl is valid"));
@@ -464,7 +477,11 @@ fn profile_fragment_inspect_prints_metadata() {
 
     sb.nex()
         .env("NEX_PKL", &fake_pkl)
-        .args(["profile-fragment", "inspect", fragment_path.to_str().unwrap()])
+        .args([
+            "profile-fragment",
+            "inspect",
+            fragment_path.to_str().unwrap(),
+        ])
         .assert()
         .success()
         .stdout(predicate::str::contains("Profile Fragment"))
@@ -484,7 +501,11 @@ fn profile_fragment_validate_rejects_missing_version() {
 
     sb.nex()
         .env("NEX_PKL", &fake_pkl)
-        .args(["profile-fragment", "validate", fragment_path.to_str().unwrap()])
+        .args([
+            "profile-fragment",
+            "validate",
+            fragment_path.to_str().unwrap(),
+        ])
         .assert()
         .failure()
         .stderr(predicate::str::contains("missing field `version`"));
@@ -494,13 +515,18 @@ fn profile_fragment_validate_rejects_missing_version() {
 fn profile_fragment_validate_rejects_invalid_version() {
     let sb = Sandbox::new();
     let fragment_path = sb.home.path().join("amd.pkl");
-    let invalid = valid_profile_fragment_pkl_json().replace("\"version\": \"0.1.0\"", "\"version\": \"latest\"");
+    let invalid = valid_profile_fragment_pkl_json()
+        .replace("\"version\": \"0.1.0\"", "\"version\": \"latest\"");
     fs::write(&fragment_path, &invalid).expect("write fragment");
     let fake_pkl = write_fake_pkl(sb.home.path(), &invalid);
 
     sb.nex()
         .env("NEX_PKL", &fake_pkl)
-        .args(["profile-fragment", "validate", fragment_path.to_str().unwrap()])
+        .args([
+            "profile-fragment",
+            "validate",
+            fragment_path.to_str().unwrap(),
+        ])
         .assert()
         .failure()
         .stderr(predicate::str::contains("must be valid SemVer"));
@@ -511,8 +537,11 @@ fn profile_fragment_directory_validation_checks_path_id() {
     let sb = Sandbox::new();
     let fragment_dir = sb.home.path().join("fragments");
     fs::create_dir_all(fragment_dir.join("gpu")).expect("create fragment dir");
-    fs::write(fragment_dir.join("gpu").join("amd.pkl"), valid_profile_fragment_pkl_json())
-        .expect("write fragment");
+    fs::write(
+        fragment_dir.join("gpu").join("amd.pkl"),
+        valid_profile_fragment_pkl_json(),
+    )
+    .expect("write fragment");
     let fake_pkl = write_fake_pkl(sb.home.path(), valid_profile_fragment_pkl_json());
 
     sb.nex()
@@ -532,8 +561,8 @@ fn profile_fragment_directory_validation_rejects_path_id_mismatch() {
     let sb = Sandbox::new();
     let fragment_dir = sb.home.path().join("fragments");
     fs::create_dir_all(fragment_dir.join("gpu")).expect("create fragment dir");
-    let invalid = valid_profile_fragment_pkl_json()
-        .replace("\"id\": \"gpu/amd\"", "\"id\": \"audio/amd\"");
+    let invalid =
+        valid_profile_fragment_pkl_json().replace("\"id\": \"gpu/amd\"", "\"id\": \"audio/amd\"");
     fs::write(fragment_dir.join("gpu").join("amd.pkl"), &invalid).expect("write fragment");
     let fake_pkl = write_fake_pkl(sb.home.path(), &invalid);
 
@@ -546,7 +575,9 @@ fn profile_fragment_directory_validation_rejects_path_id_mismatch() {
         ])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("must start with its category prefix"));
+        .stderr(predicate::str::contains(
+            "must start with its category prefix",
+        ));
 }
 
 // ── Machine profile signing tests ───────────────────────────────────────────────────────────
@@ -681,7 +712,6 @@ fn forge_check_materialization_rejects_workspace_without_flake() {
         .stderr(predicate::str::contains("does not contain flake.nix"));
 }
 
-
 #[test]
 fn forge_check_materialization_evaluates_sd_image_target() {
     let sb = Sandbox::new();
@@ -709,8 +739,12 @@ fn forge_check_materialization_evaluates_sd_image_target() {
 fn forge_build_materialization_uses_pkl_source_and_output_link() {
     let sb = Sandbox::new();
     let source = sb.home.path().join("payload.pkl");
-    fs::write(&source, "// materialization payload
-").expect("write payload");
+    fs::write(
+        &source,
+        "// materialization payload
+",
+    )
+    .expect("write payload");
     let fake_pkl = write_fake_pkl(
         sb.home.path(),
         r#"{"flake_inputs":{"dns_dhcp":"github:styrene-lab/dhcp-dns-work"},"nixos_module":{"extra_config":["services.openssh.enable = true;"]}}"#,
@@ -740,8 +774,12 @@ fn forge_build_materialization_uses_pkl_source_and_output_link() {
 fn forge_build_module_writes_module_flake() {
     let sb = Sandbox::new();
     let source = sb.home.path().join("payload.pkl");
-    fs::write(&source, "// materialization payload
-").expect("write payload");
+    fs::write(
+        &source,
+        "// materialization payload
+",
+    )
+    .expect("write payload");
     let fake_pkl = write_fake_pkl(
         sb.home.path(),
         r#"{"nixos_module":{"extra_config":["services.openssh.enable = true;"]}}"#,
@@ -773,8 +811,12 @@ fn forge_build_module_writes_module_flake() {
 fn forge_build_module_rejects_impure_extra_config() {
     let sb = Sandbox::new();
     let source = sb.home.path().join("payload.pkl");
-    fs::write(&source, "// materialization payload
-").expect("write payload");
+    fs::write(
+        &source,
+        "// materialization payload
+",
+    )
+    .expect("write payload");
     let fake_pkl = write_fake_pkl(
         sb.home.path(),
         r#"{"nixos_module":{"extra_config":["let x = builtins.getFlake \"github:owner/repo\"; in {}"]}}"#,
