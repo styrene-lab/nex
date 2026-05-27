@@ -4,6 +4,9 @@ All notable changes to nex are documented here. Format follows [Keep a Changelog
 
 ## [Unreleased]
 
+### Fixed
+- `install.sh` now falls back to the official Nix daemon installer on Intel macOS when no prebuilt Nex binary is available, then installs Nex through the flake.
+
 ## [0.21.0] - 2026-05-24
 
 ### Added

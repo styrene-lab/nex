@@ -208,6 +208,15 @@ try_nix() {
   return 0
 }
 
+try_official_nix() {
+  command -v sh >/dev/null 2>&1 || return 1
+  command -v curl >/dev/null 2>&1 || return 1
+
+  info "Installing official Nix daemon..."
+  curl --proto '=https' --tlsv1.2 -sSf -L https://nixos.org/nix/install | sh -s -- --daemon
+  return 0
+}
+
 try_cargo() {
   command -v cargo >/dev/null 2>&1 || return 1
 
@@ -313,6 +322,16 @@ else
   fi
 fi
 
+if [ "$installed" = "false" ] && [ "$OS" = "Darwin" ] && [ "$ARCH" = "x86_64" ]; then
+  warn "No prebuilt nex binary available for ${TARGET}; bootstrapping Nix with the official daemon installer"
+  if try_official_nix; then
+    has_nix=true
+    if try_nix; then
+      installed=true
+    fi
+  fi
+fi
+
 if [ "$installed" = "false" ]; then
   printf "\n"
   printf " %b✗%b Could not install nex.\n\n" "$R" "$N"
@@ -324,7 +343,11 @@ if [ "$installed" = "false" ]; then
     printf "  %b!%b cargo not found\n" "$Y" "$N"
   fi
   printf "\n  Install one of these, then re-run:\n"
-  printf "  * %bnix%b   — curl --proto '=https' -sSf -L https://install.determinate.systems/nix | sh\n" "$C" "$N"
+  if [ "$OS" = "Darwin" ] && [ "$ARCH" = "x86_64" ]; then
+    printf "  * %bnix%b   — curl -L https://nixos.org/nix/install | sh -s -- --daemon\n" "$C" "$N"
+  else
+    printf "  * %bnix%b   — curl --proto '=https' -sSf -L https://install.determinate.systems/nix | sh\n" "$C" "$N"
+  fi
   printf "  * %bcargo%b — curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh\n\n" "$C" "$N"
   exit 1
 fi
