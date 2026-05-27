@@ -164,6 +164,11 @@ fn main() -> Result<()> {
                     evidence,
                     json,
                 } => ops::artifact::run_check(path, evidence, *json),
+                cli::ArtifactAction::CheckRelationship {
+                    profile,
+                    payload,
+                    json,
+                } => ops::artifact::run_check_relationship(profile, payload, *json),
             }
         }
         Command::ProfileFragment { ref action } => {

@@ -376,6 +376,20 @@ pub enum ArtifactAction {
         #[arg(long)]
         json: bool,
     },
+    /// Validate compatibility between a machine-profile artifact and materialization-payload artifact
+    CheckRelationship {
+        /// Machine-profile artifact directory
+        #[arg(long)]
+        profile: PathBuf,
+
+        /// Materialization-payload artifact directory
+        #[arg(long)]
+        payload: PathBuf,
+
+        /// Emit a stable JSON report
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]

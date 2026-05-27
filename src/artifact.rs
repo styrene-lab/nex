@@ -68,6 +68,15 @@ pub struct EvidenceRecord {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct ArtifactRelationshipReport {
+    pub ok: bool,
+    pub profile: ArtifactCheckReport,
+    pub payload: ArtifactCheckReport,
+    pub relationship: String,
+    pub diagnostics: Vec<ArtifactDiagnostic>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct ArtifactDiagnostic {
     pub level: DiagnosticLevel,
     pub code: String,
@@ -140,6 +149,49 @@ struct DetectedArtifact {
 
 pub fn check_artifact_dir(path: &Path) -> ArtifactCheckReport {
     check_artifact_dir_with_evidence(path, "evaluates")
+}
+
+pub fn check_artifact_relationship(profile: &Path, payload: &Path) -> ArtifactRelationshipReport {
+    let profile_report = check_artifact_dir(profile);
+    let payload_report = check_artifact_dir(payload);
+    let mut diagnostics = Vec::new();
+
+    if profile_report.kind != Some(ArtifactKind::MachineProfile) {
+        diagnostics.push(ArtifactDiagnostic::error(
+            "relationship-profile-kind-invalid",
+            "relationship profile path must be a machine-profile artifact",
+            Some("profile".to_string()),
+        ));
+    }
+    if payload_report.kind != Some(ArtifactKind::MaterializationPayload) {
+        diagnostics.push(ArtifactDiagnostic::error(
+            "relationship-payload-kind-invalid",
+            "relationship payload path must be a materialization-payload artifact",
+            Some("payload".to_string()),
+        ));
+    }
+    if !profile_report.ok {
+        diagnostics.push(ArtifactDiagnostic::error(
+            "relationship-profile-invalid",
+            "profile artifact failed standalone validation",
+            Some("profile".to_string()),
+        ));
+    }
+    if !payload_report.ok {
+        diagnostics.push(ArtifactDiagnostic::error(
+            "relationship-payload-invalid",
+            "payload artifact failed standalone validation",
+            Some("payload".to_string()),
+        ));
+    }
+
+    ArtifactRelationshipReport {
+        ok: profile_report.ok && payload_report.ok && diagnostics.is_empty(),
+        profile: profile_report,
+        payload: payload_report,
+        relationship: "machine-profile/materialization-payload".to_string(),
+        diagnostics,
+    }
 }
 
 pub fn check_artifact_dir_with_evidence(path: &Path, evidence: &str) -> ArtifactCheckReport {

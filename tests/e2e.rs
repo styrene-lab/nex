@@ -544,6 +544,77 @@ fn artifact_check_rejects_unsupported_evidence_tier() {
 }
 
 #[test]
+fn artifact_check_relationship_accepts_valid_pair() {
+    let sb = Sandbox::new();
+    let profile_dir = sb.home.path().join("machine-artifact");
+    let payload_dir = sb.home.path().join("payload-artifact");
+    fs::create_dir_all(&profile_dir).expect("create profile artifact dir");
+    fs::create_dir_all(&payload_dir).expect("create payload artifact dir");
+    fs::write(
+        profile_dir.join("machine-profile.pkl"),
+        valid_machine_profile_pkl_json(),
+    )
+    .expect("write machine profile");
+    fs::write(payload_dir.join("payload.pkl"), valid_materialization_payload_pkl_json())
+        .expect("write payload");
+    let fake_pkl = write_passthrough_pkl(sb.home.path());
+
+    sb.nex()
+        .env("NEX_PKL", &fake_pkl)
+        .args([
+            "artifact",
+            "check-relationship",
+            "--profile",
+            profile_dir.to_str().unwrap(),
+            "--payload",
+            payload_dir.to_str().unwrap(),
+            "--json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"ok\": true"))
+        .stdout(predicate::str::contains(
+            "\"relationship\": \"machine-profile/materialization-payload\"",
+        ));
+}
+
+#[test]
+fn artifact_check_relationship_rejects_invalid_payload() {
+    let sb = Sandbox::new();
+    let profile_dir = sb.home.path().join("machine-artifact");
+    let payload_dir = sb.home.path().join("payload-artifact");
+    fs::create_dir_all(&profile_dir).expect("create profile artifact dir");
+    fs::create_dir_all(&payload_dir).expect("create payload artifact dir");
+    fs::write(
+        profile_dir.join("machine-profile.pkl"),
+        valid_machine_profile_pkl_json(),
+    )
+    .expect("write machine profile");
+    let invalid = r#"{
+  "flake_inputs": {},
+  "machine_profile": { "safety": { "requires_confirmation": true } }
+}
+"#;
+    fs::write(payload_dir.join("payload.pkl"), invalid).expect("write payload");
+    let fake_pkl = write_passthrough_pkl(sb.home.path());
+
+    sb.nex()
+        .env("NEX_PKL", &fake_pkl)
+        .args([
+            "artifact",
+            "check-relationship",
+            "--profile",
+            profile_dir.to_str().unwrap(),
+            "--payload",
+            payload_dir.to_str().unwrap(),
+            "--json",
+        ])
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("relationship-payload-invalid"));
+}
+
+#[test]
 fn artifact_check_rejects_boundary_field_before_deserialization() {
     let sb = Sandbox::new();
     let artifact_dir = sb.home.path().join("bad-payload-artifact");
@@ -1215,6 +1286,25 @@ JSON
         ),
     )
     .expect("write fake pkl");
+    let mut perms = fs::metadata(&fake_pkl)
+        .expect("stat fake pkl")
+        .permissions();
+    perms.set_mode(0o755);
+    fs::set_permissions(&fake_pkl, perms).expect("chmod fake pkl");
+    fake_pkl
+}
+
+fn write_passthrough_pkl(dir: &Path) -> PathBuf {
+    let fake_pkl = dir.join("fake-pkl-passthrough");
+    fs::write(
+        &fake_pkl,
+        r#"#!/bin/sh
+last=""
+for arg in "$@"; do last="$arg"; done
+cat "$last"
+"#,
+    )
+    .expect("write fake passthrough pkl");
     let mut perms = fs::metadata(&fake_pkl)
         .expect("stat fake pkl")
         .permissions();
