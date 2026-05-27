@@ -279,6 +279,8 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
                     .args([
                         result_path.to_string_lossy().as_ref(),
                         "switch",
+                        "--extra-experimental-features",
+                        "nix-command flakes",
                         "--flake",
                         &format!(".#{hostname}"),
                     ])
@@ -287,9 +289,12 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
                     .map(|s| s.success())
                     .unwrap_or(false)
             } else {
-                Command::new("sudo")
+                Command::new(&nix)
+                    .args(crate::exec::nix_experimental_args())
                     .args([
-                        "darwin-rebuild",
+                        "run",
+                        "nix-darwin",
+                        "--",
                         "switch",
                         "--flake",
                         &format!(".#{hostname}"),
@@ -304,6 +309,8 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
             .args([
                 "nixos-rebuild",
                 "switch",
+                "--extra-experimental-features",
+                "nix-command flakes",
                 "--flake",
                 &format!(".#{hostname}"),
             ])
@@ -327,13 +334,24 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
         println!();
         output::error("automatic activation failed — run manually:");
         match platform {
-            Platform::Darwin => println!(
-                "  cd {} && sudo ./result/sw/bin/darwin-rebuild switch --flake .#{}",
-                repo_path.display(),
-                hostname
-            ),
+            Platform::Darwin => {
+                let result_path = repo_path.join("result/sw/bin/darwin-rebuild");
+                if result_path.exists() {
+                    println!(
+                        "  cd {} && sudo ./result/sw/bin/darwin-rebuild switch --extra-experimental-features 'nix-command flakes' --flake .#{}",
+                        repo_path.display(),
+                        hostname
+                    );
+                } else {
+                    println!(
+                        "  cd {} && nix --extra-experimental-features 'nix-command flakes' run nix-darwin -- switch --flake .#{}",
+                        repo_path.display(),
+                        hostname
+                    );
+                }
+            }
             Platform::Linux => println!(
-                "  cd {} && sudo nixos-rebuild switch --flake .#{}",
+                "  cd {} && sudo nixos-rebuild switch --extra-experimental-features 'nix-command flakes' --flake .#{}",
                 repo_path.display(),
                 hostname
             ),
