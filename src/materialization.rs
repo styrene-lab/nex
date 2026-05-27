@@ -7,6 +7,8 @@ use anyhow::{bail, Context, Result};
 #[derive(Debug, Clone, Default, serde::Deserialize, serde::Serialize)]
 pub struct MaterializationPayload {
     #[serde(default)]
+    pub system: Option<String>,
+    #[serde(default)]
     pub flake_inputs: BTreeMap<String, String>,
     #[serde(default)]
     pub nixos_module: NixosModulePayload,
@@ -37,6 +39,12 @@ impl MaterializationPayload {
             return String::new();
         }
         let mut lines = Vec::new();
+        if let Some(system) = &self.system {
+            lines.push(format!("system = {system:?}"));
+            if !self.flake_inputs.is_empty() || !self.nixos_module.extra_config.is_empty() {
+                lines.push(String::new());
+            }
+        }
         if !self.flake_inputs.is_empty() {
             lines.push("[flake_inputs]".to_string());
             for (name, reference) in &self.flake_inputs {
@@ -58,6 +66,9 @@ impl MaterializationPayload {
     }
 
     pub fn validate(&self) -> Result<()> {
+        if let Some(system) = &self.system {
+            validate_nix_system(system)?;
+        }
         for (name, reference) in &self.flake_inputs {
             validate_flake_input_name(name)?;
             validate_flake_input_ref(reference)?;
@@ -294,6 +305,15 @@ pub fn validate_workspace(workspace: &Path) -> Result<()> {
     Ok(())
 }
 
+pub fn validate_nix_system(system: &str) -> Result<()> {
+    match system {
+        "x86_64-linux" | "aarch64-linux" | "x86_64-darwin" | "aarch64-darwin" => Ok(()),
+        other => bail!(
+            "unsupported nix system '{other}'; supported: x86_64-linux, aarch64-linux, x86_64-darwin, aarch64-darwin"
+        ),
+    }
+}
+
 pub fn validate_flake_input_name(name: &str) -> Result<()> {
     if name.is_empty() {
         bail!("flake input name cannot be empty");
@@ -414,12 +434,13 @@ pub fn scaffold_nixos_config(config_dir: &Path, hostname: &str, profile_toml: &s
     std::fs::create_dir_all(config_dir)?;
 
     let user = std::env::var("USER").unwrap_or_else(|_| "user".to_string());
-    let system = crate::discover::detect_system();
+    let detected_system = crate::discover::detect_system();
 
     // Parse profile to extract linux settings and materialization metadata.
     let profile: toml::Value = toml::from_str(profile_toml).context("invalid materialization TOML")?;
     let payload = MaterializationPayload::from_toml_str(profile_toml)?;
     let extra_inputs = render_flake_inputs(&payload.flake_inputs);
+    let system = payload.system.as_deref().unwrap_or(detected_system);
 
     // flake.nix
     std::fs::write(
@@ -513,6 +534,11 @@ pub fn scaffold_nixos_config(config_dir: &Path, hostname: &str, profile_toml: &s
     std::fs::write(
         config_dir.join("configuration.nix"),
         config_lines.join("\n"),
+    )?;
+
+    std::fs::write(
+        config_dir.join("materialization-module.nix"),
+        render_nixos_module(&payload),
     )?;
 
     // hardware-configuration.nix — placeholder, polymerize will generate the real one
@@ -1083,6 +1109,9 @@ extra_config = ""
         assert!(flake.contains("nixos-hardware.url = \"github:NixOS/nixos-hardware\";"));
         assert!(flake.contains("outputs = { self, nixpkgs, home-manager, ... }@inputs:"));
         assert!(flake.contains("specialArgs = { inherit inputs; username ="));
+        assert!(flake.contains("./materialization-module.nix"));
+        assert!(dir.path().join("materialization-module.nix").is_file());
+        assert!(!dir.path().join("module.nix").exists());
     }
 
     #[test]
@@ -1190,6 +1219,28 @@ bad = "github:owner/repo;rm-rf"
         assert!(format!("{error:#}").contains("unsupported shell/template characters"));
     }
     #[test]
+    fn parses_explicit_materialization_system() {
+        let payload = MaterializationPayload::from_toml_str(
+            r#"
+system = "aarch64-linux"
+"#,
+        )
+        .expect("valid payload");
+        assert_eq!(payload.system.as_deref(), Some("aarch64-linux"));
+    }
+
+    #[test]
+    fn rejects_invalid_materialization_system() {
+        let error = MaterializationPayload::from_toml_str(
+            r#"
+system = "mips-linux"
+"#,
+        )
+        .expect_err("invalid system rejected");
+        assert!(format!("{error:#}").contains("unsupported nix system"));
+    }
+
+    #[test]
     fn materialization_target_builds_sd_image_attr() {
         let target = MaterializationTarget::parse("sd-image").unwrap();
         assert_eq!(
@@ -1201,6 +1252,7 @@ bad = "github:owner/repo;rm-rf"
     #[test]
     fn renders_nixos_module_extra_config() {
         let payload = MaterializationPayload {
+            system: None,
             flake_inputs: BTreeMap::new(),
             nixos_module: NixosModulePayload {
                 extra_config: vec!["services.openssh.enable = true;".to_string()],
