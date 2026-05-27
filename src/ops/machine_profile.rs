@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use anyhow::Result;
+use serde::Serialize;
 
 use crate::machine_profile::{MachineProfileDocument, MACHINE_PROFILE_FILE};
 
@@ -10,8 +11,13 @@ pub fn run_validate(path: &Path) -> Result<()> {
     Ok(())
 }
 
-pub fn run_inspect(path: &Path) -> Result<()> {
+pub fn run_inspect(path: &Path, json: bool) -> Result<()> {
     let document = MachineProfileDocument::from_path(path)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&MachineProfileInspect::from(&document))?);
+        return Ok(());
+    }
+
     let profile = &document.machine_profile;
 
     print_section("Machine Profile");
@@ -71,6 +77,100 @@ pub fn run_inspect(path: &Path) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MachineProfileInspect {
+    kind: &'static str,
+    schema: String,
+    id: String,
+    slug: String,
+    name: String,
+    version: String,
+    description: Option<String>,
+    license: Option<String>,
+    min_nex: String,
+    defaults: MachineProfileDefaultsInspect,
+    safety: MachineProfileSafetyInspect,
+    secrets: MachineProfileSecretsInspect,
+    dependencies: Vec<MachineProfileDependencyInspect>,
+}
+
+#[derive(Serialize)]
+struct MachineProfileDefaultsInspect {
+    mode: String,
+    target: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MachineProfileSafetyInspect {
+    default_destructive: bool,
+    requires_confirmation: bool,
+    requires_target_attestation: bool,
+    allowed_targets: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct MachineProfileSecretsInspect {
+    required: Vec<String>,
+    optional: Vec<String>,
+}
+
+#[derive(Serialize)]
+struct MachineProfileDependencyInspect {
+    kind: String,
+    id: String,
+    version: String,
+    required: bool,
+}
+
+impl From<&MachineProfileDocument> for MachineProfileInspect {
+    fn from(document: &MachineProfileDocument) -> Self {
+        let profile = &document.machine_profile;
+        let secrets = profile.secrets.as_ref();
+        Self {
+            kind: "machine-profile",
+            schema: profile.schema.clone(),
+            id: profile.id.clone(),
+            slug: profile.slug.clone(),
+            name: profile.name.clone(),
+            version: profile.version.clone(),
+            description: profile.description.clone(),
+            license: profile.license.clone(),
+            min_nex: profile.min_nex.clone(),
+            defaults: MachineProfileDefaultsInspect {
+                mode: profile.defaults.mode.to_string(),
+                target: profile.defaults.target.to_string(),
+            },
+            safety: MachineProfileSafetyInspect {
+                default_destructive: profile.safety.default_destructive,
+                requires_confirmation: profile.safety.requires_confirmation,
+                requires_target_attestation: profile.safety.requires_target_attestation,
+                allowed_targets: profile
+                    .safety
+                    .allowed_targets
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect(),
+            },
+            secrets: MachineProfileSecretsInspect {
+                required: secrets.map(|s| s.required.clone()).unwrap_or_default(),
+                optional: secrets.map(|s| s.optional.clone()).unwrap_or_default(),
+            },
+            dependencies: document
+                .dependencies
+                .iter()
+                .map(|dependency| MachineProfileDependencyInspect {
+                    kind: dependency.kind.to_string(),
+                    id: dependency.id.clone(),
+                    version: dependency.version.clone(),
+                    required: dependency.required,
+                })
+                .collect(),
+        }
+    }
 }
 
 fn print_section(label: &str) {

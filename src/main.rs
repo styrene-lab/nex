@@ -152,8 +152,8 @@ fn main() -> Result<()> {
                 cli::MachineProfileAction::Validate { path } => {
                     ops::machine_profile::run_validate(path)
                 }
-                cli::MachineProfileAction::Inspect { path } => {
-                    ops::machine_profile::run_inspect(path)
+                cli::MachineProfileAction::Inspect { path, json } => {
+                    ops::machine_profile::run_inspect(path, *json)
                 }
             }
         }
@@ -176,8 +176,8 @@ fn main() -> Result<()> {
                 cli::ProfileFragmentAction::Validate { path } => {
                     ops::profile_fragment::run_validate(path)
                 }
-                cli::ProfileFragmentAction::Inspect { path } => {
-                    ops::profile_fragment::run_inspect(path)
+                cli::ProfileFragmentAction::Inspect { path, json } => {
+                    ops::profile_fragment::run_inspect(path, *json)
                 }
             }
         }

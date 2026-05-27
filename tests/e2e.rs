@@ -385,7 +385,7 @@ fn machine_profile_validate_accepts_valid_manifest() {
 }
 
 #[test]
-fn machine_profile_inspect_prints_metadata() {
+fn machine_profile_inspect_prints_json_metadata() {
     let sb = Sandbox::new();
     let profile_path = sb.home.path().join("machine-profile.pkl");
     fs::write(&profile_path, valid_machine_profile_pkl_json()).expect("write machine profile");
@@ -393,15 +393,12 @@ fn machine_profile_inspect_prints_metadata() {
 
     sb.nex()
         .env("NEX_PKL", &fake_pkl)
-        .args(["machine-profile", "inspect", profile_path.to_str().unwrap()])
+        .args(["machine-profile", "inspect", "--json", profile_path.to_str().unwrap()])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Machine Profile"))
-        .stdout(predicate::str::contains(
-            "ID: io.styrene.nex.machine-profile.test",
-        ))
-        .stdout(predicate::str::contains("Mode: plan-only"))
-        .stdout(predicate::str::contains("forge-template:nixos-workstation"));
+        .stdout(predicate::str::contains("\"kind\": \"machine-profile\""))
+        .stdout(predicate::str::contains("\"minNex\": \"0.18.0\""))
+        .stdout(predicate::str::contains("\"allowedTargets\""));
 }
 
 #[test]
@@ -715,7 +712,7 @@ fn profile_fragment_validate_accepts_valid_manifest() {
 }
 
 #[test]
-fn profile_fragment_inspect_prints_metadata() {
+fn profile_fragment_inspect_prints_json_metadata() {
     let sb = Sandbox::new();
     let fragment_path = sb.home.path().join("amd.pkl");
     fs::write(&fragment_path, valid_profile_fragment_pkl_json()).expect("write fragment");
@@ -726,15 +723,14 @@ fn profile_fragment_inspect_prints_metadata() {
         .args([
             "profile-fragment",
             "inspect",
+            "--json",
             fragment_path.to_str().unwrap(),
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("Profile Fragment"))
-        .stdout(predicate::str::contains("ID: gpu/amd"))
-        .stdout(predicate::str::contains("Version: 0.1.0"))
-        .stdout(predicate::str::contains("Requires: platform/linux"))
-        .stdout(predicate::str::contains("Conflicts: gpu/nvidia, gpu/intel"));
+        .stdout(predicate::str::contains("\"kind\": \"profile-fragment\""))
+        .stdout(predicate::str::contains("\"version\": \"0.1.0\""))
+        .stdout(predicate::str::contains("\"mutatesHardwareDrivers\": true"));
 }
 
 #[test]

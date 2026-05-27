@@ -405,6 +405,10 @@ pub enum MachineProfileAction {
         /// Path to machine-profile.pkl or a directory containing it; TOML is compatibility/interchange
         #[arg(value_name = "PATH")]
         path: PathBuf,
+
+        /// Emit stable JSON metadata after validation
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -421,6 +425,10 @@ pub enum ProfileFragmentAction {
         /// Path to a fragment TOML file
         #[arg(value_name = "PATH")]
         path: PathBuf,
+
+        /// Emit stable JSON metadata after validation
+        #[arg(long)]
+        json: bool,
     },
 }
 
