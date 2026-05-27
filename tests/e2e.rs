@@ -512,8 +512,35 @@ fn artifact_check_accepts_materialization_payload_json() {
         .assert()
         .success()
         .stdout(predicate::str::contains("\"ok\": true"))
+        .stdout(predicate::str::contains("\"tier\": \"evaluates\""))
+        .stdout(predicate::str::contains("\"result\": \"passed\""))
         .stdout(predicate::str::contains("\"kind\": \"materialization-payload\""))
         .stdout(predicate::str::contains("\"entrypoint\": \"payload.pkl\""));
+}
+
+#[test]
+fn artifact_check_rejects_unsupported_evidence_tier() {
+    let sb = Sandbox::new();
+    let artifact_dir = sb.home.path().join("payload-artifact");
+    fs::create_dir_all(&artifact_dir).expect("create artifact dir");
+    fs::write(artifact_dir.join("payload.pkl"), valid_materialization_payload_pkl_json())
+        .expect("write payload");
+    let fake_pkl = write_fake_pkl(sb.home.path(), valid_materialization_payload_pkl_json());
+
+    sb.nex()
+        .env("NEX_PKL", &fake_pkl)
+        .args([
+            "artifact",
+            "check",
+            artifact_dir.to_str().unwrap(),
+            "--evidence",
+            "builds-image",
+            "--json",
+        ])
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("unsupported-evidence-tier"))
+        .stdout(predicate::str::contains("\"tier\": \"builds-image\""));
 }
 
 #[test]

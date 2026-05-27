@@ -2,8 +2,8 @@ use std::path::Path;
 
 use anyhow::{bail, Result};
 
-pub fn run_check(path: &Path, json: bool) -> Result<()> {
-    let report = crate::artifact::check_artifact_dir(path);
+pub fn run_check(path: &Path, evidence: &str, json: bool) -> Result<()> {
+    let report = crate::artifact::check_artifact_dir_with_evidence(path, evidence);
     if json {
         println!("{}", serde_json::to_string_pretty(&report)?);
     } else {
@@ -14,6 +14,9 @@ pub fn run_check(path: &Path, json: bool) -> Result<()> {
         }
         if let Some(entrypoint) = &report.entrypoint {
             println!("  Entrypoint: {entrypoint}");
+        }
+        if let Some(evidence) = &report.evidence {
+            println!("  Evidence: {} ({})", evidence.tier, evidence.result);
         }
         println!("  Status: {}", if report.ok { "ok" } else { "failed" });
         for diagnostic in &report.diagnostics {

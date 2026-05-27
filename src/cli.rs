@@ -368,6 +368,10 @@ pub enum ArtifactAction {
         #[arg(value_name = "PATH")]
         path: PathBuf,
 
+        /// Evidence tier to validate
+        #[arg(long, default_value = "evaluates")]
+        evidence: String,
+
         /// Emit a stable JSON report
         #[arg(long)]
         json: bool,

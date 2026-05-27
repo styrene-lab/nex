@@ -55,7 +55,16 @@ pub struct ArtifactCheckReport {
     pub path: String,
     pub kind: Option<ArtifactKind>,
     pub entrypoint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub evidence: Option<EvidenceRecord>,
     pub diagnostics: Vec<ArtifactDiagnostic>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct EvidenceRecord {
+    pub tier: String,
+    pub result: String,
+    pub validated_with: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -71,6 +80,45 @@ pub struct ArtifactDiagnostic {
 #[serde(rename_all = "kebab-case")]
 pub enum DiagnosticLevel {
     Error,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EvidenceTier {
+    Evaluates,
+    Materializes,
+    BuildsImage,
+    BootsEmulated,
+    BootsHardware,
+    Operational,
+}
+
+impl EvidenceTier {
+    pub fn parse(value: &str) -> std::result::Result<Self, ArtifactDiagnostic> {
+        match value {
+            "evaluates" => Ok(Self::Evaluates),
+            "materializes" => Ok(Self::Materializes),
+            "builds-image" => Ok(Self::BuildsImage),
+            "boots-emulated" => Ok(Self::BootsEmulated),
+            "boots-hardware" => Ok(Self::BootsHardware),
+            "operational" => Ok(Self::Operational),
+            other => Err(ArtifactDiagnostic::error(
+                "unknown-evidence-tier",
+                format!("unknown evidence tier '{other}'"),
+                Some("evidence".to_string()),
+            )),
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Evaluates => "evaluates",
+            Self::Materializes => "materializes",
+            Self::BuildsImage => "builds-image",
+            Self::BootsEmulated => "boots-emulated",
+            Self::BootsHardware => "boots-hardware",
+            Self::Operational => "operational",
+        }
+    }
 }
 
 impl ArtifactDiagnostic {
@@ -91,7 +139,25 @@ struct DetectedArtifact {
 }
 
 pub fn check_artifact_dir(path: &Path) -> ArtifactCheckReport {
+    check_artifact_dir_with_evidence(path, "evaluates")
+}
+
+pub fn check_artifact_dir_with_evidence(path: &Path, evidence: &str) -> ArtifactCheckReport {
     let mut diagnostics = Vec::new();
+    let tier = match EvidenceTier::parse(evidence) {
+        Ok(tier) => tier,
+        Err(diagnostic) => {
+            diagnostics.push(diagnostic);
+            return ArtifactCheckReport {
+                ok: false,
+                path: path.display().to_string(),
+                kind: None,
+                entrypoint: None,
+                evidence: Some(evidence_record(evidence, "failed")),
+                diagnostics,
+            };
+        }
+    };
     let detected = match detect_artifact(path) {
         Ok(detected) => detected,
         Err(diagnostic) => {
@@ -101,6 +167,7 @@ pub fn check_artifact_dir(path: &Path) -> ArtifactCheckReport {
                 path: path.display().to_string(),
                 kind: None,
                 entrypoint: None,
+                evidence: Some(evidence_record(tier.as_str(), "failed")),
                 diagnostics,
             };
         }
@@ -114,7 +181,7 @@ pub fn check_artifact_dir(path: &Path) -> ArtifactCheckReport {
                 format!("failed to evaluate {}: {error:#}", detected.entrypoint.display()),
                 None,
             ));
-            return report(path, &detected, diagnostics);
+            return report(path, &detected, tier, diagnostics);
         }
     };
 
@@ -123,13 +190,15 @@ pub fn check_artifact_dir(path: &Path) -> ArtifactCheckReport {
         diagnostics.extend(validate_typed_semantics(detected.kind, json));
     }
     diagnostics.extend(validate_armory_metadata(path, detected.kind));
+    diagnostics.extend(validate_evidence_tier(tier));
 
-    report(path, &detected, diagnostics)
+    report(path, &detected, tier, diagnostics)
 }
 
 fn report(
     path: &Path,
     detected: &DetectedArtifact,
+    tier: EvidenceTier,
     diagnostics: Vec<ArtifactDiagnostic>,
 ) -> ArtifactCheckReport {
     ArtifactCheckReport {
@@ -137,8 +206,38 @@ fn report(
         path: path.display().to_string(),
         kind: Some(detected.kind),
         entrypoint: Some(detected.kind.entrypoint().to_string()),
+        evidence: Some(evidence_record(
+            tier.as_str(),
+            if diagnostics.is_empty() {
+                "passed"
+            } else {
+                "failed"
+            },
+        )),
         diagnostics,
     }
+}
+
+fn evidence_record(tier: &str, result: &str) -> EvidenceRecord {
+    EvidenceRecord {
+        tier: tier.to_string(),
+        result: result.to_string(),
+        validated_with: format!("nex {}", env!("CARGO_PKG_VERSION")),
+    }
+}
+
+fn validate_evidence_tier(tier: EvidenceTier) -> Vec<ArtifactDiagnostic> {
+    if tier == EvidenceTier::Evaluates {
+        return Vec::new();
+    }
+    vec![ArtifactDiagnostic::error(
+        "unsupported-evidence-tier",
+        format!(
+            "evidence tier '{}' is recognized but does not have a validator yet",
+            tier.as_str()
+        ),
+        Some("evidence".to_string()),
+    )]
 }
 
 fn detect_artifact(path: &Path) -> std::result::Result<DetectedArtifact, ArtifactDiagnostic> {

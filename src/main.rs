@@ -159,7 +159,11 @@ fn main() -> Result<()> {
         }
         Command::Artifact { ref action } => {
             return match action {
-                cli::ArtifactAction::Check { path, json } => ops::artifact::run_check(path, *json),
+                cli::ArtifactAction::Check {
+                    path,
+                    evidence,
+                    json,
+                } => ops::artifact::run_check(path, evidence, *json),
             }
         }
         Command::ProfileFragment { ref action } => {
