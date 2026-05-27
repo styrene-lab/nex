@@ -4,6 +4,11 @@ All notable changes to nex are documented here. Format follows [Keep a Changelog
 
 ## [Unreleased]
 
+## [0.21.3] - 2026-05-27
+
+### Fixed
+- `nex init` now activates fresh nix-darwin systems through `nix run nix-darwin -- switch --flake ...` when `darwin-rebuild` is not installed yet.
+
 ## [0.21.2] - 2026-05-27
 
 ### Fixed
