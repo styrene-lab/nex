@@ -463,15 +463,60 @@ fn install_nix() -> Result<()> {
             "curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install",
         ])
         .status()
-        .context("failed to run nix installer")?;
+        .context("failed to run Determinate Nix installer")?;
 
     if !status.success() {
-        output::error("shell installer failed — trying macOS .pkg installer...");
-        install_nix_pkg()?;
+        if should_use_official_nix_fallback() {
+            output::error(
+                "Determinate installer failed on x86_64 Darwin — trying official Nix daemon installer...",
+            );
+            install_official_nix()?;
+        } else {
+            output::error("shell installer failed — trying macOS .pkg installer...");
+            install_nix_pkg()?;
+        }
     }
 
     source_nix_env();
     Ok(())
+}
+
+fn should_use_official_nix_fallback() -> bool {
+    std::env::var("NEX_FORCE_OFFICIAL_NIX_FALLBACK")
+        .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+        || crate::discover::detect_system() == "x86_64-darwin"
+}
+
+fn install_official_nix() -> Result<()> {
+    output::status("installing official Nix daemon...");
+    let status = Command::new("sh")
+        .args([
+            "-c",
+            "curl --proto '=https' --tlsv1.2 -sSf -L https://nixos.org/nix/install | sh -s -- --daemon",
+        ])
+        .status()
+        .context("failed to run official Nix daemon installer")?;
+
+    if !status.success() {
+        bail!(nix_install_failure_message(&[
+            "Determinate Nix shell installer",
+            "official Nix daemon installer",
+        ]));
+    }
+
+    Ok(())
+}
+
+fn nix_install_failure_message(attempts: &[&str]) -> String {
+    let tried = attempts
+        .iter()
+        .map(|attempt| format!("- {attempt}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!(
+        "Nix installation failed.\n\nTried:\n{tried}\n\nManual install:\n  curl -L https://nixos.org/nix/install | sh -s -- --daemon\n\nThen re-run:\n  nex init"
+    )
 }
 
 fn install_nix_pkg() -> Result<()> {
@@ -490,11 +535,10 @@ fn install_nix_pkg() -> Result<()> {
         .context("failed to download .pkg installer")?;
 
     if !dl.success() {
-        bail!(
-            "failed to download Determinate Nix .pkg\n\
-             Install Nix manually: https://determinate.systems/nix-installer\n\
-             Then re-run: nex init"
-        );
+        bail!(nix_install_failure_message(&[
+            "Determinate Nix shell installer",
+            "Determinate Nix .pkg installer download",
+        ]));
     }
 
     output::status("installing .pkg (sudo required)...");
@@ -513,11 +557,10 @@ fn install_nix_pkg() -> Result<()> {
     let _ = std::fs::remove_file(&pkg_path);
 
     if !install.success() {
-        bail!(
-            "Determinate Nix .pkg installation failed\n\
-             Install Nix manually: https://determinate.systems/nix-installer\n\
-             Then re-run: nex init"
-        );
+        bail!(nix_install_failure_message(&[
+            "Determinate Nix shell installer",
+            "Determinate Nix .pkg installer",
+        ]));
     }
 
     Ok(())
@@ -1151,4 +1194,30 @@ nixpkgs.lib.nixosSystem {
     )?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn official_nix_failure_message_lists_attempts() {
+        let message = nix_install_failure_message(&[
+            "Determinate Nix shell installer",
+            "official Nix daemon installer",
+        ]);
+
+        assert!(message.contains("Nix installation failed."));
+        assert!(message.contains("- Determinate Nix shell installer"));
+        assert!(message.contains("- official Nix daemon installer"));
+        assert!(message.contains("curl -L https://nixos.org/nix/install | sh -s -- --daemon"));
+        assert!(message.contains("nex init"));
+    }
+
+    #[test]
+    fn official_nix_fallback_can_be_forced_for_tests() {
+        std::env::set_var("NEX_FORCE_OFFICIAL_NIX_FALLBACK", "1");
+        assert!(should_use_official_nix_fallback());
+        std::env::remove_var("NEX_FORCE_OFFICIAL_NIX_FALLBACK");
+    }
 }
