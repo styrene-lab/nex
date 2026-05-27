@@ -4,7 +4,11 @@ All notable changes to nex are documented here. Format follows [Keep a Changelog
 
 ## [Unreleased]
 
+## [0.21.1] - 2026-05-27
+
 ### Fixed
+- `nex init` now falls back to the official Nix daemon installer on Intel macOS when Determinate Nix has no available target.
+- Materialization payloads can declare an explicit Nix `system`, and generated materializations now include payload module config during evaluation/build.
 - `install.sh` now falls back to the official Nix daemon installer on Intel macOS when no prebuilt Nex binary is available, then installs Nex through the flake.
 
 ## [0.21.0] - 2026-05-24
