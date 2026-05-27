@@ -4,7 +4,10 @@ All notable changes to nex are documented here. Format follows [Keep a Changelog
 
 ## [Unreleased]
 
+## [0.21.2] - 2026-05-27
+
 ### Fixed
+- `nex init`, `nex switch`, and other Nex-invoked modern Nix commands now pass `--extra-experimental-features 'nix-command flakes'` for fresh official Nix installs.
 - `install.sh` passes `--extra-experimental-features 'nix-command flakes'` for Nix profile/eval commands so fresh official Nix installs can install Nex immediately.
 
 ## [0.21.1] - 2026-05-27
