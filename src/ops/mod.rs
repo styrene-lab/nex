@@ -1,4 +1,5 @@
 pub mod adopt;
+pub mod artifact;
 pub mod build_image;
 pub mod config;
 pub mod dev;

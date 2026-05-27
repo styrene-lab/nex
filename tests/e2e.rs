@@ -424,6 +424,128 @@ fn machine_profile_validate_rejects_secret_values() {
         .stderr(predicate::str::contains("must be a name"));
 }
 
+// ── Artifact check tests ───────────────────────────────────────────────────
+
+fn valid_materialization_payload_pkl_json() -> &'static str {
+    r#"{
+  "flake_inputs": {
+    "nixos_hardware": "github:NixOS/nixos-hardware"
+  },
+  "nixos_module": {
+    "extra_config": ["services.openssh.enable = true;"]
+  }
+}
+"#
+}
+
+#[test]
+fn artifact_check_accepts_machine_profile_artifact() {
+    let sb = Sandbox::new();
+    let artifact_dir = sb.home.path().join("machine-artifact");
+    fs::create_dir_all(&artifact_dir).expect("create artifact dir");
+    fs::write(
+        artifact_dir.join("machine-profile.pkl"),
+        valid_machine_profile_pkl_json(),
+    )
+    .expect("write machine profile");
+    fs::write(
+        artifact_dir.join("armory.toml"),
+        r#"
+[artifact]
+kind = "machine-profile"
+source = "machine-profile.pkl"
+schema = "io.styrene.nex.machine-profile.v1"
+artifact_type = "application/vnd.styrene.nex.machine-profile.v1+tar"
+"#,
+    )
+    .expect("write armory metadata");
+    let fake_pkl = write_fake_pkl(sb.home.path(), valid_machine_profile_pkl_json());
+
+    sb.nex()
+        .env("NEX_PKL", &fake_pkl)
+        .args(["artifact", "check", artifact_dir.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Artifact Check"))
+        .stdout(predicate::str::contains("Kind: machine-profile"))
+        .stdout(predicate::str::contains("Status: ok"));
+}
+
+#[test]
+fn artifact_check_accepts_materialization_payload_json() {
+    let sb = Sandbox::new();
+    let artifact_dir = sb.home.path().join("payload-artifact");
+    fs::create_dir_all(&artifact_dir).expect("create artifact dir");
+    fs::write(artifact_dir.join("payload.pkl"), valid_materialization_payload_pkl_json())
+        .expect("write payload");
+    let fake_pkl = write_fake_pkl(sb.home.path(), valid_materialization_payload_pkl_json());
+
+    sb.nex()
+        .env("NEX_PKL", &fake_pkl)
+        .args(["artifact", "check", artifact_dir.to_str().unwrap(), "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"ok\": true"))
+        .stdout(predicate::str::contains("\"kind\": \"materialization-payload\""))
+        .stdout(predicate::str::contains("\"entrypoint\": \"payload.pkl\""));
+}
+
+#[test]
+fn artifact_check_rejects_boundary_field_before_deserialization() {
+    let sb = Sandbox::new();
+    let artifact_dir = sb.home.path().join("bad-payload-artifact");
+    fs::create_dir_all(&artifact_dir).expect("create artifact dir");
+    let invalid = r#"{
+  "flake_inputs": {},
+  "machine_profile": {
+    "safety": { "requires_confirmation": true }
+  }
+}
+"#;
+    fs::write(artifact_dir.join("payload.pkl"), invalid).expect("write payload");
+    let fake_pkl = write_fake_pkl(sb.home.path(), invalid);
+
+    sb.nex()
+        .env("NEX_PKL", &fake_pkl)
+        .args(["artifact", "check", artifact_dir.to_str().unwrap(), "--json"])
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("forbidden-boundary-field"))
+        .stdout(predicate::str::contains("machine_profile"));
+}
+
+#[test]
+fn artifact_check_rejects_armory_metadata_mismatch() {
+    let sb = Sandbox::new();
+    let artifact_dir = sb.home.path().join("machine-artifact");
+    fs::create_dir_all(&artifact_dir).expect("create artifact dir");
+    fs::write(
+        artifact_dir.join("machine-profile.pkl"),
+        valid_machine_profile_pkl_json(),
+    )
+    .expect("write machine profile");
+    fs::write(
+        artifact_dir.join("armory.toml"),
+        r#"
+[artifact]
+kind = "materialization-payload"
+source = "payload.pkl"
+schema = "io.styrene.nex.materialization-payload.v1"
+artifact_type = "application/vnd.styrene.nex.materialization-payload.v1+tar"
+"#,
+    )
+    .expect("write armory metadata");
+    let fake_pkl = write_fake_pkl(sb.home.path(), valid_machine_profile_pkl_json());
+
+    sb.nex()
+        .env("NEX_PKL", &fake_pkl)
+        .args(["artifact", "check", artifact_dir.to_str().unwrap(), "--json"])
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("armory-metadata-mismatch"))
+        .stdout(predicate::str::contains("artifact.kind"));
+}
+
 // ── Profile fragment tests ────────────────────────────────────────────────
 
 fn valid_profile_fragment_pkl_json() -> &'static str {

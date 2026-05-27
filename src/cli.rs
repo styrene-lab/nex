@@ -87,6 +87,11 @@ pub enum Command {
     },
     /// Identify brew packages that can migrate to nix
     Migrate,
+    /// Inspect and validate Nex artifact directories for Armory distribution
+    Artifact {
+        #[command(subcommand)]
+        action: ArtifactAction,
+    },
     /// Inspect and validate Nex machine profiles
     MachineProfile {
         #[command(subcommand)]
@@ -352,6 +357,20 @@ pub enum IdentityAction {
         /// Path to the identity file (default: ~/.config/styrene/identity.key)
         #[arg(long)]
         path: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum ArtifactAction {
+    /// Validate a Nex artifact directory containing machine-profile.pkl or payload.pkl
+    Check {
+        /// Path to artifact directory
+        #[arg(value_name = "PATH")]
+        path: PathBuf,
+
+        /// Emit a stable JSON report
+        #[arg(long)]
+        json: bool,
     },
 }
 

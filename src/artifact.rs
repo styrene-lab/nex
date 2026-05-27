@@ -1,0 +1,338 @@
+use std::path::{Path, PathBuf};
+
+use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+use crate::machine_profile::{MachineProfileDocument, MACHINE_PROFILE_SCHEMA_V1};
+use crate::materialization::MaterializationPayload;
+
+pub const MATERIALIZATION_PAYLOAD_SCHEMA_V1: &str = "io.styrene.nex.materialization-payload.v1";
+pub const MACHINE_PROFILE_ARTIFACT_TYPE_V1: &str = "application/vnd.styrene.nex.machine-profile.v1+tar";
+pub const MATERIALIZATION_PAYLOAD_ARTIFACT_TYPE_V1: &str =
+    "application/vnd.styrene.nex.materialization-payload.v1+tar";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ArtifactKind {
+    MachineProfile,
+    MaterializationPayload,
+}
+
+impl ArtifactKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::MachineProfile => "machine-profile",
+            Self::MaterializationPayload => "materialization-payload",
+        }
+    }
+
+    pub fn entrypoint(self) -> &'static str {
+        match self {
+            Self::MachineProfile => "machine-profile.pkl",
+            Self::MaterializationPayload => "payload.pkl",
+        }
+    }
+
+    pub fn schema(self) -> &'static str {
+        match self {
+            Self::MachineProfile => MACHINE_PROFILE_SCHEMA_V1,
+            Self::MaterializationPayload => MATERIALIZATION_PAYLOAD_SCHEMA_V1,
+        }
+    }
+
+    pub fn artifact_type(self) -> &'static str {
+        match self {
+            Self::MachineProfile => MACHINE_PROFILE_ARTIFACT_TYPE_V1,
+            Self::MaterializationPayload => MATERIALIZATION_PAYLOAD_ARTIFACT_TYPE_V1,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ArtifactCheckReport {
+    pub ok: bool,
+    pub path: String,
+    pub kind: Option<ArtifactKind>,
+    pub entrypoint: Option<String>,
+    pub diagnostics: Vec<ArtifactDiagnostic>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ArtifactDiagnostic {
+    pub level: DiagnosticLevel,
+    pub code: String,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub field: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DiagnosticLevel {
+    Error,
+}
+
+impl ArtifactDiagnostic {
+    fn error(code: impl Into<String>, message: impl Into<String>, field: Option<String>) -> Self {
+        Self {
+            level: DiagnosticLevel::Error,
+            code: code.into(),
+            message: message.into(),
+            field,
+        }
+    }
+}
+
+#[derive(Debug)]
+struct DetectedArtifact {
+    kind: ArtifactKind,
+    entrypoint: PathBuf,
+}
+
+pub fn check_artifact_dir(path: &Path) -> ArtifactCheckReport {
+    let mut diagnostics = Vec::new();
+    let detected = match detect_artifact(path) {
+        Ok(detected) => detected,
+        Err(diagnostic) => {
+            diagnostics.push(diagnostic);
+            return ArtifactCheckReport {
+                ok: false,
+                path: path.display().to_string(),
+                kind: None,
+                entrypoint: None,
+                diagnostics,
+            };
+        }
+    };
+
+    let json = match crate::pkl::evaluate_json(&detected.entrypoint) {
+        Ok(json) => json,
+        Err(error) => {
+            diagnostics.push(ArtifactDiagnostic::error(
+                "pkl-evaluation-failed",
+                format!("failed to evaluate {}: {error:#}", detected.entrypoint.display()),
+                None,
+            ));
+            return report(path, &detected, diagnostics);
+        }
+    };
+
+    diagnostics.extend(validate_boundary_fields(detected.kind, &json));
+    if diagnostics.is_empty() {
+        diagnostics.extend(validate_typed_semantics(detected.kind, json));
+    }
+    diagnostics.extend(validate_armory_metadata(path, detected.kind));
+
+    report(path, &detected, diagnostics)
+}
+
+fn report(
+    path: &Path,
+    detected: &DetectedArtifact,
+    diagnostics: Vec<ArtifactDiagnostic>,
+) -> ArtifactCheckReport {
+    ArtifactCheckReport {
+        ok: diagnostics.is_empty(),
+        path: path.display().to_string(),
+        kind: Some(detected.kind),
+        entrypoint: Some(detected.kind.entrypoint().to_string()),
+        diagnostics,
+    }
+}
+
+fn detect_artifact(path: &Path) -> std::result::Result<DetectedArtifact, ArtifactDiagnostic> {
+    if !path.is_dir() {
+        return Err(ArtifactDiagnostic::error(
+            "artifact-path-not-directory",
+            format!("artifact path must be a directory: {}", path.display()),
+            None,
+        ));
+    }
+
+    let machine_profile = path.join(ArtifactKind::MachineProfile.entrypoint());
+    let materialization_payload = path.join(ArtifactKind::MaterializationPayload.entrypoint());
+    match (machine_profile.is_file(), materialization_payload.is_file()) {
+        (true, false) => Ok(DetectedArtifact {
+            kind: ArtifactKind::MachineProfile,
+            entrypoint: machine_profile,
+        }),
+        (false, true) => Ok(DetectedArtifact {
+            kind: ArtifactKind::MaterializationPayload,
+            entrypoint: materialization_payload,
+        }),
+        (true, true) => Err(ArtifactDiagnostic::error(
+            "ambiguous-artifact-kind",
+            "artifact directory contains both machine-profile.pkl and payload.pkl",
+            None,
+        )),
+        (false, false) => Err(ArtifactDiagnostic::error(
+            "missing-artifact-entrypoint",
+            "artifact directory must contain machine-profile.pkl or payload.pkl",
+            None,
+        )),
+    }
+}
+
+fn validate_boundary_fields(kind: ArtifactKind, json: &Value) -> Vec<ArtifactDiagnostic> {
+    let Some(object) = json.as_object() else {
+        return vec![ArtifactDiagnostic::error(
+            "artifact-root-not-object",
+            "evaluated artifact document must be an object",
+            None,
+        )];
+    };
+
+    let forbidden: &[(&str, &str)] = match kind {
+        ArtifactKind::MachineProfile => &[
+            (
+                "flake_inputs",
+                "machine-profile artifacts must not declare materialization flake inputs",
+            ),
+            (
+                "nixos_module",
+                "machine-profile artifacts must not declare NixOS module material",
+            ),
+        ],
+        ArtifactKind::MaterializationPayload => &[
+            (
+                "machine_profile",
+                "materialization-payload artifacts must not declare machine-profile policy",
+            ),
+            (
+                "safety",
+                "materialization-payload artifacts must not declare machine safety policy",
+            ),
+            (
+                "allowed_targets",
+                "materialization-payload artifacts must not declare machine target policy",
+            ),
+            (
+                "requires_confirmation",
+                "materialization-payload artifacts must not declare confirmation policy",
+            ),
+            (
+                "requires_target_attestation",
+                "materialization-payload artifacts must not declare target attestation policy",
+            ),
+            (
+                "default_destructive",
+                "materialization-payload artifacts must not declare destructive-operation policy",
+            ),
+        ],
+    };
+
+    forbidden
+        .iter()
+        .filter(|(field, _)| object.contains_key(*field))
+        .map(|(field, message)| {
+            ArtifactDiagnostic::error(
+                "forbidden-boundary-field",
+                *message,
+                Some((*field).to_string()),
+            )
+        })
+        .collect()
+}
+
+fn validate_typed_semantics(kind: ArtifactKind, json: Value) -> Vec<ArtifactDiagnostic> {
+    let result: Result<()> = match kind {
+        ArtifactKind::MachineProfile => serde_json::from_value::<MachineProfileDocument>(json)
+            .context("decoding machine profile")
+            .and_then(|document| document.validate()),
+        ArtifactKind::MaterializationPayload => serde_json::from_value::<MaterializationPayload>(json)
+            .context("decoding materialization payload")
+            .and_then(|payload| payload.validate()),
+    };
+
+    match result {
+        Ok(()) => Vec::new(),
+        Err(error) => vec![ArtifactDiagnostic::error(
+            "semantic-validation-failed",
+            format!("{error:#}"),
+            None,
+        )],
+    }
+}
+
+fn validate_armory_metadata(path: &Path, kind: ArtifactKind) -> Vec<ArtifactDiagnostic> {
+    let metadata_path = path.join("armory.toml");
+    if !metadata_path.is_file() {
+        return Vec::new();
+    }
+
+    let metadata = match std::fs::read_to_string(&metadata_path)
+        .with_context(|| format!("reading {}", metadata_path.display()))
+        .and_then(|content| toml::from_str::<ArmoryMetadata>(&content).context("parsing armory.toml"))
+    {
+        Ok(metadata) => metadata,
+        Err(error) => {
+            return vec![ArtifactDiagnostic::error(
+                "armory-metadata-invalid",
+                format!("{error:#}"),
+                None,
+            )]
+        }
+    };
+
+    let mut diagnostics = Vec::new();
+    check_metadata_field(
+        &mut diagnostics,
+        "artifact.kind",
+        metadata.artifact.kind.as_deref(),
+        kind.as_str(),
+    );
+    check_metadata_field(
+        &mut diagnostics,
+        "artifact.source",
+        metadata.artifact.source.as_deref(),
+        kind.entrypoint(),
+    );
+    check_metadata_field(
+        &mut diagnostics,
+        "artifact.schema",
+        metadata.artifact.schema.as_deref(),
+        kind.schema(),
+    );
+    check_metadata_field(
+        &mut diagnostics,
+        "artifact.artifact_type",
+        metadata.artifact.artifact_type.as_deref(),
+        kind.artifact_type(),
+    );
+    diagnostics
+}
+
+fn check_metadata_field(
+    diagnostics: &mut Vec<ArtifactDiagnostic>,
+    field: &str,
+    actual: Option<&str>,
+    expected: &str,
+) {
+    match actual {
+        Some(actual) if actual == expected => {}
+        Some(actual) => diagnostics.push(ArtifactDiagnostic::error(
+            "armory-metadata-mismatch",
+            format!("{field} must be '{expected}', found '{actual}'"),
+            Some(field.to_string()),
+        )),
+        None => diagnostics.push(ArtifactDiagnostic::error(
+            "armory-metadata-missing-field",
+            format!("{field} is required when armory.toml is present"),
+            Some(field.to_string()),
+        )),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct ArmoryMetadata {
+    artifact: ArmoryArtifactMetadata,
+}
+
+#[derive(Debug, Deserialize)]
+struct ArmoryArtifactMetadata {
+    kind: Option<String>,
+    source: Option<String>,
+    schema: Option<String>,
+    artifact_type: Option<String>,
+}

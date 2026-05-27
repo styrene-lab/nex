@@ -1,4 +1,5 @@
 mod aliases;
+mod artifact;
 mod cli;
 mod config;
 mod discover;
@@ -156,6 +157,11 @@ fn main() -> Result<()> {
                 }
             }
         }
+        Command::Artifact { ref action } => {
+            return match action {
+                cli::ArtifactAction::Check { path, json } => ops::artifact::run_check(path, *json),
+            }
+        }
         Command::ProfileFragment { ref action } => {
             return match action {
                 cli::ProfileFragmentAction::Validate { path } => {
@@ -237,6 +243,7 @@ fn main() -> Result<()> {
         | Command::BuildImage { .. }
         | Command::Develop { .. }
         | Command::Dev { .. }
+        | Command::Artifact { .. }
         | Command::MachineProfile { .. }
         | Command::ProfileFragment { .. }
         | Command::Config { .. }
