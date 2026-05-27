@@ -43,6 +43,7 @@ pub enum MachineProfileMode {
     ImageBuild,
     VmBuild,
     Provision,
+    ApplyExisting,
 }
 
 impl fmt::Display for MachineProfileMode {
@@ -52,6 +53,7 @@ impl fmt::Display for MachineProfileMode {
             Self::ImageBuild => "image-build",
             Self::VmBuild => "vm-build",
             Self::Provision => "provision",
+            Self::ApplyExisting => "apply-existing",
         };
         f.write_str(value)
     }
@@ -64,6 +66,7 @@ pub enum MachineProfileTarget {
     OciImage,
     Vm,
     PhysicalMachine,
+    ExistingNixos,
 }
 
 impl fmt::Display for MachineProfileTarget {
@@ -73,6 +76,7 @@ impl fmt::Display for MachineProfileTarget {
             Self::OciImage => "oci-image",
             Self::Vm => "vm",
             Self::PhysicalMachine => "physical-machine",
+            Self::ExistingNixos => "existing-nixos",
         };
         f.write_str(value)
     }
@@ -252,7 +256,7 @@ target = "oci-image"
 default_destructive = false
 requires_confirmation = true
 requires_target_attestation = true
-allowed_targets = ["nix-devshell", "oci-image", "vm", "physical-machine"]
+allowed_targets = ["nix-devshell", "oci-image", "vm", "physical-machine", "existing-nixos"]
 
 [machine_profile.secrets]
 required = ["GITHUB_TOKEN"]
@@ -283,6 +287,18 @@ required = true
         let manifest = valid_manifest().replace("GITHUB_TOKEN", "GITHUB_TOKEN=secret");
         let error = MachineProfileDocument::from_str(&manifest).expect_err("secret value rejected");
         assert!(error.to_string().contains("must be a name"));
+    }
+
+    #[test]
+    fn accepts_apply_existing_existing_nixos_without_attestation() {
+        let manifest = valid_manifest()
+            .replace("mode = \"plan-only\"", "mode = \"apply-existing\"")
+            .replace("target = \"oci-image\"", "target = \"existing-nixos\"")
+            .replace(
+                "requires_target_attestation = true",
+                "requires_target_attestation = false",
+            );
+        MachineProfileDocument::from_str(&manifest).expect("valid apply-existing profile");
     }
 
     #[test]

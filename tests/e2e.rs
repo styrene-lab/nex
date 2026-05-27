@@ -353,7 +353,7 @@ fn valid_machine_profile_pkl_json() -> &'static str {
       "default_destructive": false,
       "requires_confirmation": true,
       "requires_target_attestation": true,
-      "allowed_targets": ["nix-devshell", "oci-image", "vm", "physical-machine"]
+      "allowed_targets": ["nix-devshell", "oci-image", "vm", "physical-machine", "existing-nixos"]
     },
     "secrets": { "required": ["GITHUB_TOKEN"], "optional": ["AWS_PROFILE"] }
   },
@@ -402,6 +402,32 @@ fn machine_profile_inspect_prints_metadata() {
         ))
         .stdout(predicate::str::contains("Mode: plan-only"))
         .stdout(predicate::str::contains("forge-template:nixos-workstation"));
+}
+
+#[test]
+fn machine_profile_validate_accepts_apply_existing_profile() {
+    let sb = Sandbox::new();
+    let profile_path = sb.home.path().join("machine-profile.pkl");
+    let apply_existing = valid_machine_profile_pkl_json()
+        .replace("\"mode\": \"plan-only\"", "\"mode\": \"apply-existing\"")
+        .replace("\"target\": \"oci-image\"", "\"target\": \"existing-nixos\"")
+        .replace(
+            "\"requires_target_attestation\": true",
+            "\"requires_target_attestation\": false",
+        );
+    fs::write(&profile_path, &apply_existing).expect("write machine profile");
+    let fake_pkl = write_fake_pkl(sb.home.path(), &apply_existing);
+
+    sb.nex()
+        .env("NEX_PKL", &fake_pkl)
+        .args([
+            "machine-profile",
+            "validate",
+            profile_path.to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("machine-profile.pkl is valid"));
 }
 
 #[test]

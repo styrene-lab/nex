@@ -79,6 +79,7 @@ Initial `mode` values:
 - `image-build`
 - `vm-build`
 - `provision`
+- `apply-existing`
 
 Initial `target` values:
 
@@ -86,12 +87,33 @@ Initial `target` values:
 - `oci-image`
 - `vm`
 - `physical-machine`
+- `existing-nixos`
 
 Initial dependency kinds:
 
 - `forge-template`
 
 Unknown enum values fail closed.
+
+## Apply-existing target
+
+`apply-existing` with target `existing-nixos` represents profiles that apply package, configuration, and service changes to an already-installed NixOS host. This is the correct target for workstation layers such as low-latency audio or development overlays that do not build installer media, write block devices, or provision a fresh disk.
+
+Example:
+
+```toml
+[machine_profile.defaults]
+mode = "apply-existing"
+target = "existing-nixos"
+
+[machine_profile.safety]
+default_destructive = false
+requires_confirmation = true
+requires_target_attestation = false
+allowed_targets = ["existing-nixos"]
+```
+
+`existing-nixos` profiles may still mutate system services and packages, so they may require confirmation. They do not require physical target attestation by default because they are not disk-provisioning or raw-device delivery profiles.
 
 ## Safety rules
 
