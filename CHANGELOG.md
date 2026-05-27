@@ -4,6 +4,20 @@ All notable changes to nex are documented here. Format follows [Keep a Changelog
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-05-24
+
+### Added
+- Added `hardware` profile-fragment category for device and board-specific assumptions such as Raspberry Pi hardware.
+- Added `apply-existing` machine-profile mode and `existing-nixos` target for profiles applied to already-installed NixOS hosts.
+- Added `nex artifact check` for Nex-owned artifact directory validation, including raw Pkl boundary inspection before typed deserialization.
+- Added artifact evidence tier support to `nex artifact check`, with `evaluates` implemented and higher tiers recognized as unsupported.
+- Added `nex artifact check-relationship` for first-pass machine-profile/materialization-payload pair validation.
+- Added `--json` inspect output for machine profiles and profile fragments for Armory metadata extraction.
+- Added artifact relationship mapping documentation for reasoning from profiles and payloads to machine state.
+
+### Changed
+- Artifact validation now separates policy-bearing machine profiles from materialization payloads with explicit forbidden-field diagnostics.
+
 ## [0.20.0] - 2026-05-24
 
 ### Changed
