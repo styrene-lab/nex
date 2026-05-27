@@ -165,11 +165,11 @@ try_nix() {
   flake="github:styrene-lab/nex"
 
   # Check if nex is already in the nix profile
-  if nix profile list 2>/dev/null | grep -q 'styrene-lab/nex'; then
+  if nix --extra-experimental-features 'nix-command flakes' profile list 2>/dev/null | grep -q 'styrene-lab/nex'; then
     installed_ver=$(nex --version 2>/dev/null | awk '{print $2}') || installed_ver="unknown"
 
     # Query the latest version from the flake
-    latest_ver=$(nix eval "${flake}#default.version" --raw --refresh 2>/dev/null) || latest_ver=""
+    latest_ver=$(nix --extra-experimental-features 'nix-command flakes' eval "${flake}#default.version" --raw --refresh 2>/dev/null) || latest_ver=""
 
     if [ -n "$latest_ver" ] && [ "$installed_ver" != "$latest_ver" ]; then
       printf "  nex %b%s%b installed, %b%s%b available\n\n" \
@@ -184,9 +184,9 @@ try_nix() {
         [Yy]*)
           printf "  "
           info "Upgrading nex ${installed_ver} -> ${latest_ver}..."
-          nix profile remove '.*nex.*' 2>/dev/null || true
-          nix profile add "$flake" --refresh 2>/dev/null \
-            || nix profile install "$flake" --refresh
+          nix --extra-experimental-features 'nix-command flakes' profile remove '.*nex.*' 2>/dev/null || true
+          nix --extra-experimental-features 'nix-command flakes' profile add "$flake" --refresh 2>/dev/null \
+            || nix --extra-experimental-features 'nix-command flakes' profile install "$flake" --refresh
           return 0
           ;;
         *)
@@ -201,10 +201,10 @@ try_nix() {
   fi
 
   info "Installing via nix flake..."
-  if nix profile add "$flake" --refresh 2>/dev/null; then
+  if nix --extra-experimental-features 'nix-command flakes' profile add "$flake" --refresh 2>/dev/null; then
     return 0
   fi
-  nix profile install "$flake" --refresh
+  nix --extra-experimental-features 'nix-command flakes' profile install "$flake" --refresh
   return 0
 }
 
