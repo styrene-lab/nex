@@ -73,6 +73,7 @@ Examples:
 - `desktop/cosmic`
 - `gpu/amd`
 - `audio/pipewire`
+- `hardware/rpi4`
 - `shell/bash`
 - `role/gaming`
 
@@ -83,6 +84,7 @@ Initial categories:
 - `desktop`
 - `gpu`
 - `audio`
+- `hardware`
 - `shell`
 - `role`
 
@@ -112,6 +114,9 @@ Safety metadata is required for system-sensitive categories:
 - `desktop`
 - `gpu`
 - `audio`
+- `hardware`
+
+Hardware fragments describe device/board-specific assumptions such as boot, firmware, kernel module, and hardware-driver requirements. They are intended for targets like Raspberry Pi boards, Apple T2 machines, and edge appliances.
 
 Hardware-driver fragments must require confirmation.
 

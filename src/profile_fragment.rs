@@ -38,6 +38,7 @@ pub enum ProfileFragmentCategory {
     Desktop,
     Gpu,
     Audio,
+    Hardware,
     Shell,
     Role,
 }
@@ -50,6 +51,7 @@ impl fmt::Display for ProfileFragmentCategory {
             Self::Desktop => "desktop",
             Self::Gpu => "gpu",
             Self::Audio => "audio",
+            Self::Hardware => "hardware",
             Self::Shell => "shell",
             Self::Role => "role",
         })
@@ -168,6 +170,7 @@ impl ProfileFragmentDocument {
                 | ProfileFragmentCategory::Desktop
                 | ProfileFragmentCategory::Gpu
                 | ProfileFragmentCategory::Audio
+                | ProfileFragmentCategory::Hardware
         ) && fragment.safety.is_none()
         {
             bail!("fragment.safety is required for system-mutating fragment categories");
@@ -295,6 +298,33 @@ requires_confirmation = true
         let manifest = valid_fragment().replace("id = \"gpu/amd\"", "id = \"audio/amd\"");
         let error = ProfileFragmentDocument::from_str(&manifest).expect_err("category mismatch");
         assert!(format!("{error:#}").contains("must start with its category prefix"));
+    }
+
+    #[test]
+    fn hardware_profile_fragment_passes_with_safety() {
+        let manifest = valid_fragment()
+            .replace("id = \"gpu/amd\"", "id = \"hardware/rpi4\"")
+            .replace("name = \"amd\"", "name = \"rpi4\"")
+            .replace("category = \"gpu\"", "category = \"hardware\"")
+            .replace("description = \"AMD GPU\"", "description = \"Raspberry Pi 4 hardware\"");
+        ProfileFragmentDocument::from_str(&manifest).expect("valid hardware fragment");
+    }
+
+    #[test]
+    fn rejects_hardware_fragment_without_safety() {
+        let manifest = r#"
+[fragment]
+schema = "io.styrene.nex.profile-fragment.v1"
+id = "hardware/rpi4"
+name = "rpi4"
+version = "0.1.0"
+description = "Raspberry Pi 4 hardware"
+category = "hardware"
+platforms = ["linux"]
+visibility = "public"
+"#;
+        let error = ProfileFragmentDocument::from_str(manifest).expect_err("safety required");
+        assert!(format!("{error:#}").contains("fragment.safety is required"));
     }
 
     #[test]
