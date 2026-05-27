@@ -3,6 +3,10 @@ use std::process::Command;
 
 use anyhow::{bail, Context, Result};
 
+pub fn nix_experimental_args() -> [&'static str; 2] {
+    ["--extra-experimental-features", "nix-command flakes"]
+}
+
 /// Resolve the path to the `nix` binary.
 /// Checks well-known locations first, then falls back to PATH-based lookup.
 /// Preferring hardcoded paths prevents PATH-based binary injection.
@@ -107,6 +111,7 @@ pub fn git_commit(repo: &Path, message: &str) {
 pub fn nix_eval_exists(pkg: &str) -> Result<bool> {
     tracing::debug!(%pkg, "checking nixpkgs existence");
     let output = Command::new(find_nix())
+        .args(nix_experimental_args())
         .args(["eval", &format!("nixpkgs#{pkg}.name"), "--raw"])
         .stderr(std::process::Stdio::null())
         .output()
@@ -118,6 +123,7 @@ pub fn nix_eval_exists(pkg: &str) -> Result<bool> {
 pub fn nix_eval_version(pkg: &str) -> Result<Option<String>> {
     tracing::debug!(%pkg, "querying nixpkgs version");
     let output = Command::new(find_nix())
+        .args(nix_experimental_args())
         .args(["eval", &format!("nixpkgs#{pkg}.version"), "--raw"])
         .stderr(std::process::Stdio::null())
         .output()
@@ -244,7 +250,7 @@ pub fn brew_list_casks() -> Result<Vec<String>> {
 
 /// Search nixpkgs for packages matching a query.
 pub fn nix_search(query: &str) -> Result<()> {
-    run(Command::new(find_nix()).args(["search", "nixpkgs", query]))
+    run(Command::new(find_nix()).args(nix_experimental_args()).args(["search", "nixpkgs", query]))
 }
 
 /// Resolve the absolute path to darwin-rebuild so sudo can find it.
@@ -308,7 +314,7 @@ pub fn darwin_rebuild_switch(repo: &Path, hostname: &str) -> Result<()> {
     ensure_profile_dirs();
     let dr = find_darwin_rebuild()?;
     run(Command::new("sudo")
-        .args([&dr, "switch", "--flake", &format!(".#{hostname}")])
+        .args([&dr, "switch", "--extra-experimental-features", "nix-command flakes", "--flake", &format!(".#{hostname}")])
         .current_dir(repo))?;
     refresh_app_icons();
     Ok(())
@@ -320,7 +326,7 @@ pub fn nixos_rebuild_switch(repo: &Path, hostname: &str) -> Result<()> {
     ensure_profile_dirs();
     let nr = find_nixos_rebuild()?;
     run(Command::new("sudo")
-        .args([&nr, "switch", "--flake", &format!(".#{hostname}")])
+        .args([&nr, "switch", "--extra-experimental-features", "nix-command flakes", "--flake", &format!(".#{hostname}")])
         .current_dir(repo))
 }
 
@@ -452,7 +458,7 @@ fn refresh_app_icons() {
 pub fn darwin_rebuild_build(repo: &Path, hostname: &str) -> Result<()> {
     let dr = find_darwin_rebuild()?;
     run(Command::new(&dr)
-        .args(["build", "--flake", &format!(".#{hostname}")])
+        .args(["build", "--extra-experimental-features", "nix-command flakes", "--flake", &format!(".#{hostname}")])
         .current_dir(repo))
 }
 
@@ -460,7 +466,7 @@ pub fn darwin_rebuild_build(repo: &Path, hostname: &str) -> Result<()> {
 pub fn nixos_rebuild_build(repo: &Path, hostname: &str) -> Result<()> {
     let nr = find_nixos_rebuild()?;
     run(Command::new(&nr)
-        .args(["build", "--flake", &format!(".#{hostname}")])
+        .args(["build", "--extra-experimental-features", "nix-command flakes", "--flake", &format!(".#{hostname}")])
         .current_dir(repo))
 }
 
@@ -483,6 +489,8 @@ pub fn darwin_rebuild_rollback(repo: &Path, hostname: &str) -> Result<()> {
         .args([
             &dr,
             "switch",
+            "--extra-experimental-features",
+            "nix-command flakes",
             "--rollback",
             "--flake",
             &format!(".#{hostname}"),
@@ -497,6 +505,8 @@ pub fn nixos_rebuild_rollback(repo: &Path, hostname: &str) -> Result<()> {
         .args([
             &nr,
             "switch",
+            "--extra-experimental-features",
+            "nix-command flakes",
             "--rollback",
             "--flake",
             &format!(".#{hostname}"),
@@ -519,18 +529,20 @@ pub fn system_rebuild_rollback(
 /// Run nix flake update.
 pub fn nix_flake_update(repo: &Path) -> Result<()> {
     run(Command::new(find_nix())
+        .args(nix_experimental_args())
         .args(["flake", "update"])
         .current_dir(repo))
 }
 
 /// Run nix shell for an ephemeral package.
 pub fn nix_shell(pkg: &str) -> Result<()> {
-    run(Command::new(find_nix()).args(["shell", &format!("nixpkgs#{pkg}")]))
+    run(Command::new(find_nix()).args(nix_experimental_args()).args(["shell", &format!("nixpkgs#{pkg}")]))
 }
 
 /// Show diff between current system and new build.
 pub fn nix_diff_closures(repo: &Path) -> Result<()> {
     run(Command::new(find_nix())
+        .args(nix_experimental_args())
         .args([
             "store",
             "diff-closures",
@@ -543,7 +555,7 @@ pub fn nix_diff_closures(repo: &Path) -> Result<()> {
 /// Garbage collect nix store and remove old generations.
 pub fn nix_gc() -> Result<()> {
     let nix = find_nix();
-    run(Command::new(&nix).args(["store", "gc"]))?;
+    run(Command::new(&nix).args(nix_experimental_args()).args(["store", "gc"]))?;
     // Remove old generations — nix-collect-garbage -d, using the same bin dir as nix
     let nix_path = std::path::PathBuf::from(&nix);
     if let Some(bin_dir) = nix_path.parent() {

@@ -191,6 +191,7 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
         Platform::Linux => format!(".#nixosConfigurations.{hostname}.config.system.build.toplevel"),
     };
     let build_status = Command::new(&nix)
+        .args(crate::exec::nix_experimental_args())
         .args(["build", &build_attr, "--show-trace"])
         .current_dir(&repo_path)
         .status()
@@ -241,6 +242,7 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
                     // Rebuild with the adopted packages
                     output::status("rebuilding with adopted packages...");
                     let _ = Command::new(&nix)
+                        .args(crate::exec::nix_experimental_args())
                         .args(["build", &build_attr, "--show-trace"])
                         .current_dir(&repo_path)
                         .status();
