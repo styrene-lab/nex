@@ -4,6 +4,11 @@ All notable changes to nex are documented here. Format follows [Keep a Changelog
 
 ## [Unreleased]
 
+## [0.21.4] - 2026-05-27
+
+### Fixed
+- Centralized Nex-invoked `nix` commands so `nex develop`, `nex dev`, `nex build-image`, and common Nix helpers also pass `--extra-experimental-features 'nix-command flakes'` on fresh official Nix installs.
+
 ## [0.21.3] - 2026-05-27
 
 ### Fixed
