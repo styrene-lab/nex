@@ -393,7 +393,12 @@ fn machine_profile_inspect_prints_json_metadata() {
 
     sb.nex()
         .env("NEX_PKL", &fake_pkl)
-        .args(["machine-profile", "inspect", "--json", profile_path.to_str().unwrap()])
+        .args([
+            "machine-profile",
+            "inspect",
+            "--json",
+            profile_path.to_str().unwrap(),
+        ])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"kind\": \"machine-profile\""))
@@ -407,7 +412,10 @@ fn machine_profile_validate_accepts_apply_existing_profile() {
     let profile_path = sb.home.path().join("machine-profile.pkl");
     let apply_existing = valid_machine_profile_pkl_json()
         .replace("\"mode\": \"plan-only\"", "\"mode\": \"apply-existing\"")
-        .replace("\"target\": \"oci-image\"", "\"target\": \"existing-nixos\"")
+        .replace(
+            "\"target\": \"oci-image\"",
+            "\"target\": \"existing-nixos\"",
+        )
         .replace(
             "\"requires_target_attestation\": true",
             "\"requires_target_attestation\": false",
@@ -499,19 +507,29 @@ fn artifact_check_accepts_materialization_payload_json() {
     let sb = Sandbox::new();
     let artifact_dir = sb.home.path().join("payload-artifact");
     fs::create_dir_all(&artifact_dir).expect("create artifact dir");
-    fs::write(artifact_dir.join("payload.pkl"), valid_materialization_payload_pkl_json())
-        .expect("write payload");
+    fs::write(
+        artifact_dir.join("payload.pkl"),
+        valid_materialization_payload_pkl_json(),
+    )
+    .expect("write payload");
     let fake_pkl = write_fake_pkl(sb.home.path(), valid_materialization_payload_pkl_json());
 
     sb.nex()
         .env("NEX_PKL", &fake_pkl)
-        .args(["artifact", "check", artifact_dir.to_str().unwrap(), "--json"])
+        .args([
+            "artifact",
+            "check",
+            artifact_dir.to_str().unwrap(),
+            "--json",
+        ])
         .assert()
         .success()
         .stdout(predicate::str::contains("\"ok\": true"))
         .stdout(predicate::str::contains("\"tier\": \"evaluates\""))
         .stdout(predicate::str::contains("\"result\": \"passed\""))
-        .stdout(predicate::str::contains("\"artifact_kind\": \"materialization-payload\""))
+        .stdout(predicate::str::contains(
+            "\"artifact_kind\": \"materialization-payload\"",
+        ))
         .stdout(predicate::str::contains("\"entrypoint\": \"payload.pkl\""));
 }
 
@@ -520,8 +538,11 @@ fn artifact_check_rejects_unsupported_evidence_tier() {
     let sb = Sandbox::new();
     let artifact_dir = sb.home.path().join("payload-artifact");
     fs::create_dir_all(&artifact_dir).expect("create artifact dir");
-    fs::write(artifact_dir.join("payload.pkl"), valid_materialization_payload_pkl_json())
-        .expect("write payload");
+    fs::write(
+        artifact_dir.join("payload.pkl"),
+        valid_materialization_payload_pkl_json(),
+    )
+    .expect("write payload");
     let fake_pkl = write_fake_pkl(sb.home.path(), valid_materialization_payload_pkl_json());
 
     sb.nex()
@@ -552,8 +573,11 @@ fn artifact_check_relationship_accepts_valid_pair() {
         valid_machine_profile_pkl_json(),
     )
     .expect("write machine profile");
-    fs::write(payload_dir.join("payload.pkl"), valid_materialization_payload_pkl_json())
-        .expect("write payload");
+    fs::write(
+        payload_dir.join("payload.pkl"),
+        valid_materialization_payload_pkl_json(),
+    )
+    .expect("write payload");
     let fake_pkl = write_passthrough_pkl(sb.home.path());
 
     sb.nex()
@@ -571,8 +595,12 @@ fn artifact_check_relationship_accepts_valid_pair() {
         .success()
         .stdout(predicate::str::contains("\"ok\": true"))
         .stdout(predicate::str::contains("\"compatibility\""))
-        .stdout(predicate::str::contains("\"artifact_kind\": \"machine-profile\""))
-        .stdout(predicate::str::contains("\"artifact_kind\": \"materialization-payload\""));
+        .stdout(predicate::str::contains(
+            "\"artifact_kind\": \"machine-profile\"",
+        ))
+        .stdout(predicate::str::contains(
+            "\"artifact_kind\": \"materialization-payload\"",
+        ));
 }
 
 #[test]
@@ -628,7 +656,12 @@ fn artifact_check_rejects_boundary_field_before_deserialization() {
 
     sb.nex()
         .env("NEX_PKL", &fake_pkl)
-        .args(["artifact", "check", artifact_dir.to_str().unwrap(), "--json"])
+        .args([
+            "artifact",
+            "check",
+            artifact_dir.to_str().unwrap(),
+            "--json",
+        ])
         .assert()
         .failure()
         .stdout(predicate::str::contains("forbidden-boundary-field"))
@@ -661,7 +694,12 @@ artifact_type = "application/vnd.styrene.nex.materialization-payload.v1+tar"
 
     sb.nex()
         .env("NEX_PKL", &fake_pkl)
-        .args(["artifact", "check", artifact_dir.to_str().unwrap(), "--json"])
+        .args([
+            "artifact",
+            "check",
+            artifact_dir.to_str().unwrap(),
+            "--json",
+        ])
         .assert()
         .failure()
         .stdout(predicate::str::contains("armory-metadata-mismatch"))

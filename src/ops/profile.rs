@@ -1639,7 +1639,9 @@ fn resolve_bundle_id(app_name: &str) -> Option<String> {
         .ok()?;
 
     if output.status.success() {
-        let bid = crate::exec::captured_text(&output.stdout).trim().to_string();
+        let bid = crate::exec::captured_text(&output.stdout)
+            .trim()
+            .to_string();
         if !bid.is_empty() && bid != "(null)" {
             return Some(bid);
         }
@@ -2296,7 +2298,8 @@ fn patch_flat_configuration_import(content: &str) -> Option<String> {
     }
 
     let insert_pos = find_nix_module_body_open(content)?;
-    let mut patched = String::with_capacity(content.len() + "\n  imports = [ ./desktop.nix ];".len());
+    let mut patched =
+        String::with_capacity(content.len() + "\n  imports = [ ./desktop.nix ];".len());
     patched.push_str(&content[..=insert_pos]);
     patched.push_str("\n  imports = [ ./desktop.nix ];");
     patched.push_str(&content[insert_pos + 1..]);
@@ -2326,7 +2329,9 @@ mod flat_configuration_import_tests {
 
         let patched = patch_flat_configuration_import(input).expect("patched");
 
-        assert!(patched.contains("{ pkgs, lib, username, hostname, ... }:\n\n{\n  imports = [ ./desktop.nix ];"));
+        assert!(patched.contains(
+            "{ pkgs, lib, username, hostname, ... }:\n\n{\n  imports = [ ./desktop.nix ];"
+        ));
         assert!(!patched.contains("imports = [ ./desktop.nix ]; pkgs"));
     }
 

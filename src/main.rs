@@ -82,9 +82,11 @@ fn main() -> Result<()> {
                         hostname,
                         target,
                     ),
-                    cli::ForgeAction::BuildModule { source, name, output } => {
-                        ops::forge::run_build_module(source, name, output)
-                    }
+                    cli::ForgeAction::BuildModule {
+                        source,
+                        name,
+                        output,
+                    } => ops::forge::run_build_module(source, name, output),
                     cli::ForgeAction::BuildMaterialization {
                         source,
                         hostname,

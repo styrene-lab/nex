@@ -91,7 +91,9 @@ fn resolve_omegon() -> Result<String> {
     // Already installed?
     if let Ok(output) = Command::new("which").arg("omegon").output() {
         if output.status.success() {
-            let path = crate::exec::captured_text(&output.stdout).trim().to_string();
+            let path = crate::exec::captured_text(&output.stdout)
+                .trim()
+                .to_string();
             if !path.is_empty() {
                 // Return the bin dir (strip /bin/omegon)
                 if let Some(bin_dir) = std::path::Path::new(&path).parent() {
@@ -122,7 +124,9 @@ fn resolve_omegon() -> Result<String> {
         );
     }
 
-    let path = crate::exec::captured_text(&output.stdout).trim().to_string();
+    let path = crate::exec::captured_text(&output.stdout)
+        .trim()
+        .to_string();
     if path.is_empty() {
         bail!(
             "omegon is required for `nex dev` but build produced no output.\n\

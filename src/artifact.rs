@@ -8,7 +8,8 @@ use crate::machine_profile::{MachineProfileDocument, MACHINE_PROFILE_SCHEMA_V1};
 use crate::materialization::MaterializationPayload;
 
 pub const MATERIALIZATION_PAYLOAD_SCHEMA_V1: &str = "io.styrene.nex.materialization-payload.v1";
-pub const MACHINE_PROFILE_ARTIFACT_TYPE_V1: &str = "application/vnd.styrene.nex.machine-profile.v1+tar";
+pub const MACHINE_PROFILE_ARTIFACT_TYPE_V1: &str =
+    "application/vnd.styrene.nex.machine-profile.v1+tar";
 pub const MATERIALIZATION_PAYLOAD_ARTIFACT_TYPE_V1: &str =
     "application/vnd.styrene.nex.materialization-payload.v1+tar";
 
@@ -254,7 +255,10 @@ pub fn check_artifact_dir_with_evidence(path: &Path, evidence: &str) -> Artifact
         Err(error) => {
             diagnostics.push(ArtifactDiagnostic::error(
                 "pkl-evaluation-failed",
-                format!("failed to evaluate {}: {error:#}", detected.entrypoint.display()),
+                format!(
+                    "failed to evaluate {}: {error:#}",
+                    detected.entrypoint.display()
+                ),
                 None,
             ));
             return report(path, &detected, tier, diagnostics);
@@ -447,9 +451,11 @@ fn validate_typed_semantics(kind: ArtifactKind, json: Value) -> Vec<ArtifactDiag
         ArtifactKind::MachineProfile => serde_json::from_value::<MachineProfileDocument>(json)
             .context("decoding machine profile")
             .and_then(|document| document.validate()),
-        ArtifactKind::MaterializationPayload => serde_json::from_value::<MaterializationPayload>(json)
-            .context("decoding materialization payload")
-            .and_then(|payload| payload.validate()),
+        ArtifactKind::MaterializationPayload => {
+            serde_json::from_value::<MaterializationPayload>(json)
+                .context("decoding materialization payload")
+                .and_then(|payload| payload.validate())
+        }
     };
 
     match result {
@@ -470,8 +476,9 @@ fn validate_armory_metadata(path: &Path, kind: ArtifactKind) -> Vec<ArtifactDiag
 
     let metadata = match std::fs::read_to_string(&metadata_path)
         .with_context(|| format!("reading {}", metadata_path.display()))
-        .and_then(|content| toml::from_str::<ArmoryMetadata>(&content).context("parsing armory.toml"))
-    {
+        .and_then(|content| {
+            toml::from_str::<ArmoryMetadata>(&content).context("parsing armory.toml")
+        }) {
         Ok(metadata) => metadata,
         Err(error) => {
             return vec![ArtifactDiagnostic::error(

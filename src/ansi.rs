@@ -165,7 +165,10 @@ mod tests {
 
     #[test]
     fn sanitize_resolves_carriage_return_rewrites() {
-        assert_eq!(sanitize_terminal_capture("build 10%\rbuild 100%\n"), "build 100%\n");
+        assert_eq!(
+            sanitize_terminal_capture("build 10%\rbuild 100%\n"),
+            "build 100%\n"
+        );
     }
 
     #[test]

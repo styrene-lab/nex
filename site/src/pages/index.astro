@@ -27,6 +27,19 @@ import Base from '../layouts/Base.astro';
   </div>
 </section>
 
+<!-- Release note -->
+<section id="release" class="release-note">
+  <div class="container">
+    <p class="eyebrow">v0.21.6 patch release</p>
+    <h2>Intel macOS rebuild fix</h2>
+    <p>
+      <code>nex switch</code>, <code>nex diff</code>, and <code>nex rollback</code> now call
+      <code>darwin-rebuild</code> with the nix-darwin supported experimental-features option form.
+      The release also centralizes ANSI/PTY output sanitization for cleaner logs and integrations.
+    </p>
+  </div>
+</section>
+
 <!-- What it does -->
 <section class="demo">
   <div class="container">

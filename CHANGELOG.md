@@ -4,6 +4,12 @@ All notable changes to nex are documented here. Format follows [Keep a Changelog
 
 ## [Unreleased]
 
+## [0.21.6] - 2026-05-28
+
+### Fixed
+- `nex switch`, `nex diff`, and `nex rollback` now pass nix-darwin experimental features with the `darwin-rebuild`-supported `--option experimental-features` form, fixing Intel macOS hosts where `darwin-rebuild` rejects `--extra-experimental-features`.
+- Captured terminal output is sanitized through a centralized ANSI/PTY scrubber so integrations, logs, and parsers do not leak escape/control sequences.
+
 ## [0.21.5] - 2026-05-28
 
 ### Changed

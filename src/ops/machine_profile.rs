@@ -14,7 +14,10 @@ pub fn run_validate(path: &Path) -> Result<()> {
 pub fn run_inspect(path: &Path, json: bool) -> Result<()> {
     let document = MachineProfileDocument::from_path(path)?;
     if json {
-        println!("{}", serde_json::to_string_pretty(&MachineProfileInspect::from(&document))?);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&MachineProfileInspect::from(&document))?
+        );
         return Ok(());
     }
 

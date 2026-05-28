@@ -135,7 +135,8 @@ impl MachineProfileDocument {
     }
 
     pub fn parse(content: &str) -> Result<Self> {
-        let document: Self = toml::from_str(content).context("invalid compatibility machine profile TOML")?;
+        let document: Self =
+            toml::from_str(content).context("invalid compatibility machine profile TOML")?;
         document.validate()?;
         Ok(document)
     }
@@ -220,7 +221,8 @@ fn require_non_empty(field: &str, value: &str) -> Result<()> {
 
 fn validate_secret_name(secret: &str) -> Result<()> {
     require_non_empty("secret name", secret)?;
-    if secret.contains('=') || secret.contains(':') || secret.contains('/') || secret.contains('\\') {
+    if secret.contains('=') || secret.contains(':') || secret.contains('/') || secret.contains('\\')
+    {
         bail!("secret '{}' must be a name, not a value or path", secret);
     }
     if !secret
@@ -282,7 +284,9 @@ required = true
     fn rejects_wrong_schema() {
         let manifest = valid_manifest().replace(MACHINE_PROFILE_SCHEMA_V1, "wrong");
         let error = MachineProfileDocument::parse(&manifest).expect_err("schema rejected");
-        assert!(error.to_string().contains("unsupported machine profile schema"));
+        assert!(error
+            .to_string()
+            .contains("unsupported machine profile schema"));
     }
 
     #[test]
@@ -308,7 +312,10 @@ required = true
     fn rejects_physical_machine_without_attestation() {
         let manifest = valid_manifest()
             .replace("target = \"oci-image\"", "target = \"physical-machine\"")
-            .replace("requires_target_attestation = true", "requires_target_attestation = false");
+            .replace(
+                "requires_target_attestation = true",
+                "requires_target_attestation = false",
+            );
         let error = MachineProfileDocument::parse(&manifest).expect_err("attestation required");
         let message = format!("{error:#}");
         assert!(message.contains("physical-machine targets require target attestation"));

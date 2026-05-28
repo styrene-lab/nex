@@ -9,8 +9,12 @@ pub fn nix_experimental_args() -> [&'static str; 2] {
 
 fn rebuild_experimental_args(platform: crate::discover::Platform) -> &'static [&'static str] {
     match platform {
-        crate::discover::Platform::Darwin => &["--option", "experimental-features", "nix-command flakes"],
-        crate::discover::Platform::Linux => &["--extra-experimental-features", "nix-command flakes"],
+        crate::discover::Platform::Darwin => {
+            &["--option", "experimental-features", "nix-command flakes"]
+        }
+        crate::discover::Platform::Linux => {
+            &["--extra-experimental-features", "nix-command flakes"]
+        }
     }
 }
 
@@ -550,9 +554,7 @@ pub fn system_rebuild_rollback(
 
 /// Run nix flake update.
 pub fn nix_flake_update(repo: &Path) -> Result<()> {
-    run(nix_command()
-        .args(["flake", "update"])
-        .current_dir(repo))
+    run(nix_command().args(["flake", "update"]).current_dir(repo))
 }
 
 /// Run nix shell for an ephemeral package.

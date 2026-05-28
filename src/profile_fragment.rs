@@ -310,7 +310,10 @@ requires_confirmation = true
             .replace("id = \"gpu/amd\"", "id = \"hardware/rpi4\"")
             .replace("name = \"amd\"", "name = \"rpi4\"")
             .replace("category = \"gpu\"", "category = \"hardware\"")
-            .replace("description = \"AMD GPU\"", "description = \"Raspberry Pi 4 hardware\"");
+            .replace(
+                "description = \"AMD GPU\"",
+                "description = \"Raspberry Pi 4 hardware\"",
+            );
         ProfileFragmentDocument::parse(&manifest).expect("valid hardware fragment");
     }
 
@@ -337,8 +340,7 @@ visibility = "public"
             "requires_confirmation = true",
             "requires_confirmation = false",
         );
-        let error =
-            ProfileFragmentDocument::parse(&manifest).expect_err("confirmation required");
+        let error = ProfileFragmentDocument::parse(&manifest).expect_err("confirmation required");
         assert!(
             format!("{error:#}").contains("hardware-driver fragments must require confirmation")
         );

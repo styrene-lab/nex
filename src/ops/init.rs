@@ -49,7 +49,10 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
             } else {
                 ok(
                     "config",
-                    &config_dir.join(crate::config::CONFIG_FILE).display().to_string(),
+                    &config_dir
+                        .join(crate::config::CONFIG_FILE)
+                        .display()
+                        .to_string(),
                 );
             }
 
@@ -161,7 +164,10 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
     } else {
         ok(
             "config",
-            &config_dir.join(crate::config::CONFIG_FILE).display().to_string(),
+            &config_dir
+                .join(crate::config::CONFIG_FILE)
+                .display()
+                .to_string(),
         );
     }
 

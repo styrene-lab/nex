@@ -1,7 +1,7 @@
-use std::process::Command;
-use std::path::{Path, PathBuf};
 use anyhow::{bail, Context, Result};
 use console::style;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use crate::exec;
 use crate::ops::forge;
@@ -165,7 +165,9 @@ pub fn run(source: &str, name: Option<&str>, tag: Option<&str>, dry_run: bool) -
         bail!("image build failed:\n{stderr}");
     }
 
-    let store_path = crate::exec::captured_text(&output.stdout).trim().to_string();
+    let store_path = crate::exec::captured_text(&output.stdout)
+        .trim()
+        .to_string();
     if store_path.is_empty() {
         bail!("nix build produced no output");
     }

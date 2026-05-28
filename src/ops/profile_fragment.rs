@@ -3,7 +3,9 @@ use std::path::Path;
 use anyhow::{bail, Result};
 use serde::Serialize;
 
-use crate::profile_fragment::{find_fragment_files, infer_fragment_path_id, ProfileFragmentDocument};
+use crate::profile_fragment::{
+    find_fragment_files, infer_fragment_path_id, ProfileFragmentDocument,
+};
 
 pub fn run_validate(path: &Path) -> Result<()> {
     if path.is_dir() {
@@ -28,7 +30,10 @@ pub fn run_inspect(path: &Path, json: bool) -> Result<()> {
     }
     let document = ProfileFragmentDocument::from_path(path)?;
     if json {
-        println!("{}", serde_json::to_string_pretty(&ProfileFragmentInspect::from(&document))?);
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&ProfileFragmentInspect::from(&document))?
+        );
         return Ok(());
     }
 
@@ -70,7 +75,10 @@ pub fn run_inspect(path: &Path, json: bool) -> Result<()> {
             "Mutates hardware drivers",
             &safety.mutates_hardware_drivers.to_string(),
         );
-        print_kv("Requires confirmation", &safety.requires_confirmation.to_string());
+        print_kv(
+            "Requires confirmation",
+            &safety.requires_confirmation.to_string(),
+        );
     }
 
     Ok(())
@@ -116,11 +124,14 @@ impl From<&ProfileFragmentDocument> for ProfileFragmentInspect {
             conflicts: fragment.conflicts.clone(),
             platforms: fragment.platforms.iter().map(ToString::to_string).collect(),
             visibility: fragment.visibility.as_ref().map(ToString::to_string),
-            safety: fragment.safety.as_ref().map(|safety| ProfileFragmentSafetyInspect {
-                mutates_system_services: safety.mutates_system_services,
-                mutates_hardware_drivers: safety.mutates_hardware_drivers,
-                requires_confirmation: safety.requires_confirmation,
-            }),
+            safety: fragment
+                .safety
+                .as_ref()
+                .map(|safety| ProfileFragmentSafetyInspect {
+                    mutates_system_services: safety.mutates_system_services,
+                    mutates_hardware_drivers: safety.mutates_hardware_drivers,
+                    requires_confirmation: safety.requires_confirmation,
+                }),
         }
     }
 }

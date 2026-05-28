@@ -218,7 +218,9 @@ fn prompt_profile() -> Result<Option<String>> {
     // Local path?
     let path = std::path::Path::new(&input);
     if path.exists()
-        && (path.join(crate::machine_profile::MACHINE_PROFILE_FILE).exists()
+        && (path
+            .join(crate::machine_profile::MACHINE_PROFILE_FILE)
+            .exists()
             || input.ends_with(".toml"))
     {
         return Ok(Some(input));
@@ -1729,7 +1731,9 @@ fn fetch_nex_binary(dest: &Path, arch: Arch) -> Result<()> {
         .output()
     {
         if output.status.success() {
-            let url = crate::exec::captured_text(&output.stdout).trim().to_string();
+            let url = crate::exec::captured_text(&output.stdout)
+                .trim()
+                .to_string();
             if !url.is_empty() && download_file(&url, dest).is_ok() {
                 set_executable(dest)?;
                 return Ok(());

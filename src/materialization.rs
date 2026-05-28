@@ -28,11 +28,11 @@ impl MaterializationPayload {
     }
 
     pub fn from_toml_str(content: &str) -> Result<Self> {
-        let payload: Self = toml::from_str(content).context("invalid compatibility materialization TOML")?;
+        let payload: Self =
+            toml::from_str(content).context("invalid compatibility materialization TOML")?;
         payload.validate()?;
         Ok(payload)
     }
-
 
     pub fn to_compat_toml(&self) -> String {
         if self.flake_inputs.is_empty() {
@@ -91,7 +91,9 @@ impl MaterializationTarget {
         match value {
             "toplevel" => Ok(Self::Toplevel),
             "sd-image" => Ok(Self::SdImage),
-            other => bail!("unsupported materialization target '{other}'; supported: toplevel, sd-image"),
+            other => {
+                bail!("unsupported materialization target '{other}'; supported: toplevel, sd-image")
+            }
         }
     }
 
@@ -232,7 +234,10 @@ impl NixosModuleExport {
     pub fn write(&self, payload: &MaterializationPayload) -> Result<()> {
         validate_module_name(&self.name)?;
         std::fs::create_dir_all(&self.workspace)?;
-        std::fs::write(self.workspace.join("module.nix"), render_nixos_module(payload))?;
+        std::fs::write(
+            self.workspace.join("module.nix"),
+            render_nixos_module(payload),
+        )?;
         std::fs::write(
             self.workspace.join("flake.nix"),
             format!(
@@ -293,7 +298,10 @@ pub fn validate_hostname(hostname: &str) -> Result<()> {
 
 pub fn validate_workspace(workspace: &Path) -> Result<()> {
     if !workspace.is_dir() {
-        bail!("materialization workspace does not exist: {}", workspace.display());
+        bail!(
+            "materialization workspace does not exist: {}",
+            workspace.display()
+        );
     }
     let flake = workspace.join("flake.nix");
     if !flake.is_file() {
@@ -333,7 +341,10 @@ pub fn validate_flake_input_ref(reference: &str) -> Result<()> {
     if reference.trim().is_empty() {
         bail!("flake input ref cannot be empty");
     }
-    if reference.chars().any(|c| c.is_control() || c.is_whitespace()) {
+    if reference
+        .chars()
+        .any(|c| c.is_control() || c.is_whitespace())
+    {
         bail!("flake input ref '{reference}' cannot contain whitespace or control characters");
     }
     if reference.contains('"')
@@ -409,9 +420,12 @@ pub fn find_nix() -> String {
     "nix".to_string()
 }
 
-
 /// Scaffold a minimal NixOS configuration from a canonical Pkl source or compatibility TOML source.
-pub fn scaffold_nixos_config_from_source(config_dir: &Path, hostname: &str, source: &Path) -> Result<()> {
+pub fn scaffold_nixos_config_from_source(
+    config_dir: &Path,
+    hostname: &str,
+    source: &Path,
+) -> Result<()> {
     match source.extension().and_then(|ext| ext.to_str()) {
         Some("toml") => {
             let content = std::fs::read_to_string(source)
@@ -437,7 +451,8 @@ pub fn scaffold_nixos_config(config_dir: &Path, hostname: &str, profile_toml: &s
     let detected_system = crate::discover::detect_system();
 
     // Parse profile to extract linux settings and materialization metadata.
-    let profile: toml::Value = toml::from_str(profile_toml).context("invalid materialization TOML")?;
+    let profile: toml::Value =
+        toml::from_str(profile_toml).context("invalid materialization TOML")?;
     let payload = MaterializationPayload::from_toml_str(profile_toml)?;
     let extra_inputs = render_flake_inputs(&payload.flake_inputs);
     let system = payload.system.as_deref().unwrap_or(detected_system);
@@ -611,8 +626,7 @@ pub fn scaffold_nixos_config(config_dir: &Path, hostname: &str, profile_toml: &s
 
 /// Generate NixOS config lines from the [linux] section of a profile.
 /// Public so `polymerize` can reuse the same generation logic.
-pub 
-fn generate_linux_config(lines: &mut Vec<String>, linux: &toml::Value) {
+pub fn generate_linux_config(lines: &mut Vec<String>, linux: &toml::Value) {
     // Desktop environment
     if let Some(de) = linux.get("desktop").and_then(|v| v.as_str()) {
         match de {
@@ -1058,7 +1072,6 @@ fn generate_linux_config(lines: &mut Vec<String>, linux: &toml::Value) {
     }
 }
 
-
 fn nix_string(value: &str) -> String {
     format!("{value:?}")
 }
@@ -1083,12 +1096,9 @@ fn append_extra_nixos_config(lines: &mut Vec<String>, extra_config: &str) {
 /// Generate a legacy polymerize.sh installer script.
 /// Superseded by `nex polymerize` but retained for non-nex environments.
 #[allow(dead_code)]
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
 
     #[test]
     fn scaffold_nixos_config_includes_materialization_flake_inputs() {
@@ -1297,5 +1307,4 @@ extra_config = ["let x = builtins.getFlake \"github:owner/repo\"; in {}"]
         assert!(args.contains(&"--out-link".to_string()));
         assert!(args.contains(&nixos_sd_image_attr("test-host")));
     }
-
 }
