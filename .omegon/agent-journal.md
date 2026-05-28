@@ -241,4 +241,28 @@ Implemented refinements:
   da7f721 feat(bootstrap): preflight Darwin activation blockers
   174c907 chore(release): bump version to 0.21.6
   210a062 fix(rebuild): use supported darwin experimental feature option
+## 2026-05-28 — main (10t 252tc 2m33s)
+
+**Task:** we (nex) are leaking PTY ANSI escape character sequence garbage
+
+**Outcome:** Implemented and committed the refinement pass.
+
+Commit:
+
+```text
+f3372e9 fix(bootstrap): harden Darwin preflight repairs
+```
+
+What changed:
+
+- Replaced `command_preview`-driven repair execution with typed repair actions:
+  - `BootstrapRepairKind::MoveShellRc`
+  - `BootstrapRepairKind::EnsureSyntheti
+
+**Model:** openai-codex:gpt-5.5 — 27242868 in / 48149 out tokens across 272 turns
+
+**Commits:**
+  f3372e9 fix(bootstrap): harden Darwin preflight repairs
+  da7f721 feat(bootstrap): preflight Darwin activation blockers
+  174c907 chore(release): bump version to 0.21.6
 

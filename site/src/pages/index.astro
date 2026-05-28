@@ -30,12 +30,11 @@ import Base from '../layouts/Base.astro';
 <!-- Release note -->
 <section id="release" class="release-note">
   <div class="container">
-    <p class="eyebrow">v0.21.6 patch release</p>
-    <h2>Intel macOS rebuild fix</h2>
+    <p class="eyebrow">v0.21.7 patch release</p>
+    <h2>First-time macOS bootstrap fixes</h2>
     <p>
-      <code>nex switch</code>, <code>nex diff</code>, and <code>nex rollback</code> now call
-      <code>darwin-rebuild</code> with the nix-darwin supported experimental-features option form.
-      The release also centralizes ANSI/PTY output sanitization for cleaner logs and integrations.
+      <code>nex init</code>, <code>nex adopt</code>, and <code>nex switch</code> now preflight Darwin bootstrap blockers before nix-darwin activation.
+      Use <code>nex doctor --fix darwin-bootstrap</code> to repair unmanaged shell rc files and <code>/etc/synthetic.conf</code> readiness.
     </p>
   </div>
 </section>

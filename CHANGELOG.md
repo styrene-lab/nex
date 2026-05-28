@@ -4,6 +4,15 @@ All notable changes to nex are documented here. Format follows [Keep a Changelog
 
 ## [Unreleased]
 
+## [0.21.7] - 2026-05-28
+
+### Added
+- Added Darwin bootstrap preflight checks for first-time nix-darwin activation blockers, including unmanaged `/etc/bashrc`, unmanaged `/etc/zshrc`, and `/etc/synthetic.conf` readiness.
+- Added `nex doctor --fix darwin-bootstrap` to repair Darwin bootstrap blockers before activation.
+
+### Changed
+- `nex init` now prompts to repair Darwin bootstrap blockers before first activation, `nex switch` fails fast with a repair command when blockers remain, and `nex adopt` surfaces bootstrap recommendations during machine adoption.
+
 ## [0.21.6] - 2026-05-28
 
 ### Fixed
