@@ -1,5 +1,4 @@
 use std::process::Command;
-
 use anyhow::{bail, Context, Result};
 use console::style;
 
@@ -17,8 +16,6 @@ const OMEGON_FLAKE: &str = "github:styrene-lab/omegon";
 /// 4. Drop into the shell with omegon available
 pub fn run(project: &str) -> Result<()> {
     let flake_ref = develop::expand_flake_ref(project);
-    let nix = exec::find_nix();
-
     println!(
         "  {} {} {}",
         style("nex dev").bold(),
@@ -27,7 +24,7 @@ pub fn run(project: &str) -> Result<()> {
     );
 
     // Step 1: resolve omegon — hard requirement
-    let omegon_path = resolve_omegon(&nix)?;
+    let omegon_path = resolve_omegon()?;
 
     let omegon_bin = format!("{omegon_path}/bin/omegon");
 
@@ -66,7 +63,7 @@ pub fn run(project: &str) -> Result<()> {
         style(">>>").bold()
     );
 
-    let status = Command::new(&nix)
+    let status = exec::nix_command()
         .args([
             "develop",
             &flake_ref,
@@ -89,7 +86,7 @@ pub fn run(project: &str) -> Result<()> {
 }
 
 /// Resolve omegon — check PATH first, then build from flake. Fails hard if neither works.
-fn resolve_omegon(nix: &str) -> Result<String> {
+fn resolve_omegon() -> Result<String> {
     // Already installed?
     if let Ok(output) = Command::new("which").arg("omegon").output() {
         if output.status.success() {
@@ -109,7 +106,7 @@ fn resolve_omegon(nix: &str) -> Result<String> {
     // Build from flake
     println!("  {} resolving omegon...", style(">>>").bold());
 
-    let output = Command::new(nix)
+    let output = exec::nix_command()
         .args(["build", OMEGON_FLAKE, "--no-link", "--print-out-paths"])
         .output()
         .context("failed to build omegon")?;

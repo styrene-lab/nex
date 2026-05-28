@@ -1,6 +1,5 @@
-use std::path::{Path, PathBuf};
 use std::process::Command;
-
+use std::path::{Path, PathBuf};
 use anyhow::{bail, Context, Result};
 use console::style;
 
@@ -139,8 +138,7 @@ pub fn run(source: &str, name: Option<&str>, tag: Option<&str>, dry_run: bool) -
         packages.len()
     );
 
-    let nix = exec::find_nix();
-    let output = Command::new(&nix)
+    let output = exec::nix_command()
         .args([
             "build",
             "--impure",
