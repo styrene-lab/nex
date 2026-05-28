@@ -4,6 +4,11 @@ All notable changes to nex are documented here. Format follows [Keep a Changelog
 
 ## [Unreleased]
 
+## [0.21.5] - 2026-05-28
+
+### Changed
+- Stabilized the Armory-facing `nex artifact check --json` and `nex artifact check-relationship --json` contract around `artifact_kind`, `severity`, `path`, and relationship `compatibility` fields.
+
 ## [0.21.4] - 2026-05-27
 
 ### Fixed
