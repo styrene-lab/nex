@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 
 #[derive(Parser)]
 #[command(
@@ -183,13 +183,27 @@ pub enum Command {
         action: RbacAction,
     },
     /// Check and fix common configuration issues
-    Doctor,
+    Doctor {
+        /// Apply supported repairs
+        #[arg(long)]
+        fix: bool,
+
+        /// Limit fixes to one doctor scope
+        #[arg(value_enum)]
+        scope: Option<DoctorScope>,
+    },
     /// Update nex itself to the latest release
     SelfUpdate,
     /// Preview what would change
     Diff,
     /// Garbage collect nix store
     Gc,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub enum DoctorScope {
+    All,
+    DarwinBootstrap,
 }
 
 #[derive(Subcommand)]

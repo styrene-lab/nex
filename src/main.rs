@@ -1,6 +1,7 @@
 mod aliases;
 mod ansi;
 mod artifact;
+mod bootstrap;
 mod cli;
 mod config;
 mod discover;
@@ -239,7 +240,7 @@ fn main() -> Result<()> {
             // Sign and Verify are handled in the pre-config block above
             _ => unreachable!(),
         },
-        Command::Doctor => ops::doctor::run(&config),
+        Command::Doctor { fix, scope } => ops::doctor::run(&config, fix, scope),
         Command::Switch => ops::switch::run(&config, cli.dry_run),
         Command::Update => ops::update::run(&config, cli.dry_run),
         Command::Rollback => ops::rollback::run(&config, cli.dry_run),

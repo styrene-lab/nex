@@ -1,4 +1,5 @@
 pub mod ansi;
+pub mod bootstrap;
 pub mod discover;
 pub mod document;
 pub mod exec;

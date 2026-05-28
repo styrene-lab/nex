@@ -1,12 +1,17 @@
 use anyhow::{Context, Result};
 use console::style;
 
+use crate::cli::DoctorScope;
 use crate::config::Config;
-use crate::output;
+use crate::{bootstrap, output};
 
 /// Check and fix common issues with the nex-managed config repo.
-pub fn run(config: &Config) -> Result<()> {
-    tracing::info!("running doctor checks");
+pub fn run(config: &Config, fix: bool, scope: Option<DoctorScope>) -> Result<()> {
+    if matches!(scope, Some(DoctorScope::DarwinBootstrap)) {
+        return check_bootstrap(config, fix);
+    }
+
+    tracing::info!(fix, ?scope, "running doctor checks");
     println!();
     println!("  {} — checking configuration", style("nex doctor").bold());
     println!();
@@ -15,6 +20,8 @@ pub fn run(config: &Config) -> Result<()> {
     check_identity();
 
     let mut fixed = 0;
+
+    check_bootstrap(config, fix)?;
 
     // Check mac-app-util integration
     if check_mac_app_util(config, &mut fixed)? {
@@ -42,6 +49,21 @@ pub fn run(config: &Config) -> Result<()> {
     }
 
     println!();
+    Ok(())
+}
+
+fn check_bootstrap(config: &Config, fix: bool) -> Result<()> {
+    let Some(report) = bootstrap::check(config.platform)? else {
+        return Ok(());
+    };
+    if !report.has_blockers() {
+        ok("darwin bootstrap", "ready");
+        return Ok(());
+    }
+    bootstrap::print_recommendations(&report);
+    if fix {
+        bootstrap::repair(&report)?;
+    }
     Ok(())
 }
 

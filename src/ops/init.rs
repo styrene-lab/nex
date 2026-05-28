@@ -4,6 +4,7 @@ use std::process::Command;
 use anyhow::{bail, Context, Result};
 use console::style;
 
+use crate::bootstrap;
 use crate::discover::{self, Platform};
 use crate::output;
 
@@ -178,6 +179,7 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
             Platform::Linux => "nixos-rebuild switch",
         };
         output::dry_run(&format!("would run {rebuild_cmd}"));
+        bootstrap::maybe_repair_for_init(platform, true)?;
         println!();
         return Ok(());
     }
@@ -259,6 +261,8 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
 
     output::status("activating (sudo required)...");
 
+    bootstrap::maybe_repair_for_init(platform, false)?;
+
     // nix-darwin refuses to overwrite files in /etc on first run.
     // Move them out of the way so activation can proceed. (macOS only)
     let etc_files = ["/etc/shells", "/etc/nix/nix.conf"];
@@ -285,7 +289,8 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
                     .args([
                         result_path.to_string_lossy().as_ref(),
                         "switch",
-                        "--extra-experimental-features",
+                        "--option",
+                        "experimental-features",
                         "nix-command flakes",
                         "--flake",
                         &format!(".#{hostname}"),
@@ -344,7 +349,7 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
                 let result_path = repo_path.join("result/sw/bin/darwin-rebuild");
                 if result_path.exists() {
                     println!(
-                        "  cd {} && sudo ./result/sw/bin/darwin-rebuild switch --extra-experimental-features 'nix-command flakes' --flake .#{}",
+                        "  cd {} && sudo ./result/sw/bin/darwin-rebuild switch --option experimental-features 'nix-command flakes' --flake .#{}",
                         repo_path.display(),
                         hostname
                     );

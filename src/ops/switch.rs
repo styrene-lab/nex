@@ -1,5 +1,6 @@
 use anyhow::Result;
 
+use crate::bootstrap;
 use crate::config::Config;
 use crate::discover::Platform;
 use crate::exec;
@@ -14,6 +15,7 @@ pub fn run(config: &Config, dry_run: bool) -> Result<()> {
         output::dry_run(&format!("would run {label}"));
         return Ok(());
     }
+    bootstrap::ensure_switch_ready(config.platform)?;
     output::status("switching...");
     exec::system_rebuild_switch(&config.repo, &config.hostname, config.platform)?;
     output::status("done");

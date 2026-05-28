@@ -6,9 +6,9 @@ use console::style;
 
 use crate::config::Config;
 use crate::edit::{self, EditSession};
-use crate::exec;
 use crate::nixfile;
 use crate::output;
+use crate::{bootstrap, exec};
 
 /// Check if stdin is interactive. When non-interactive, return the default.
 fn confirm_or_default(prompt: &str, default: bool) -> Result<bool> {
@@ -212,6 +212,10 @@ pub fn run(config: &Config, dry_run: bool) -> Result<()> {
         style("nex migrate").cyan()
     );
     println!();
+
+    if let Some(report) = bootstrap::check(config.platform)? {
+        bootstrap::print_recommendations(&report);
+    }
 
     Ok(())
 }
