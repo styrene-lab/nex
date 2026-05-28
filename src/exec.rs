@@ -42,6 +42,11 @@ pub fn find_nix() -> String {
     "nix".to_string()
 }
 
+/// Convert captured stdout/stderr into integration-safe text.
+pub fn captured_text(bytes: &[u8]) -> String {
+    crate::ansi::sanitize_terminal_capture(&String::from_utf8_lossy(bytes))
+}
+
 /// Run a command, inheriting stdout/stderr. Returns Ok if exit code 0.
 fn run(cmd: &mut Command) -> Result<()> {
     let program = cmd.get_program().to_string_lossy().to_string();
@@ -79,7 +84,7 @@ pub fn git_commit(repo: &Path, message: &str) {
         Ok(o) => {
             tracing::warn!(
                 exit_code = o.status.code().unwrap_or(-1),
-                stderr = %String::from_utf8_lossy(&o.stderr).trim(),
+                stderr = %captured_text(&o.stderr).trim(),
                 "git add failed"
             );
             return;
@@ -98,7 +103,7 @@ pub fn git_commit(repo: &Path, message: &str) {
     match commit {
         Ok(o) if o.status.success() => {}
         Ok(o) => {
-            let stderr = String::from_utf8_lossy(&o.stderr);
+            let stderr = captured_text(&o.stderr);
             // "nothing to commit" is not a real failure
             if !stderr.contains("nothing to commit") {
                 tracing::warn!(
@@ -133,7 +138,7 @@ pub fn nix_eval_version(pkg: &str) -> Result<Option<String>> {
         .output()
         .context("failed to run nix eval")?;
     if output.status.success() {
-        let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let version = captured_text(&output.stdout).trim().to_string();
         if version.is_empty() {
             Ok(None)
         } else {
@@ -226,7 +231,7 @@ pub fn brew_leaves() -> Result<Vec<String>> {
         _ => return Ok(Vec::new()),
     };
 
-    Ok(String::from_utf8_lossy(&output.stdout)
+    Ok(captured_text(&output.stdout)
         .lines()
         .filter(|l| !l.is_empty())
         .map(String::from)
@@ -245,7 +250,7 @@ pub fn brew_list_casks() -> Result<Vec<String>> {
         _ => return Ok(Vec::new()),
     };
 
-    Ok(String::from_utf8_lossy(&output.stdout)
+    Ok(captured_text(&output.stdout)
         .lines()
         .filter(|l| !l.is_empty())
         .map(String::from)

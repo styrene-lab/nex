@@ -1,4 +1,5 @@
 mod aliases;
+mod ansi;
 mod artifact;
 mod cli;
 mod config;
@@ -10,7 +11,6 @@ pub mod forge;
 pub mod input;
 pub mod machine_profile;
 mod materialization;
-mod menu;
 mod nixfile;
 mod ops;
 mod output;
@@ -25,6 +25,8 @@ use cli::{Cli, Command};
 use config::Config;
 
 fn main() -> Result<()> {
+    ansi::configure_console_colors();
+
     // Initialize tracing subscriber. Controlled by NEX_LOG env var.
     // Examples: NEX_LOG=debug, NEX_LOG=nex=trace, NEX_LOG=nex::edit=debug
     tracing_subscriber::fmt()

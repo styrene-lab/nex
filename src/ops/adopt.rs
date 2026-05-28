@@ -239,7 +239,7 @@ fn find_path_collisions(nix_packages: &[String]) -> Vec<(String, PathBuf, Option
                     .ok()
                     .filter(|o| o.status.success())
                     .and_then(|o| {
-                        let out = String::from_utf8_lossy(&o.stdout).to_string();
+                        let out = crate::exec::captured_text(&o.stdout).to_string();
                         // Extract first line, trim
                         out.lines().next().map(|l| l.trim().to_string())
                     })

@@ -124,6 +124,9 @@ impl MachineProfileDocument {
     pub fn from_path(path: &Path) -> Result<Self> {
         let manifest_path = resolve_manifest_path(path)?;
         let loaded = crate::document::load_document::<Self>(&manifest_path, "machine profile")?;
+        if !loaded.is_canonical() {
+            tracing::debug!(path = %loaded.path.display(), format = ?loaded.format, "loaded compatibility machine profile");
+        }
         loaded
             .value
             .validate()
@@ -131,7 +134,7 @@ impl MachineProfileDocument {
         Ok(loaded.value)
     }
 
-    pub fn from_str(content: &str) -> Result<Self> {
+    pub fn parse(content: &str) -> Result<Self> {
         let document: Self = toml::from_str(content).context("invalid compatibility machine profile TOML")?;
         document.validate()?;
         Ok(document)
@@ -272,20 +275,20 @@ required = true
 
     #[test]
     fn valid_machine_profile_passes() {
-        MachineProfileDocument::from_str(valid_manifest()).expect("valid manifest");
+        MachineProfileDocument::parse(valid_manifest()).expect("valid manifest");
     }
 
     #[test]
     fn rejects_wrong_schema() {
         let manifest = valid_manifest().replace(MACHINE_PROFILE_SCHEMA_V1, "wrong");
-        let error = MachineProfileDocument::from_str(&manifest).expect_err("schema rejected");
+        let error = MachineProfileDocument::parse(&manifest).expect_err("schema rejected");
         assert!(error.to_string().contains("unsupported machine profile schema"));
     }
 
     #[test]
     fn rejects_secret_values() {
         let manifest = valid_manifest().replace("GITHUB_TOKEN", "GITHUB_TOKEN=secret");
-        let error = MachineProfileDocument::from_str(&manifest).expect_err("secret value rejected");
+        let error = MachineProfileDocument::parse(&manifest).expect_err("secret value rejected");
         assert!(error.to_string().contains("must be a name"));
     }
 
@@ -298,7 +301,7 @@ required = true
                 "requires_target_attestation = true",
                 "requires_target_attestation = false",
             );
-        MachineProfileDocument::from_str(&manifest).expect("valid apply-existing profile");
+        MachineProfileDocument::parse(&manifest).expect("valid apply-existing profile");
     }
 
     #[test]
@@ -306,7 +309,7 @@ required = true
         let manifest = valid_manifest()
             .replace("target = \"oci-image\"", "target = \"physical-machine\"")
             .replace("requires_target_attestation = true", "requires_target_attestation = false");
-        let error = MachineProfileDocument::from_str(&manifest).expect_err("attestation required");
+        let error = MachineProfileDocument::parse(&manifest).expect_err("attestation required");
         let message = format!("{error:#}");
         assert!(message.contains("physical-machine targets require target attestation"));
     }

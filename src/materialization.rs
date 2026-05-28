@@ -146,8 +146,8 @@ impl MaterializationCheck {
             return Ok(());
         }
 
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = crate::exec::captured_text(&output.stderr);
+        let stdout = crate::exec::captured_text(&output.stdout);
         bail!(
             "materialization check failed for {}\n{}{}",
             self.eval_attr(),
@@ -211,8 +211,8 @@ impl MaterializationBuild {
         if output.status.success() {
             return Ok(());
         }
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = crate::exec::captured_text(&output.stderr);
+        let stdout = crate::exec::captured_text(&output.stdout);
         bail!(
             "materialization build failed for {}\n{}{}",
             self.eval_attr(),

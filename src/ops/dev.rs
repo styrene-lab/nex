@@ -1,4 +1,5 @@
 use std::process::Command;
+
 use anyhow::{bail, Context, Result};
 use console::style;
 
@@ -35,7 +36,7 @@ pub fn run(project: &str) -> Result<()> {
         .args(["auth", "status"])
         .output()
         .map(|o| {
-            let stdout = String::from_utf8_lossy(&o.stdout);
+            let stdout = exec::captured_text(&o.stdout);
             stdout.contains("authenticated") && !stdout.contains("Authenticated:   0")
         })
         .unwrap_or(false);
@@ -90,7 +91,7 @@ fn resolve_omegon() -> Result<String> {
     // Already installed?
     if let Ok(output) = Command::new("which").arg("omegon").output() {
         if output.status.success() {
-            let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let path = crate::exec::captured_text(&output.stdout).trim().to_string();
             if !path.is_empty() {
                 // Return the bin dir (strip /bin/omegon)
                 if let Some(bin_dir) = std::path::Path::new(&path).parent() {
@@ -112,7 +113,7 @@ fn resolve_omegon() -> Result<String> {
         .context("failed to build omegon")?;
 
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stderr = crate::exec::captured_text(&output.stderr);
         bail!(
             "omegon is required for `nex dev` but could not be resolved.\n\
              Install it: nix profile install {OMEGON_FLAKE}\n\
@@ -121,7 +122,7 @@ fn resolve_omegon() -> Result<String> {
         );
     }
 
-    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let path = crate::exec::captured_text(&output.stdout).trim().to_string();
     if path.is_empty() {
         bail!(
             "omegon is required for `nex dev` but build produced no output.\n\

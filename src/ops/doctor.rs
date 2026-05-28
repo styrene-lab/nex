@@ -329,7 +329,7 @@ fn check_identity() {
         .args(["config", "--global", "gpg.format"])
         .output();
     match gpg_format {
-        Ok(ref out) if String::from_utf8_lossy(&out.stdout).trim() == "ssh" => {
+        Ok(ref out) if crate::exec::captured_text(&out.stdout).trim() == "ssh" => {
             ok("git signing", "gpg.format = ssh");
         }
         _ => {

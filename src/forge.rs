@@ -1155,19 +1155,20 @@ fn request_from_evaluated_pkl(value: serde_json::Value) -> Result<ForgeRequest> 
     let object = value
         .as_object()
         .context("evaluated Pkl forge definition must be an object")?;
-    let mut builder = PklRequestBuilder::default();
-
-    builder.schema_version = value_u16(object, &["schemaVersion", "schema_version"])?;
-    builder.operation = value_string(object, &["operation"])
-        .map(|operation| parse_operation(&operation))
-        .transpose()?;
-    builder.profile = value_string(object, &["profile"]);
-    builder.hostname = value_string(object, &["hostname"]);
-    builder.arch = value_string(object, &["arch"])
-        .map(|arch| parse_arch(&arch))
-        .transpose()?;
-    builder.output_dir = value_string(object, &["outputDir", "output_dir"]).map(PathBuf::from);
-    builder.labels = value_string_array(object, &["labels"]);
+    let mut builder = PklRequestBuilder {
+        schema_version: value_u16(object, &["schemaVersion", "schema_version"])?,
+        operation: value_string(object, &["operation"])
+            .map(|operation| parse_operation(&operation))
+            .transpose()?,
+        profile: value_string(object, &["profile"]),
+        hostname: value_string(object, &["hostname"]),
+        arch: value_string(object, &["arch"])
+            .map(|arch| parse_arch(&arch))
+            .transpose()?,
+        output_dir: value_string(object, &["outputDir", "output_dir"]).map(PathBuf::from),
+        labels: value_string_array(object, &["labels"]),
+        ..Default::default()
+    };
 
     if let Some(target) = object.get("target").and_then(|value| value.as_object()) {
         builder.target_kind = value_string(target, &["kind"])

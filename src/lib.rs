@@ -1,7 +1,10 @@
+pub mod ansi;
 pub mod discover;
 pub mod document;
+pub mod exec;
 pub mod forge;
 pub mod input;
+pub mod machine_profile;
 pub mod materialization;
 pub mod menu;
 pub mod pkl;

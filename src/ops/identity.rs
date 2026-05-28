@@ -440,7 +440,7 @@ fn run_git_show() -> Result<()> {
             .output()
             .ok()
             .filter(|o| o.status.success())
-            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            .map(|o| crate::exec::captured_text(&o.stdout).trim().to_string())
             .unwrap_or_else(|| console::style("(not set)").dim().to_string())
     };
 

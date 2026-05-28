@@ -811,7 +811,7 @@ fn scaffold_repo(hostname: &str, dry_run: bool) -> Result<PathBuf> {
         .output();
     match commit_out {
         Ok(o) if !o.status.success() => {
-            let stderr = String::from_utf8_lossy(&o.stderr);
+            let stderr = crate::exec::captured_text(&o.stderr);
             if !stderr.contains("nothing to commit") {
                 output::warn(&format!(
                     "git commit failed — please commit manually: {}",

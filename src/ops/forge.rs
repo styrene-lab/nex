@@ -50,7 +50,7 @@ fn list_removable_disks_macos() -> Vec<DiskInfo> {
     };
 
     // The plist contains AllDisksAndPartitions with DeviceIdentifier entries
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stdout = crate::exec::captured_text(&output.stdout);
     let mut disks = Vec::new();
 
     // Simple plist parsing — look for whole-disk identifiers (disk4, not disk4s1)
@@ -80,7 +80,7 @@ fn list_removable_disks_macos_text() -> Vec<DiskInfo> {
         _ => return Vec::new(),
     };
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stdout = crate::exec::captured_text(&output.stdout);
     let mut disks = Vec::new();
 
     for line in stdout.lines() {
@@ -108,7 +108,7 @@ fn get_disk_info_macos(dev_id: &str) -> Option<DiskInfo> {
         return None;
     }
 
-    let info = String::from_utf8_lossy(&output.stdout);
+    let info = crate::exec::captured_text(&output.stdout);
     let mut size = String::new();
     let mut name = String::new();
 
@@ -1109,7 +1109,7 @@ fn preflight_usb_device(
             ));
             return;
         }
-        let info = String::from_utf8_lossy(&output.stdout);
+        let info = crate::exec::captured_text(&output.stdout);
         if !info.contains("Removable Media") && !info.contains("External") {
             errors.push(ForgeDiagnostic::new(
                 "USB_DEVICE_NOT_REMOVABLE",
@@ -1415,7 +1415,7 @@ fn fetch_profile_toml(repo_ref: &str) -> Result<String> {
         .output()
     {
         if output.status.success() {
-            return Ok(String::from_utf8_lossy(&output.stdout).to_string());
+            return Ok(crate::exec::captured_text(&output.stdout).to_string());
         }
     }
 
@@ -1430,7 +1430,7 @@ fn fetch_profile_toml(repo_ref: &str) -> Result<String> {
         bail!("could not fetch {manifest_name} from {repo_ref}");
     }
 
-    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    Ok(crate::exec::captured_text(&output.stdout).to_string())
 }
 
 /// Download a file with curl, showing progress.
@@ -1666,7 +1666,7 @@ fn fetch_nex_binary(dest: &Path, arch: Arch) -> Result<()> {
 
             if let Ok(output) = build_output {
                 // Print build stderr for visibility
-                let stderr = String::from_utf8_lossy(&output.stderr);
+                let stderr = crate::exec::captured_text(&output.stderr);
                 for line in stderr.lines() {
                     if !line.is_empty() {
                         println!("    {line}");
@@ -1675,7 +1675,7 @@ fn fetch_nex_binary(dest: &Path, arch: Arch) -> Result<()> {
 
                 if output.status.success() {
                     // --print-out-paths outputs the store path on stdout (may have multiple lines)
-                    let store_path = String::from_utf8_lossy(&output.stdout)
+                    let store_path = crate::exec::captured_text(&output.stdout)
                         .lines()
                         .rfind(|l| l.starts_with("/nix/store/"))
                         .unwrap_or("")
@@ -1729,7 +1729,7 @@ fn fetch_nex_binary(dest: &Path, arch: Arch) -> Result<()> {
         .output()
     {
         if output.status.success() {
-            let url = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let url = crate::exec::captured_text(&output.stdout).trim().to_string();
             if !url.is_empty() && download_file(&url, dest).is_ok() {
                 set_executable(dest)?;
                 return Ok(());
@@ -2476,7 +2476,7 @@ fn prepare_flash_iso_with_bundle(bundle_dir: &Path, iso_path: &Path) -> Result<s
     ];
     let styrene_probe = run_xorriso_output(&probe_args).context("failed to inspect bundled ISO")?;
     if !styrene_probe.status.success()
-        || !String::from_utf8_lossy(&styrene_probe.stdout).contains("/styrene")
+        || !crate::exec::captured_text(&styrene_probe.stdout).contains("/styrene")
     {
         bail!("bundled ISO verification failed: /styrene payload is not present");
     }
@@ -2503,7 +2503,7 @@ fn flash_to_usb(iso_path: &Path, device: &str, confirm_flash: bool) -> Result<()
             .args(["info", device])
             .output()
             .context("diskutil not found")?;
-        let info = String::from_utf8_lossy(&output.stdout);
+        let info = crate::exec::captured_text(&output.stdout);
         if !info.contains("Removable Media") && !info.contains("External") {
             bail!("{device} does not appear to be removable media. Aborting for safety.");
         }

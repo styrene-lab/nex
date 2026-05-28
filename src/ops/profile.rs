@@ -310,8 +310,6 @@ struct MergedProfile {
 ///   1. The extended parent (recursively resolved)
 ///   2. Each compose fragment in order
 ///   3. The profile's own inline sections (overrides)
-/// Validate that an extends repo ref looks like `user/repo` (with optional @ref suffix).
-/// Rejects file://, http://, absolute paths, and other potentially unsafe values.
 fn validate_repo_ref(repo_ref: &str) -> Result<()> {
     if Path::new(repo_ref).exists() {
         return Ok(());
@@ -898,7 +896,7 @@ fn fetch_toml_via_gh(repo: &str, file: &str) -> Result<String> {
         .context("gh not available")?;
 
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stderr = crate::exec::captured_text(&output.stderr);
         let hint = if stderr.contains("404") {
             format!("{file} not found in {repo} (check the path, or run `gh auth refresh -s repo`)")
         } else if stderr.contains("401") || stderr.contains("403") {
@@ -911,7 +909,7 @@ fn fetch_toml_via_gh(repo: &str, file: &str) -> Result<String> {
         bail!("{hint}");
     }
 
-    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    Ok(crate::exec::captured_text(&output.stdout).to_string())
 }
 
 fn fetch_toml_via_curl(repo: &str, file: &str) -> Result<String> {
@@ -925,7 +923,7 @@ fn fetch_toml_via_curl(repo: &str, file: &str) -> Result<String> {
         bail!("not available at {url} (private repo? use `gh auth login` first)");
     }
 
-    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    Ok(crate::exec::captured_text(&output.stdout).to_string())
 }
 
 /// Add nix packages from the profile that aren't already declared.
@@ -1119,7 +1117,7 @@ fn fetch_dir_listing(repo: &str, path: &str) -> Result<String> {
         .output()
     {
         if output.status.success() {
-            return Ok(String::from_utf8_lossy(&output.stdout).to_string());
+            return Ok(crate::exec::captured_text(&output.stdout).to_string());
         }
     }
 
@@ -1134,7 +1132,7 @@ fn fetch_dir_listing(repo: &str, path: &str) -> Result<String> {
         bail!("could not list {path} in {repo}");
     }
 
-    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    Ok(crate::exec::captured_text(&output.stdout).to_string())
 }
 
 /// Download a file from a GitHub repo via gh (private) or raw.githubusercontent (public).
@@ -1641,7 +1639,7 @@ fn resolve_bundle_id(app_name: &str) -> Option<String> {
         .ok()?;
 
     if output.status.success() {
-        let bid = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let bid = crate::exec::captured_text(&output.stdout).trim().to_string();
         if !bid.is_empty() && bid != "(null)" {
             return Some(bid);
         }

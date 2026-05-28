@@ -232,7 +232,7 @@ fn verify_checksum(
         bail!("checksum computation failed");
     }
 
-    let actual_hash = String::from_utf8_lossy(&output.stdout)
+    let actual_hash = crate::exec::captured_text(&output.stdout)
         .split_whitespace()
         .next()
         .unwrap_or("")

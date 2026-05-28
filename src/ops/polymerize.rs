@@ -522,7 +522,7 @@ fn detect_network_status(timeout_seconds: u64) -> NetworkStatus {
         .output()
     {
         if output.status.success() {
-            for line in String::from_utf8_lossy(&output.stdout).lines() {
+            for line in crate::exec::captured_text(&output.stdout).lines() {
                 let mut parts = line.splitn(2, ':');
                 let dtype = parts.next().unwrap_or("");
                 let state = parts.next().unwrap_or("");
@@ -578,9 +578,10 @@ fn has_network_connectivity(timeout_seconds: u64) -> bool {
         .unwrap_or(false)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum WifiScanSource {
     Nmcli,
+    #[default]
     NmcliUnavailable,
     NmcliFailed,
 }
@@ -589,12 +590,6 @@ enum WifiScanSource {
 struct WifiScan {
     source: WifiScanSource,
     networks: Vec<(String, String, String)>,
-}
-
-impl Default for WifiScanSource {
-    fn default() -> Self {
-        Self::NmcliUnavailable
-    }
 }
 
 fn scan_wifi_networks() -> WifiScan {
@@ -621,7 +616,7 @@ fn scan_wifi_networks() -> WifiScan {
     match scan {
         Ok(output) if output.status.success() => WifiScan {
             source: WifiScanSource::Nmcli,
-            networks: parse_nmcli_wifi_list(&String::from_utf8_lossy(&output.stdout)),
+            networks: parse_nmcli_wifi_list(&crate::exec::captured_text(&output.stdout)),
         },
         _ => WifiScan {
             source: WifiScanSource::NmcliFailed,
@@ -1174,7 +1169,7 @@ fn partition_paths(disk: &str) -> Vec<String> {
         return Vec::new();
     }
 
-    parse_lsblk_paths(&String::from_utf8_lossy(&output.stdout), disk)
+    parse_lsblk_paths(&crate::exec::captured_text(&output.stdout), disk)
 }
 
 fn parse_lsblk_paths(output: &str, disk: &str) -> Vec<String> {
@@ -1198,7 +1193,7 @@ fn run_parted(disk: &str, commands: &[&str]) -> Result<()> {
         return Ok(());
     }
 
-    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stderr = crate::exec::captured_text(&output.stderr);
     refresh_partition_table(disk);
     if stderr.contains("unable to inform the kernel") {
         bail!(
@@ -1800,7 +1795,7 @@ fn verify_installed_password_set(user: &str) -> Result<()> {
         bail!("failed to verify password status for {user}");
     }
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stdout = crate::exec::captured_text(&output.stdout);
     let fields: Vec<&str> = stdout.split_whitespace().collect();
     if fields.get(1) != Some(&"P") {
         let state = fields.get(1).copied().unwrap_or("unknown");
@@ -1883,7 +1878,7 @@ fn run_cmd(program: &str, args: &[&str]) -> Result<()> {
         .with_context(|| format!("{program} not found"))?;
 
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stderr = crate::exec::captured_text(&output.stderr);
         let detail = if stderr.trim().is_empty() {
             String::new()
         } else {
@@ -1901,7 +1896,7 @@ fn check_disk_for_special_layouts(disk: &str) {
         .args(["-o", "value", "-s", "TYPE", disk])
         .output()
         .ok()
-        .map(|o| String::from_utf8_lossy(&o.stdout).contains("crypto_LUKS"))
+        .map(|o| crate::exec::captured_text(&o.stdout).contains("crypto_LUKS"))
         .unwrap_or(false);
 
     if has_luks {
@@ -1920,7 +1915,7 @@ fn check_disk_for_special_layouts(disk: &str) {
         .args(["--noheadings", "-o", "pv_name"])
         .output()
         .ok()
-        .map(|o| String::from_utf8_lossy(&o.stdout).contains(disk))
+        .map(|o| crate::exec::captured_text(&o.stdout).contains(disk))
         .unwrap_or(false);
 
     if has_lvm {

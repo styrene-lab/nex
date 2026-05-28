@@ -151,7 +151,7 @@ pub fn run(source: &str, name: Option<&str>, tag: Option<&str>, dry_run: bool) -
         .context("nix build failed")?;
 
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stderr = crate::exec::captured_text(&output.stderr);
         if stderr.contains("required system") && stderr.contains("x86_64-linux") {
             bail!(
                 "Cannot build Linux container images on macOS without a remote builder.\n\
@@ -165,7 +165,7 @@ pub fn run(source: &str, name: Option<&str>, tag: Option<&str>, dry_run: bool) -
         bail!("image build failed:\n{stderr}");
     }
 
-    let store_path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let store_path = crate::exec::captured_text(&output.stdout).trim().to_string();
     if store_path.is_empty() {
         bail!("nix build produced no output");
     }

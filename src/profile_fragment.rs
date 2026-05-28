@@ -102,6 +102,9 @@ pub struct ProfileFragmentSafety {
 impl ProfileFragmentDocument {
     pub fn from_path(path: &Path) -> Result<Self> {
         let loaded = crate::document::load_document::<Self>(path, "profile fragment")?;
+        if !loaded.is_canonical() {
+            tracing::debug!(path = %loaded.path.display(), format = ?loaded.format, "loaded compatibility profile fragment");
+        }
         loaded
             .value
             .validate()
@@ -109,7 +112,8 @@ impl ProfileFragmentDocument {
         Ok(loaded.value)
     }
 
-    pub fn from_str(content: &str) -> Result<Self> {
+    #[cfg(test)]
+    pub fn parse(content: &str) -> Result<Self> {
         let document: Self =
             toml::from_str(content).context("invalid compatibility profile fragment TOML")?;
         document.validate()?;
@@ -276,27 +280,27 @@ requires_confirmation = true
 
     #[test]
     fn valid_profile_fragment_passes() {
-        ProfileFragmentDocument::from_str(valid_fragment()).expect("valid fragment");
+        ProfileFragmentDocument::parse(valid_fragment()).expect("valid fragment");
     }
 
     #[test]
     fn rejects_missing_version() {
         let manifest = valid_fragment().replace("version = \"0.1.0\"\n", "");
-        let error = ProfileFragmentDocument::from_str(&manifest).expect_err("missing version");
+        let error = ProfileFragmentDocument::parse(&manifest).expect_err("missing version");
         assert!(format!("{error:#}").contains("missing field `version`"));
     }
 
     #[test]
     fn rejects_invalid_version() {
         let manifest = valid_fragment().replace("version = \"0.1.0\"", "version = \"latest\"");
-        let error = ProfileFragmentDocument::from_str(&manifest).expect_err("invalid version");
+        let error = ProfileFragmentDocument::parse(&manifest).expect_err("invalid version");
         assert!(format!("{error:#}").contains("must be valid SemVer"));
     }
 
     #[test]
     fn rejects_category_mismatch() {
         let manifest = valid_fragment().replace("id = \"gpu/amd\"", "id = \"audio/amd\"");
-        let error = ProfileFragmentDocument::from_str(&manifest).expect_err("category mismatch");
+        let error = ProfileFragmentDocument::parse(&manifest).expect_err("category mismatch");
         assert!(format!("{error:#}").contains("must start with its category prefix"));
     }
 
@@ -307,7 +311,7 @@ requires_confirmation = true
             .replace("name = \"amd\"", "name = \"rpi4\"")
             .replace("category = \"gpu\"", "category = \"hardware\"")
             .replace("description = \"AMD GPU\"", "description = \"Raspberry Pi 4 hardware\"");
-        ProfileFragmentDocument::from_str(&manifest).expect("valid hardware fragment");
+        ProfileFragmentDocument::parse(&manifest).expect("valid hardware fragment");
     }
 
     #[test]
@@ -323,7 +327,7 @@ category = "hardware"
 platforms = ["linux"]
 visibility = "public"
 "#;
-        let error = ProfileFragmentDocument::from_str(manifest).expect_err("safety required");
+        let error = ProfileFragmentDocument::parse(manifest).expect_err("safety required");
         assert!(format!("{error:#}").contains("fragment.safety is required"));
     }
 
@@ -334,7 +338,7 @@ visibility = "public"
             "requires_confirmation = false",
         );
         let error =
-            ProfileFragmentDocument::from_str(&manifest).expect_err("confirmation required");
+            ProfileFragmentDocument::parse(&manifest).expect_err("confirmation required");
         assert!(
             format!("{error:#}").contains("hardware-driver fragments must require confirmation")
         );

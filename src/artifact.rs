@@ -307,21 +307,13 @@ fn relationship_side(report: &ArtifactCheckReport) -> ArtifactRelationshipSide {
 }
 
 fn compatibility_summary(
-    profile: &ArtifactCheckReport,
-    payload: &ArtifactCheckReport,
+    _profile: &ArtifactCheckReport,
+    _payload: &ArtifactCheckReport,
 ) -> ArtifactCompatibility {
     ArtifactCompatibility {
         systems: Vec::new(),
-        targets: if profile.artifact_kind == Some(ArtifactKind::MachineProfile) {
-            Vec::new()
-        } else {
-            Vec::new()
-        },
-        build_targets: if payload.artifact_kind == Some(ArtifactKind::MaterializationPayload) {
-            Vec::new()
-        } else {
-            Vec::new()
-        },
+        targets: Vec::new(),
+        build_targets: Vec::new(),
     }
 }
 

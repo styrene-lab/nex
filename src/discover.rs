@@ -273,7 +273,7 @@ fn runtime_os() -> &'static str {
 fn runtime_arch() -> &'static str {
     if let Ok(output) = Command::new("uname").arg("-m").output() {
         if output.status.success() {
-            let arch = String::from_utf8_lossy(&output.stdout);
+            let arch = crate::exec::captured_text(&output.stdout);
             let arch = arch.trim();
             return match arch {
                 "x86_64" => "x86_64",

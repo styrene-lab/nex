@@ -56,7 +56,7 @@ fn run_eval_json(path: &Path) -> Result<Vec<u8>> {
         match output {
             Ok(output) if output.status.success() => return Ok(output.stdout),
             Ok(output) => {
-                let stderr = String::from_utf8_lossy(&output.stderr);
+                let stderr = crate::exec::captured_text(&output.stderr);
                 bail!(
                     "Pkl evaluator command failed: {} {}\n{}",
                     attempt.program,
