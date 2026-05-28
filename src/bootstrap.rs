@@ -21,7 +21,34 @@ pub struct BootstrapFinding {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BootstrapRepair {
     pub description: String,
-    pub command_preview: Vec<String>,
+    pub kind: BootstrapRepairKind,
+}
+
+impl BootstrapRepair {
+    pub fn command_preview(&self) -> Vec<String> {
+        match &self.kind {
+            BootstrapRepairKind::MoveShellRc { from } => {
+                let to = next_backup_path(from, "before-nix-darwin");
+                vec![
+                    "sudo".to_string(),
+                    "mv".to_string(),
+                    from.display().to_string(),
+                    to.display().to_string(),
+                ]
+            }
+            BootstrapRepairKind::EnsureSyntheticConf { path } => vec![
+                format!("sudo touch {}", path.display()),
+                format!("sudo chown root:wheel {}", path.display()),
+                format!("sudo chmod 0644 {}", path.display()),
+            ],
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BootstrapRepairKind {
+    MoveShellRc { from: PathBuf },
+    EnsureSyntheticConf { path: PathBuf },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -54,6 +81,11 @@ pub fn print_recommendations(report: &BootstrapReport) {
     );
     for finding in &report.findings {
         eprintln!("    {} {}", style("!").yellow(), finding.message);
+        if let Some(repair) = &finding.repair {
+            for command in repair.command_preview() {
+                eprintln!("      {}", style(command).dim());
+            }
+        }
     }
     eprintln!();
     eprintln!(
@@ -97,7 +129,10 @@ pub fn repair(report: &BootstrapReport) -> Result<()> {
 }
 
 fn check_darwin_bootstrap() -> Result<BootstrapReport> {
-    let etc = etc_root();
+    check_darwin_bootstrap_at(&etc_root())
+}
+
+fn check_darwin_bootstrap_at(etc: &Path) -> Result<BootstrapReport> {
     let mut findings = Vec::new();
 
     for name in ["bashrc", "zshrc"] {
@@ -112,37 +147,65 @@ fn check_darwin_bootstrap() -> Result<BootstrapReport> {
                 ),
                 repair: Some(BootstrapRepair {
                     description: format!("move {} to {}", path.display(), backup.display()),
-                    command_preview: vec![
-                        "sudo".to_string(),
-                        "mv".to_string(),
-                        path.display().to_string(),
-                        backup.display().to_string(),
-                    ],
+                    kind: BootstrapRepairKind::MoveShellRc { from: path },
                 }),
             });
         }
     }
 
-    let synthetic = etc.join("synthetic.conf");
-    if !synthetic.exists() {
-        findings.push(BootstrapFinding {
-            id: "darwin.synthetic-conf.missing",
-            message: format!("{} is missing", synthetic.display()),
-            repair: Some(BootstrapRepair {
-                description: format!("create {} with root:wheel 0644", synthetic.display()),
-                command_preview: vec![
-                    "sudo touch /etc/synthetic.conf".to_string(),
-                    "sudo chown root:wheel /etc/synthetic.conf".to_string(),
-                    "sudo chmod 0644 /etc/synthetic.conf".to_string(),
-                ],
-            }),
-        });
-    }
+    add_synthetic_conf_findings(&etc.join("synthetic.conf"), &mut findings)?;
 
     Ok(BootstrapReport {
         scope: BootstrapScope::DarwinBootstrap,
         findings,
     })
+}
+
+fn add_synthetic_conf_findings(path: &Path, findings: &mut Vec<BootstrapFinding>) -> Result<()> {
+    if !path.exists() {
+        findings.push(synthetic_conf_finding(
+            "darwin.synthetic-conf.missing",
+            format!("{} is missing", path.display()),
+            path,
+        ));
+        return Ok(());
+    }
+
+    let metadata =
+        std::fs::metadata(path).with_context(|| format!("reading {}", path.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let mode = metadata.permissions().mode() & 0o777;
+        if metadata.uid() != 0 || metadata.gid() != 0 {
+            findings.push(synthetic_conf_finding(
+                "darwin.synthetic-conf.owner",
+                format!("{} is not owned by root:wheel", path.display()),
+                path,
+            ));
+        }
+        if mode != 0o644 {
+            findings.push(synthetic_conf_finding(
+                "darwin.synthetic-conf.mode",
+                format!("{} has mode {:03o}; expected 644", path.display(), mode),
+                path,
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn synthetic_conf_finding(id: &'static str, message: String, path: &Path) -> BootstrapFinding {
+    BootstrapFinding {
+        id,
+        message,
+        repair: Some(BootstrapRepair {
+            description: format!("ensure {} exists with root:wheel 0644", path.display()),
+            kind: BootstrapRepairKind::EnsureSyntheticConf {
+                path: path.to_path_buf(),
+            },
+        }),
+    }
 }
 
 fn shell_rc_blocks_activation(path: &Path) -> Result<bool> {
@@ -161,33 +224,36 @@ fn repair_darwin_bootstrap(report: &BootstrapReport) -> Result<()> {
     eprintln!();
     eprintln!("  {} fixing Darwin bootstrap", style(">>>").cyan().bold());
     for finding in &report.findings {
-        match finding.id {
-            "darwin.shellrc.unmanaged" => {
-                let Some(repair) = &finding.repair else {
-                    continue;
-                };
-                let args = &repair.command_preview;
-                if args.len() == 4 {
-                    run_sudo(&args[1], &args[2..])?;
-                    eprintln!("  {} {}", style("✓").green(), repair.description);
-                }
-            }
-            "darwin.synthetic-conf.missing" => {
-                run_sudo("touch", &["/etc/synthetic.conf".to_string()])?;
+        let Some(repair) = &finding.repair else {
+            continue;
+        };
+        match &repair.kind {
+            BootstrapRepairKind::MoveShellRc { from } => {
+                let to = next_backup_path(from, "before-nix-darwin");
                 run_sudo(
-                    "chown",
-                    &["root:wheel".to_string(), "/etc/synthetic.conf".to_string()],
-                )?;
-                run_sudo(
-                    "chmod",
-                    &["0644".to_string(), "/etc/synthetic.conf".to_string()],
+                    "mv",
+                    &[from.display().to_string(), to.display().to_string()],
                 )?;
                 eprintln!(
-                    "  {} ensured /etc/synthetic.conf root:wheel 0644",
-                    style("✓").green()
+                    "  {} moved {} to {}",
+                    style("✓").green(),
+                    from.display(),
+                    to.display()
                 );
             }
-            _ => {}
+            BootstrapRepairKind::EnsureSyntheticConf { path } => {
+                run_sudo("touch", &[path.display().to_string()])?;
+                run_sudo(
+                    "chown",
+                    &["root:wheel".to_string(), path.display().to_string()],
+                )?;
+                run_sudo("chmod", &["0644".to_string(), path.display().to_string()])?;
+                eprintln!(
+                    "  {} ensured {} root:wheel 0644",
+                    style("✓").green(),
+                    path.display()
+                );
+            }
         }
     }
     Ok(())
@@ -209,9 +275,12 @@ fn run_sudo(program: &str, args: &[String]) -> Result<()> {
 }
 
 fn etc_root() -> PathBuf {
-    std::env::var_os("NEX_TEST_ETC_ROOT")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/etc"))
+    if std::env::var_os("NEX_TESTING").is_some() {
+        if let Some(root) = std::env::var_os("NEX_TEST_ETC_ROOT") {
+            return PathBuf::from(root);
+        }
+    }
+    PathBuf::from("/etc")
 }
 
 fn next_backup_path(path: &Path, suffix: &str) -> PathBuf {
@@ -230,10 +299,11 @@ fn next_backup_path(path: &Path, suffix: &str) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use super::{check, next_backup_path, shell_rc_blocks_activation};
-    use crate::discover::Platform;
+    use super::{
+        check_darwin_bootstrap_at, etc_root, next_backup_path, shell_rc_blocks_activation,
+    };
     use std::fs;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
     use tempfile::tempdir;
 
     #[test]
@@ -264,14 +334,28 @@ mod tests {
     }
 
     #[test]
+    fn test_etc_root_requires_testing_guard() {
+        let dir = tempdir().expect("temp dir");
+        let previous_testing = std::env::var_os("NEX_TESTING");
+        let previous_root = std::env::var_os("NEX_TEST_ETC_ROOT");
+        std::env::remove_var("NEX_TESTING");
+        std::env::remove_var("NEX_TEST_ETC_ROOT");
+        std::env::set_var("NEX_TEST_ETC_ROOT", dir.path());
+        assert_eq!(etc_root(), PathBuf::from("/etc"));
+        std::env::remove_var("NEX_TEST_ETC_ROOT");
+        if let Some(value) = previous_testing {
+            std::env::set_var("NEX_TESTING", value);
+        }
+        if let Some(value) = previous_root {
+            std::env::set_var("NEX_TEST_ETC_ROOT", value);
+        }
+    }
+
+    #[test]
     fn darwin_check_reports_shellrc_and_synthetic_conf_blockers() {
         let dir = tempdir().expect("temp dir");
         fs::write(dir.path().join("bashrc"), "legacy bashrc\n").expect("write bashrc");
-        std::env::set_var("NEX_TEST_ETC_ROOT", dir.path());
-        let report = check(Platform::Darwin)
-            .expect("check bootstrap")
-            .expect("darwin report");
-        std::env::remove_var("NEX_TEST_ETC_ROOT");
+        let report = check_darwin_bootstrap_at(dir.path()).expect("check bootstrap");
 
         assert_eq!(report.findings.len(), 2);
         assert!(report
@@ -282,5 +366,25 @@ mod tests {
             .findings
             .iter()
             .any(|f| f.id == "darwin.synthetic-conf.missing"));
+    }
+
+    #[test]
+    fn darwin_check_reports_synthetic_conf_mode_blocker() {
+        let dir = tempdir().expect("temp dir");
+        let synthetic = dir.path().join("synthetic.conf");
+        fs::write(&synthetic, "").expect("write synthetic conf");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut permissions = fs::metadata(&synthetic).expect("metadata").permissions();
+            permissions.set_mode(0o600);
+            fs::set_permissions(&synthetic, permissions).expect("set mode");
+        }
+        let report = check_darwin_bootstrap_at(dir.path()).expect("check bootstrap");
+
+        assert!(report
+            .findings
+            .iter()
+            .any(|f| f.id == "darwin.synthetic-conf.mode"));
     }
 }

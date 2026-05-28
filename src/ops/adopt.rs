@@ -62,6 +62,7 @@ pub fn run(config: &Config, dry_run: bool) -> Result<()> {
             style("✓").green().bold()
         );
         println!();
+        print_bootstrap_recommendations(config)?;
         return Ok(());
     }
 
@@ -93,6 +94,7 @@ pub fn run(config: &Config, dry_run: bool) -> Result<()> {
             config.homebrew_file.display()
         ));
         println!();
+        print_bootstrap_recommendations(config)?;
         return Ok(());
     }
 
@@ -217,6 +219,13 @@ pub fn run(config: &Config, dry_run: bool) -> Result<()> {
         bootstrap::print_recommendations(&report);
     }
 
+    Ok(())
+}
+
+fn print_bootstrap_recommendations(config: &Config) -> Result<()> {
+    if let Some(report) = bootstrap::check(config.platform)? {
+        bootstrap::print_recommendations(&report);
+    }
     Ok(())
 }
 

@@ -184,7 +184,7 @@ pub enum Command {
     },
     /// Check and fix common configuration issues
     Doctor {
-        /// Apply supported repairs
+        /// Apply supported bootstrap/root repairs
         #[arg(long)]
         fix: bool,
 

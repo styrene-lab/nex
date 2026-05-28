@@ -156,4 +156,89 @@ That changes the rule:
   174c907 chore(release): bump version to 0.21.6
   210a062 fix(rebuild): use supported darwin experimental feature option
   b739662 fix(output): centralize ANSI capture sanitization
+## 2026-05-28 — main (18t 222tc 2m12s)
+
+**Task:** we (nex) are leaking PTY ANSI escape character sequence garbage
+
+**Outcome:** Implemented and committed the Darwin bootstrap preflight subsystem.
+
+Commit:
+
+```text
+da7f721 feat(bootstrap): preflight Darwin activation blockers
+```
+
+What landed:
+
+- New `src/bootstrap.rs`
+  - Target-scoped bootstrap model:
+    - `BootstrapScope`
+    - `BootstrapFinding`
+    - `BootstrapRepair`
+ 
+
+**Model:** openai-codex:gpt-5.5 — 21043016 in / 32015 out tokens across 238 turns
+
+**Commits:**
+  da7f721 feat(bootstrap): preflight Darwin activation blockers
+  174c907 chore(release): bump version to 0.21.6
+  210a062 fix(rebuild): use supported darwin experimental feature option
+## 2026-05-28 — main (3t 224tc 58s)
+
+**Task:** we (nex) are leaking PTY ANSI escape character sequence garbage
+
+**Outcome:** Adversarial assessment of `da7f721`:
+
+## High-priority sharp edges
+
+### 1. `adopt` recommendations are skipped when there are no brew packages to adopt
+
+In `src/ops/adopt.rs`, the function returns early when everything is already managed:
+
+```rust
+if new_formulae.is_empty() && new_casks.is_empty() {
+
+**Model:** openai-codex:gpt-5.5 — 21562487 in / 34361 out tokens across 241 turns
+
+**Commits:**
+  da7f721 feat(bootstrap): preflight Darwin activation blockers
+  174c907 chore(release): bump version to 0.21.6
+  210a062 fix(rebuild): use supported darwin experimental feature option
+## 2026-05-28 — main (2t 225tc 16s)
+
+**Task:** we (nex) are leaking PTY ANSI escape character sequence garbage
+
+**Outcome:** Plan:
+
+1. **Repair model**
+   - Replace executable use of `command_preview` with a typed `BootstrapRepairKind`.
+   - Keep `command_preview` as display-only, generated from the repair kind.
+   - Recompute backup destination at repair time to reduce TOCTOU risk.
+   - Use narrow `sudo` command arrays o
+
+**Model:** openai-codex:gpt-5.5 — 21916270 in / 34821 out tokens across 243 turns
+
+**Commits:**
+  da7f721 feat(bootstrap): preflight Darwin activation blockers
+  174c907 chore(release): bump version to 0.21.6
+  210a062 fix(rebuild): use supported darwin experimental feature option
+## 2026-05-28 — main (19t 243tc 6m36s)
+
+**Task:** we (nex) are leaking PTY ANSI escape character sequence garbage
+
+**Outcome:** Refinement implementation is in progress and the key fixes are now in the working tree.
+
+Implemented refinements:
+
+- Replaced repair execution via `command_preview` with typed repair actions:
+  - `BootstrapRepairKind::MoveShellRc`
+  - `BootstrapRepairKind::EnsureSyntheticConf`
+- `command_preview()` 
+
+**Model:** openai-codex:gpt-5.5 — 25291982 in / 47025 out tokens across 262 turns
+
+**Commits:**
+  da7f721 feat(bootstrap): preflight Darwin activation blockers
+  174c907 chore(release): bump version to 0.21.6
+  210a062 fix(rebuild): use supported darwin experimental feature option
 
