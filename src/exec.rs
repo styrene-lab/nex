@@ -7,6 +7,13 @@ pub fn nix_experimental_args() -> [&'static str; 2] {
     ["--extra-experimental-features", "nix-command flakes"]
 }
 
+fn rebuild_experimental_args(platform: crate::discover::Platform) -> &'static [&'static str] {
+    match platform {
+        crate::discover::Platform::Darwin => &["--option", "experimental-features", "nix-command flakes"],
+        crate::discover::Platform::Linux => &["--extra-experimental-features", "nix-command flakes"],
+    }
+}
+
 pub fn nix_command() -> Command {
     let mut command = Command::new(find_nix());
     command.args(nix_experimental_args());
@@ -322,8 +329,12 @@ pub fn darwin_rebuild_switch(repo: &Path, hostname: &str) -> Result<()> {
     tracing::info!(repo = %repo.display(), %hostname, "system rebuild switch");
     ensure_profile_dirs();
     let dr = find_darwin_rebuild()?;
+    let flake = format!(".#{hostname}");
     run(Command::new("sudo")
-        .args([&dr, "switch", "--extra-experimental-features", "nix-command flakes", "--flake", &format!(".#{hostname}")])
+        .arg(&dr)
+        .arg("switch")
+        .args(rebuild_experimental_args(crate::discover::Platform::Darwin))
+        .args(["--flake", &flake])
         .current_dir(repo))?;
     refresh_app_icons();
     Ok(())
@@ -334,8 +345,12 @@ pub fn nixos_rebuild_switch(repo: &Path, hostname: &str) -> Result<()> {
     tracing::info!(repo = %repo.display(), %hostname, "system rebuild switch");
     ensure_profile_dirs();
     let nr = find_nixos_rebuild()?;
+    let flake = format!(".#{hostname}");
     run(Command::new("sudo")
-        .args([&nr, "switch", "--extra-experimental-features", "nix-command flakes", "--flake", &format!(".#{hostname}")])
+        .arg(&nr)
+        .arg("switch")
+        .args(rebuild_experimental_args(crate::discover::Platform::Linux))
+        .args(["--flake", &flake])
         .current_dir(repo))
 }
 
@@ -466,16 +481,22 @@ fn refresh_app_icons() {
 /// Run darwin-rebuild build (for diff). No sudo needed — build only.
 pub fn darwin_rebuild_build(repo: &Path, hostname: &str) -> Result<()> {
     let dr = find_darwin_rebuild()?;
+    let flake = format!(".#{hostname}");
     run(Command::new(&dr)
-        .args(["build", "--extra-experimental-features", "nix-command flakes", "--flake", &format!(".#{hostname}")])
+        .arg("build")
+        .args(rebuild_experimental_args(crate::discover::Platform::Darwin))
+        .args(["--flake", &flake])
         .current_dir(repo))
 }
 
 /// Run nixos-rebuild build (for diff). No sudo needed — build only.
 pub fn nixos_rebuild_build(repo: &Path, hostname: &str) -> Result<()> {
     let nr = find_nixos_rebuild()?;
+    let flake = format!(".#{hostname}");
     run(Command::new(&nr)
-        .args(["build", "--extra-experimental-features", "nix-command flakes", "--flake", &format!(".#{hostname}")])
+        .arg("build")
+        .args(rebuild_experimental_args(crate::discover::Platform::Linux))
+        .args(["--flake", &flake])
         .current_dir(repo))
 }
 
@@ -494,32 +515,24 @@ pub fn system_rebuild_build(
 /// Run darwin-rebuild --rollback (requires sudo for system activation).
 pub fn darwin_rebuild_rollback(repo: &Path, hostname: &str) -> Result<()> {
     let dr = find_darwin_rebuild()?;
+    let flake = format!(".#{hostname}");
     run(Command::new("sudo")
-        .args([
-            &dr,
-            "switch",
-            "--extra-experimental-features",
-            "nix-command flakes",
-            "--rollback",
-            "--flake",
-            &format!(".#{hostname}"),
-        ])
+        .arg(&dr)
+        .arg("switch")
+        .args(rebuild_experimental_args(crate::discover::Platform::Darwin))
+        .args(["--rollback", "--flake", &flake])
         .current_dir(repo))
 }
 
 /// Run nixos-rebuild --rollback (requires sudo for system activation).
 pub fn nixos_rebuild_rollback(repo: &Path, hostname: &str) -> Result<()> {
     let nr = find_nixos_rebuild()?;
+    let flake = format!(".#{hostname}");
     run(Command::new("sudo")
-        .args([
-            &nr,
-            "switch",
-            "--extra-experimental-features",
-            "nix-command flakes",
-            "--rollback",
-            "--flake",
-            &format!(".#{hostname}"),
-        ])
+        .arg(&nr)
+        .arg("switch")
+        .args(rebuild_experimental_args(crate::discover::Platform::Linux))
+        .args(["--rollback", "--flake", &flake])
         .current_dir(repo))
 }
 
@@ -572,4 +585,25 @@ pub fn nix_gc() -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::rebuild_experimental_args;
+
+    #[test]
+    fn darwin_rebuild_uses_supported_experimental_feature_option() {
+        assert_eq!(
+            rebuild_experimental_args(crate::discover::Platform::Darwin),
+            ["--option", "experimental-features", "nix-command flakes"]
+        );
+    }
+
+    #[test]
+    fn nixos_rebuild_keeps_nixos_rebuild_experimental_feature_flag() {
+        assert_eq!(
+            rebuild_experimental_args(crate::discover::Platform::Linux),
+            ["--extra-experimental-features", "nix-command flakes"]
+        );
+    }
 }
