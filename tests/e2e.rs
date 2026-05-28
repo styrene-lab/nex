@@ -511,7 +511,7 @@ fn artifact_check_accepts_materialization_payload_json() {
         .stdout(predicate::str::contains("\"ok\": true"))
         .stdout(predicate::str::contains("\"tier\": \"evaluates\""))
         .stdout(predicate::str::contains("\"result\": \"passed\""))
-        .stdout(predicate::str::contains("\"kind\": \"materialization-payload\""))
+        .stdout(predicate::str::contains("\"artifact_kind\": \"materialization-payload\""))
         .stdout(predicate::str::contains("\"entrypoint\": \"payload.pkl\""));
 }
 
@@ -570,9 +570,9 @@ fn artifact_check_relationship_accepts_valid_pair() {
         .assert()
         .success()
         .stdout(predicate::str::contains("\"ok\": true"))
-        .stdout(predicate::str::contains(
-            "\"relationship\": \"machine-profile/materialization-payload\"",
-        ));
+        .stdout(predicate::str::contains("\"compatibility\""))
+        .stdout(predicate::str::contains("\"artifact_kind\": \"machine-profile\""))
+        .stdout(predicate::str::contains("\"artifact_kind\": \"materialization-payload\""));
 }
 
 #[test]
@@ -632,7 +632,8 @@ fn artifact_check_rejects_boundary_field_before_deserialization() {
         .assert()
         .failure()
         .stdout(predicate::str::contains("forbidden-boundary-field"))
-        .stdout(predicate::str::contains("machine_profile"));
+        .stdout(predicate::str::contains("\"severity\": \"error\""))
+        .stdout(predicate::str::contains("\"path\": \"machine_profile\""));
 }
 
 #[test]

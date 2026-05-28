@@ -23,11 +23,11 @@ pub fn run_check_relationship(profile: &Path, payload: &Path, json: bool) -> Res
         println!("{}", serde_json::to_string_pretty(&report)?);
     } else {
         println!("Artifact Relationship Check");
-        println!("  Relationship: {}", report.relationship);
+        println!("  Relationship: machine-profile/materialization-payload");
         println!("\nProfile");
-        print_artifact_report(&report.profile);
+        print_relationship_side(&report.profile);
         println!("\nPayload");
-        print_artifact_report(&report.payload);
+        print_relationship_side(&report.payload);
         println!(
             "\nRelationship Status: {}",
             if report.ok { "ok" } else { "failed" }
@@ -47,7 +47,7 @@ pub fn run_check_relationship(profile: &Path, payload: &Path, json: bool) -> Res
 fn print_artifact_report(report: &crate::artifact::ArtifactCheckReport) {
     println!("Artifact Check");
     println!("  Path: {}", report.path);
-    if let Some(kind) = report.kind {
+    if let Some(kind) = report.artifact_kind {
         println!("  Kind: {}", kind.as_str());
     }
     if let Some(entrypoint) = &report.entrypoint {
@@ -63,9 +63,22 @@ fn print_artifact_report(report: &crate::artifact::ArtifactCheckReport) {
 }
 
 fn print_diagnostic(diagnostic: &crate::artifact::ArtifactDiagnostic) {
-    if let Some(field) = &diagnostic.field {
-        println!("  - {} [{}]: {}", diagnostic.code, field, diagnostic.message);
+    if let Some(path) = &diagnostic.path {
+        println!("  - {} [{}]: {}", diagnostic.code, path, diagnostic.message);
     } else {
         println!("  - {}: {}", diagnostic.code, diagnostic.message);
     }
+}
+
+fn print_relationship_side(side: &crate::artifact::ArtifactRelationshipSide) {
+    if let Some(kind) = side.artifact_kind {
+        println!("  Kind: {}", kind.as_str());
+    }
+    if let Some(id) = &side.id {
+        println!("  ID: {id}");
+    }
+    if let Some(schema) = &side.schema {
+        println!("  Schema: {schema}");
+    }
+    println!("  Status: {}", if side.ok { "ok" } else { "failed" });
 }

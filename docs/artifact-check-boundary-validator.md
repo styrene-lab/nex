@@ -1,47 +1,89 @@
----
-id: artifact-check-boundary-validator
-title: "Add artifact check boundary validator"
-status: implementing
-parent: forge-materialization-delivery-split
-tags: [nex, armory, artifact-check, pkl, boundary-validation]
-open_questions: []
-dependencies: []
-related: []
----
+# Artifact check boundary validator
 
-# Add artifact check boundary validator
+Nex owns semantic validation for Nex artifact directories. Armory owns catalog,
+packaging, and distribution metadata. The boundary is the CLI:
 
-## Overview
+```bash
+nex artifact check <artifact-dir> --json
+```
 
-Implement `nex artifact check <PATH> [--json]` for Armory-distributed Nex artifacts. Checker evaluates Pkl to raw JSON, inspects semantic-boundary fields before typed deserialization, validates machine-profile/materialization-payload semantics, and optionally checks armory.toml artifact metadata.
+## Artifact directory shapes
 
-## Decisions
+```text
+machine-profiles/<id>/
+├── machine-profile.pkl
+├── armory.toml       # optional to Nex
+└── README.md         # optional to Nex
 
-### Inspect evaluated Pkl before deserialization
+materialization-payloads/<id>/
+├── payload.pkl
+├── armory.toml       # optional to Nex
+└── README.md         # optional to Nex
+```
 
-**Status:** decided
+Nex keys off canonical source files, not `armory.toml`:
 
-**Rationale:** Preserves Pkl's value as structured semantic source and prevents materialization payloads from smuggling machine-profile policy or machine profiles from smuggling concrete Nix material.
+- `machine-profile.pkl` => `machine-profile`
+- `payload.pkl` => `materialization-payload`
 
-### Use generic artifact check command
+## Validation pipeline
 
-**Status:** decided
+1. Detect artifact kind by canonical entrypoint.
+2. Evaluate Pkl to raw JSON.
+3. Inspect raw JSON for forbidden cross-boundary fields before typed deserialization.
+4. Run typed Nex semantic validation.
+5. If `armory.toml` exists, validate only the boundary fields Nex understands.
+6. Emit a JSON report and return non-zero when `ok` is false.
 
-**Rationale:** Armory needs one CI entrypoint for Nex-owned artifact semantics. Nex can dispatch by entrypoint and add future artifact kinds without multiplying top-level commands.
+## JSON success contract
 
-### Validate only boundary fields in armory.toml
+```json
+{
+  "ok": true,
+  "path": "materialization-payloads/styrene.rpi4-kiosk-sd-image",
+  "artifact_kind": "materialization-payload",
+  "id": "styrene.rpi4-kiosk-sd-image",
+  "schema": "io.styrene.nex.materialization-payload.v1",
+  "version": null,
+  "entrypoint": "payload.pkl",
+  "evidence": {
+    "tier": "evaluates",
+    "result": "passed",
+    "validated_with": "nex 0.21.4"
+  },
+  "diagnostics": []
+}
+```
 
-**Status:** decided
+## JSON failure contract
 
-**Rationale:** Keeps Nex responsible for semantic artifact ownership without becoming Armory's catalog validator.
+```json
+{
+  "ok": false,
+  "path": "materialization-payloads/bad",
+  "artifact_kind": "materialization-payload",
+  "id": "bad",
+  "schema": "io.styrene.nex.materialization-payload.v1",
+  "version": null,
+  "entrypoint": "payload.pkl",
+  "evidence": {
+    "tier": "evaluates",
+    "result": "failed",
+    "validated_with": "nex 0.21.4"
+  },
+  "diagnostics": [
+    {
+      "severity": "error",
+      "code": "forbidden-boundary-field",
+      "message": "materialization-payload artifacts must not declare machine-profile policy",
+      "path": "machine_profile"
+    }
+  ]
+}
+```
 
-## Implementation Notes
+## Evidence tiers
 
-### File Scope
-
-- `src/cli.rs` — 
-- `src/main.rs` — 
-- `src/artifact.rs` — 
-- `src/ops/artifact.rs` — 
-- `src/ops/mod.rs` — 
-- `tests/e2e.rs` —
+`evaluates` is the default evidence tier. Higher tiers are recognized separately
+and fail with `unsupported-evidence-tier` until Nex implements validators for
+those claims.

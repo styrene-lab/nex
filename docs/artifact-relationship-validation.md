@@ -13,7 +13,7 @@ nex artifact check-relationship \
   --json
 ```
 
-## First-pass semantics
+## Semantics
 
 Relationship validation composes standalone artifact validation:
 
@@ -21,17 +21,42 @@ Relationship validation composes standalone artifact validation:
 2. `--payload` must be a valid `materialization-payload` artifact directory.
 3. Pair-level checks only run after both artifacts pass standalone validation.
 
-Deep target compatibility is intentionally deferred until target/build/delivery
-vocabulary is stable enough to check without inventing semantics.
+Deep target compatibility is intentionally conservative until target/build/delivery
+vocabulary is explicit in both schemas.
 
-## JSON shape
+## JSON contract
 
 ```json
 {
   "ok": true,
-  "profile": { "ok": true },
-  "payload": { "ok": true },
-  "relationship": "machine-profile/materialization-payload",
+  "profile": {
+    "id": "styrene.rpi4-kiosk",
+    "schema": "io.styrene.nex.machine-profile.v1",
+    "artifact_kind": "machine-profile",
+    "ok": true
+  },
+  "payload": {
+    "id": "styrene.rpi4-kiosk-sd-image",
+    "schema": "io.styrene.nex.materialization-payload.v1",
+    "artifact_kind": "materialization-payload",
+    "ok": true
+  },
+  "compatibility": {
+    "systems": [],
+    "targets": [],
+    "build_targets": []
+  },
   "diagnostics": []
+}
+```
+
+Diagnostics use the same shape as `nex artifact check`:
+
+```json
+{
+  "severity": "error",
+  "code": "relationship-payload-invalid",
+  "message": "payload artifact failed standalone validation",
+  "path": "payload"
 }
 ```

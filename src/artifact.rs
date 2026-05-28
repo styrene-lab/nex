@@ -53,7 +53,10 @@ impl ArtifactKind {
 pub struct ArtifactCheckReport {
     pub ok: bool,
     pub path: String,
-    pub kind: Option<ArtifactKind>,
+    pub artifact_kind: Option<ArtifactKind>,
+    pub id: Option<String>,
+    pub schema: Option<String>,
+    pub version: Option<String>,
     pub entrypoint: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub evidence: Option<EvidenceRecord>,
@@ -70,24 +73,39 @@ pub struct EvidenceRecord {
 #[derive(Debug, Clone, Serialize)]
 pub struct ArtifactRelationshipReport {
     pub ok: bool,
-    pub profile: ArtifactCheckReport,
-    pub payload: ArtifactCheckReport,
-    pub relationship: String,
+    pub profile: ArtifactRelationshipSide,
+    pub payload: ArtifactRelationshipSide,
+    pub compatibility: ArtifactCompatibility,
     pub diagnostics: Vec<ArtifactDiagnostic>,
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct ArtifactRelationshipSide {
+    pub id: Option<String>,
+    pub schema: Option<String>,
+    pub artifact_kind: Option<ArtifactKind>,
+    pub ok: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ArtifactCompatibility {
+    pub systems: Vec<String>,
+    pub targets: Vec<String>,
+    pub build_targets: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct ArtifactDiagnostic {
-    pub level: DiagnosticLevel,
+    pub severity: DiagnosticSeverity,
     pub code: String,
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub field: Option<String>,
+    pub path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum DiagnosticLevel {
+pub enum DiagnosticSeverity {
     Error,
 }
 
@@ -131,12 +149,12 @@ impl EvidenceTier {
 }
 
 impl ArtifactDiagnostic {
-    fn error(code: impl Into<String>, message: impl Into<String>, field: Option<String>) -> Self {
+    fn error(code: impl Into<String>, message: impl Into<String>, path: Option<String>) -> Self {
         Self {
-            level: DiagnosticLevel::Error,
+            severity: DiagnosticSeverity::Error,
             code: code.into(),
             message: message.into(),
-            field,
+            path,
         }
     }
 }
@@ -156,14 +174,14 @@ pub fn check_artifact_relationship(profile: &Path, payload: &Path) -> ArtifactRe
     let payload_report = check_artifact_dir(payload);
     let mut diagnostics = Vec::new();
 
-    if profile_report.kind != Some(ArtifactKind::MachineProfile) {
+    if profile_report.artifact_kind != Some(ArtifactKind::MachineProfile) {
         diagnostics.push(ArtifactDiagnostic::error(
             "relationship-profile-kind-invalid",
             "relationship profile path must be a machine-profile artifact",
             Some("profile".to_string()),
         ));
     }
-    if payload_report.kind != Some(ArtifactKind::MaterializationPayload) {
+    if payload_report.artifact_kind != Some(ArtifactKind::MaterializationPayload) {
         diagnostics.push(ArtifactDiagnostic::error(
             "relationship-payload-kind-invalid",
             "relationship payload path must be a materialization-payload artifact",
@@ -187,9 +205,9 @@ pub fn check_artifact_relationship(profile: &Path, payload: &Path) -> ArtifactRe
 
     ArtifactRelationshipReport {
         ok: profile_report.ok && payload_report.ok && diagnostics.is_empty(),
-        profile: profile_report,
-        payload: payload_report,
-        relationship: "machine-profile/materialization-payload".to_string(),
+        profile: relationship_side(&profile_report),
+        payload: relationship_side(&payload_report),
+        compatibility: compatibility_summary(&profile_report, &payload_report),
         diagnostics,
     }
 }
@@ -203,7 +221,10 @@ pub fn check_artifact_dir_with_evidence(path: &Path, evidence: &str) -> Artifact
             return ArtifactCheckReport {
                 ok: false,
                 path: path.display().to_string(),
-                kind: None,
+                artifact_kind: None,
+                id: None,
+                schema: None,
+                version: None,
                 entrypoint: None,
                 evidence: Some(evidence_record(evidence, "failed")),
                 diagnostics,
@@ -217,7 +238,10 @@ pub fn check_artifact_dir_with_evidence(path: &Path, evidence: &str) -> Artifact
             return ArtifactCheckReport {
                 ok: false,
                 path: path.display().to_string(),
-                kind: None,
+                artifact_kind: None,
+                id: None,
+                schema: None,
+                version: None,
                 entrypoint: None,
                 evidence: Some(evidence_record(tier.as_str(), "failed")),
                 diagnostics,
@@ -256,7 +280,10 @@ fn report(
     ArtifactCheckReport {
         ok: diagnostics.is_empty(),
         path: path.display().to_string(),
-        kind: Some(detected.kind),
+        artifact_kind: Some(detected.kind),
+        id: artifact_id(detected.kind, path),
+        schema: Some(detected.kind.schema().to_string()),
+        version: None,
         entrypoint: Some(detected.kind.entrypoint().to_string()),
         evidence: Some(evidence_record(
             tier.as_str(),
@@ -267,6 +294,43 @@ fn report(
             },
         )),
         diagnostics,
+    }
+}
+
+fn relationship_side(report: &ArtifactCheckReport) -> ArtifactRelationshipSide {
+    ArtifactRelationshipSide {
+        id: report.id.clone(),
+        schema: report.schema.clone(),
+        artifact_kind: report.artifact_kind,
+        ok: report.ok,
+    }
+}
+
+fn compatibility_summary(
+    profile: &ArtifactCheckReport,
+    payload: &ArtifactCheckReport,
+) -> ArtifactCompatibility {
+    ArtifactCompatibility {
+        systems: Vec::new(),
+        targets: if profile.artifact_kind == Some(ArtifactKind::MachineProfile) {
+            Vec::new()
+        } else {
+            Vec::new()
+        },
+        build_targets: if payload.artifact_kind == Some(ArtifactKind::MaterializationPayload) {
+            Vec::new()
+        } else {
+            Vec::new()
+        },
+    }
+}
+
+fn artifact_id(kind: ArtifactKind, path: &Path) -> Option<String> {
+    match kind {
+        ArtifactKind::MachineProfile | ArtifactKind::MaterializationPayload => path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map(ToString::to_string),
     }
 }
 
