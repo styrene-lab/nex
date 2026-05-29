@@ -138,6 +138,64 @@ pub fn refresh(config: &Config) -> Result<()> {
     Ok(())
 }
 
+pub fn remove_root(root: &PackageRef, dry_run: bool) -> Result<()> {
+    let mut lock = read_package_lock()?;
+    let root_string = root.to_string();
+    let original_roots = lock.roots.len();
+    lock.roots
+        .retain(|locked| locked.package_ref != root_string);
+    if lock.roots.len() == original_roots {
+        bail!("Armory root {root} is not installed");
+    }
+    let reachable = reachable_packages(&lock)?;
+    lock.packages
+        .retain(|package| reachable.contains_key(&package.package_ref));
+
+    println!("removing Armory root {root}");
+    if dry_run {
+        return Ok(());
+    }
+
+    write_package_lock(&lock)?;
+    if let Some(activation_lock) = activation_lock_for_package_lock(&lock)? {
+        write_activation_lock(&activation_lock)?;
+    } else if activation_lock_path()?.exists() {
+        std::fs::remove_file(activation_lock_path()?)?;
+    }
+    println!("  removed Armory root {root}");
+    Ok(())
+}
+
+fn reachable_packages(lock: &PackageLock) -> Result<BTreeMap<String, ()>> {
+    let mut reachable = BTreeMap::new();
+    let packages: BTreeMap<&str, &LockedPackage> = lock
+        .packages
+        .iter()
+        .map(|package| (package.package_ref.as_str(), package))
+        .collect();
+    for root in &lock.roots {
+        mark_reachable(&root.package_ref, &packages, &mut reachable)?;
+    }
+    Ok(reachable)
+}
+
+fn mark_reachable<'a>(
+    package_ref: &str,
+    packages: &BTreeMap<&'a str, &'a LockedPackage>,
+    reachable: &mut BTreeMap<String, ()>,
+) -> Result<()> {
+    if reachable.insert(package_ref.to_string(), ()).is_some() {
+        return Ok(());
+    }
+    let Some(package) = packages.get(package_ref) else {
+        bail!("package lock missing package {package_ref}");
+    };
+    for dependency in &package.dependencies {
+        mark_reachable(dependency, packages, reachable)?;
+    }
+    Ok(())
+}
+
 pub fn resolve_from_config(config: &Config, root: &PackageRef) -> Result<ResolvedGraph> {
     for registry in &config.registries {
         let index = armory::fetch_index(registry)?;
@@ -413,7 +471,7 @@ fn state_dir() -> Result<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{activation_lock_for_graph, resolve_graph};
+    use super::{activation_lock_for_graph, reachable_packages, resolve_graph};
     use crate::armory::parse_index;
     use crate::armory::PackageRef;
     use crate::config::RegistryConfig;
@@ -490,5 +548,57 @@ mod tests {
         .expect("graph");
         let lock = activation_lock_for_graph(&graph).expect("activation lock");
         assert_eq!(lock.packages[0].status, "pending");
+    }
+
+    #[test]
+    fn reachable_packages_prunes_orphaned_dependencies() {
+        let lock = super::PackageLock {
+            schema: super::PACKAGE_LOCK_SCHEMA.to_string(),
+            registries: Vec::new(),
+            roots: vec![super::LockedRoot {
+                package_ref: "profile/root".to_string(),
+            }],
+            packages: vec![
+                super::LockedPackage {
+                    package_ref: "profile/root".to_string(),
+                    version: None,
+                    registry: "test".to_string(),
+                    oci_ref: None,
+                    digest: None,
+                    dependencies: vec!["skill/used".to_string()],
+                    path: None,
+                    verified: false,
+                    installed_at: None,
+                },
+                super::LockedPackage {
+                    package_ref: "skill/used".to_string(),
+                    version: None,
+                    registry: "test".to_string(),
+                    oci_ref: None,
+                    digest: None,
+                    dependencies: Vec::new(),
+                    path: None,
+                    verified: false,
+                    installed_at: None,
+                },
+                super::LockedPackage {
+                    package_ref: "skill/orphan".to_string(),
+                    version: None,
+                    registry: "test".to_string(),
+                    oci_ref: None,
+                    digest: None,
+                    dependencies: Vec::new(),
+                    path: None,
+                    verified: false,
+                    installed_at: None,
+                },
+            ],
+        };
+
+        let reachable = reachable_packages(&lock).expect("reachable");
+
+        assert!(reachable.contains_key("profile/root"));
+        assert!(reachable.contains_key("skill/used"));
+        assert!(!reachable.contains_key("skill/orphan"));
     }
 }

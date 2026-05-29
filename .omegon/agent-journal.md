@@ -806,4 +806,43 @@ What was wrong:
   8daccae feat(armory): materialize installs by default
   c2bf387 fix(armory): fail closed on unsigned trust gaps
   befbe14 feat(armory): persist materialized lock paths
+## 2026-05-29 — main (9t 581tc 2m50s)
+
+**Task:** excellent. Adversarially assess
+
+**Outcome:** Continued with the remaining #18 polish and committed the next slice.
+
+Commit:
+
+```text
+1f49b53 feat(armory): report package lock status
+```
+
+What landed:
+
+- New command:
+
+```sh
+nex lock status
+```
+
+It prints:
+
+- lock schema
+- registries
+- roots
+- package refs
+- package state:
+  - `installed`
+  - `p
+
+**Model:** openai-codex:gpt-5.5 — 87959495 in / 108673 out tokens across 624 turns
+
+**Active:**
+- armory-package-manager (26/32)
+
+**Commits:**
+  1f49b53 feat(armory): report package lock status
+  8daccae feat(armory): materialize installs by default
+  c2bf387 fix(armory): fail closed on unsigned trust gaps
 
