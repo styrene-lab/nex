@@ -540,4 +540,31 @@ I would not jump directly into code without an OpenSpec/design pass, because the
   6a9ed7d chore(release): bump version to 0.21.9
   d11e87d fix(homebrew): recognize nix-homebrew managed prefixes
   b45665a chore(agent): record 0.21.8 release prep
+## 2026-05-29 — main (42t 438tc 8m36s)
+
+**Task:** excellent. Adversarially assess
+
+**Outcome:** Implemented the Phase 1 slice for issue #18 and committed it.
+
+Commit:
+
+```text
+d194206 feat(armory): add registry search and package info
+```
+
+What landed:
+
+- OpenSpec/design artifacts:
+  - `openspec/changes/armory-package-manager/proposal.md`
+  - `openspec/changes/armory-package-manager/design.md`
+
+**Model:** openai-codex:gpt-5.5 — 57924018 in / 81122 out tokens across 471 turns
+
+**Active:**
+- armory-package-manager (5/5)
+
+**Commits:**
+  d194206 feat(armory): add registry search and package info
+  6a9ed7d chore(release): bump version to 0.21.9
+  d11e87d fix(homebrew): recognize nix-homebrew managed prefixes
 
