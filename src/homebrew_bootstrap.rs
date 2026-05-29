@@ -153,17 +153,27 @@ fn prompt_choice() -> Result<HomebrewBootstrapChoice> {
     ];
     match crate::input::input().select("Existing Homebrew detected", &items, 0)? {
         0 => Ok(HomebrewBootstrapChoice::Migrate),
-        1 => {
-            if crate::input::input().confirm(
-                "Move existing Homebrew aside after writing inventory backups?",
-                false,
-            )? {
-                Ok(HomebrewBootstrapChoice::Reset)
-            } else {
-                Ok(HomebrewBootstrapChoice::Abort)
-            }
-        }
+        1 => confirm_reset_choice(),
         _ => Ok(HomebrewBootstrapChoice::Abort),
+    }
+}
+
+fn confirm_reset_choice() -> Result<HomebrewBootstrapChoice> {
+    eprintln!();
+    eprintln!(
+        "  {} reset moves the Homebrew repository and brew shim aside; it does not delete package payloads.",
+        style("!").yellow().bold()
+    );
+    eprintln!("  Type {} to continue.", style("RESET HOMEBREW").bold());
+    let typed = crate::input::input().input_text("Confirmation", None)?;
+    Ok(reset_choice_from_confirmation(&typed))
+}
+
+fn reset_choice_from_confirmation(typed: &str) -> HomebrewBootstrapChoice {
+    if typed == "RESET HOMEBREW" {
+        HomebrewBootstrapChoice::Reset
+    } else {
+        HomebrewBootstrapChoice::Abort
     }
 }
 
@@ -210,11 +220,12 @@ fn inventory_existing(existing: &ExistingHomebrew) -> Result<PathBuf> {
         capture_brew_list(brew, &["leaves"], &prefix.join("leaves.txt"))?;
         capture_brew_list(brew, &["tap"], &prefix.join("taps.txt"))?;
         capture_brew_list(brew, &["config"], &prefix.join("config.txt"))?;
-        let _ = capture_brew_list(
-            brew,
-            &["bundle", "dump", "--file", "Brewfile", "--force"],
-            &prefix.join("bundle-dump.txt"),
-        );
+        let brewfile = prefix.join("Brewfile");
+        let _ = Command::new(brew)
+            .args(["bundle", "dump", "--file"])
+            .arg(&brewfile)
+            .arg("--force")
+            .output();
     }
 
     eprintln!(
@@ -250,6 +261,7 @@ fn quarantine_existing(existing: &ExistingHomebrew) -> Result<()> {
 
     if existing.repository.exists() {
         let homebrew_dir = existing.prefix.join("Homebrew");
+        ensure_safe_quarantine_source(&homebrew_dir, &existing.prefix)?;
         let quarantine = next_quarantine_path(&homebrew_dir);
         run_sudo_mv(&homebrew_dir, &quarantine)?;
         eprintln!(
@@ -262,6 +274,7 @@ fn quarantine_existing(existing: &ExistingHomebrew) -> Result<()> {
 
     if let Some(brew) = &existing.brew_binary {
         if brew.exists() && brew.starts_with(&existing.prefix) {
+            ensure_safe_quarantine_source(brew, &existing.prefix)?;
             let quarantine = next_quarantine_path(brew);
             run_sudo_mv(brew, &quarantine)?;
             eprintln!(
@@ -278,6 +291,28 @@ fn quarantine_existing(existing: &ExistingHomebrew) -> Result<()> {
         style("✓").green(),
         existing.prefix.display()
     );
+    Ok(())
+}
+
+fn ensure_safe_quarantine_source(path: &Path, prefix: &Path) -> Result<()> {
+    let metadata = std::fs::symlink_metadata(path)
+        .with_context(|| format!("inspecting {}", path.display()))?;
+    if metadata.file_type().is_symlink() {
+        return Ok(());
+    }
+    let canonical_path = path
+        .canonicalize()
+        .with_context(|| format!("canonicalizing {}", path.display()))?;
+    let canonical_prefix = prefix
+        .canonicalize()
+        .with_context(|| format!("canonicalizing {}", prefix.display()))?;
+    if !canonical_path.starts_with(&canonical_prefix) {
+        bail!(
+            "refusing to move {} because it resolves outside {}",
+            path.display(),
+            prefix.display()
+        );
+    }
     Ok(())
 }
 
@@ -368,5 +403,17 @@ mod tests {
         assert!(path
             .to_string_lossy()
             .starts_with("/usr/local/Homebrew.before-nex-reset-"));
+    }
+
+    #[test]
+    fn reset_confirmation_accepts_only_exact_phrase() {
+        assert_eq!(
+            super::reset_choice_from_confirmation("no"),
+            super::HomebrewBootstrapChoice::Abort
+        );
+        assert_eq!(
+            super::reset_choice_from_confirmation("RESET HOMEBREW"),
+            super::HomebrewBootstrapChoice::Reset
+        );
     }
 }

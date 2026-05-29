@@ -393,4 +393,29 @@ Curre
   0eb417d fix(install): prefer brew casks for nix redirect packages
   3acb3b9 chore(agent): record release operations
   52da3f4 chore(release): bump version to 0.21.7
+## 2026-05-29 — main (30t 355tc 4m21s)
+
+**Task:** excellent. Adversarially assess
+
+**Outcome:** Continued and completed the next priority item.
+
+## Priority status
+
+1. **#17 — GUI app source recommendation**
+   - Done.
+   - Commit:
+     ```text
+     0eb417d fix(install): prefer brew casks for nix redirect packages
+     ```
+
+2. **#16 — First-time macOS Homebrew migrate/reset**
+   - Done.
+   - C
+
+**Model:** openai-codex:gpt-5.5 — 43615622 in / 64880 out tokens across 382 turns
+
+**Commits:**
+  0ef266f feat(homebrew): offer migrate or quarantine reset during bootstrap
+  0eb417d fix(install): prefer brew casks for nix redirect packages
+  3acb3b9 chore(agent): record release operations
 
