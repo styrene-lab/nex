@@ -30,11 +30,11 @@ import Base from '../layouts/Base.astro';
 <!-- Release note -->
 <section id="release" class="release-note">
   <div class="container">
-    <p class="eyebrow">v0.21.9 patch release</p>
-    <h2>First-time macOS Homebrew bootstrap fixes</h2>
+    <p class="eyebrow">v0.22.0 Armory package manager</p>
+    <h2>Armory registry and package locks</h2>
     <p>
-      <code>nex init</code>, <code>nex adopt</code>, and <code>nex switch</code> now preflight Darwin bootstrap blockers before nix-darwin activation.
-      Use <code>nex doctor --fix darwin-bootstrap</code> to repair unmanaged shell rc files and <code>/etc/synthetic.conf</code> readiness.
+      <code>nex search</code>, <code>nex info</code>, and Armory installs now support registry discovery,
+      dependency locks, OCI materialization, computed SHA-256 verification, and Omegon activation locks.
     </p>
   </div>
 </section>

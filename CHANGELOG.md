@@ -4,6 +4,19 @@ All notable changes to nex are documented here. Format follows [Keep a Changelog
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-05-28
+
+### Added
+- Armory registry discovery via `nex search` and `nex info`.
+- Armory package installs with dependency resolution, package locks, OCI materialization, computed SHA-256 verification, local store paths, and Omegon activation locks.
+- `nex lock refresh`, `nex lock materialize`, `nex lock status`, and Armory root removal through `nex remove`.
+
+### Changed
+- `nex install` now materializes Armory packages by default; use `--lock-only` to only write locks.
+
+### Fixed
+- Signed Armory registries fail closed until signature verification metadata is available.
+
 ## [0.21.9] - 2026-05-28
 
 ### Fixed
