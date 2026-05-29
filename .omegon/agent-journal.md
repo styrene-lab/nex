@@ -265,4 +265,58 @@ What changed:
   f3372e9 fix(bootstrap): harden Darwin preflight repairs
   da7f721 feat(bootstrap): preflight Darwin activation blockers
   174c907 chore(release): bump version to 0.21.6
+## 2026-05-28 — main (12t 263tc 2m12s)
+
+**Task:** we (nex) are leaking PTY ANSI escape character sequence garbage
+
+**Outcome:** Published v0.21.7.
+
+## Release
+
+Pushed:
+
+```text
+main -> origin/main
+v0.21.7 -> origin/v0.21.7
+```
+
+Release commit:
+
+```text
+52da3f4 chore(release): bump version to 0.21.7
+```
+
+Feature commits included:
+
+```text
+da7f721 feat(bootstrap): preflight Darwin activation blockers
+f3372e9 fix(bootstrap): ha
+
+**Model:** openai-codex:gpt-5.5 — 29610406 in / 50129 out tokens across 284 turns
+
+**Commits:**
+  52da3f4 chore(release): bump version to 0.21.7
+  f3372e9 fix(bootstrap): harden Darwin preflight repairs
+  da7f721 feat(bootstrap): preflight Darwin activation blockers
+## 2026-05-29 — main (3t 265tc 47s)
+
+**Task:** we (nex) are leaking PTY ANSI escape character sequence garbage
+
+**Outcome:** Open upstream issues:
+
+## #17 — macOS GUI app source recommendation
+
+[https://github.com/styrene-lab/nex/issues/17](https://github.com/styrene-lab/nex/issues/17)
+
+`nex install kitty` currently recommends nixpkgs over Homebrew Cask when versions match:
+
+```text
+recommended: same version in both — nix
+
+**Model:** openai-codex:gpt-5.5 — 30216985 in / 50874 out tokens across 287 turns
+
+**Commits:**
+  52da3f4 chore(release): bump version to 0.21.7
+  f3372e9 fix(bootstrap): harden Darwin preflight repairs
+  da7f721 feat(bootstrap): preflight Darwin activation blockers
 
