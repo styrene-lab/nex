@@ -4,6 +4,13 @@ All notable changes to nex are documented here. Format follows [Keep a Changelog
 
 ## [Unreleased]
 
+## [0.22.1] - 2026-05-29
+
+### Fixed
+- `nex lock status` now reports an absent Armory package lock as an empty state instead of failing with an OS read error.
+- `nex lock status` now runs before Nex config resolution, so it works on fresh systems without a configured repo.
+- CI test compatibility is hardened for all-target clippy and older macOS shell mocks.
+
 ## [0.22.0] - 2026-05-28
 
 ### Added

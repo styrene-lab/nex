@@ -30,11 +30,11 @@ import Base from '../layouts/Base.astro';
 <!-- Release note -->
 <section id="release" class="release-note">
   <div class="container">
-    <p class="eyebrow">v0.22.0 Armory package manager</p>
-    <h2>Armory registry and package locks</h2>
+    <p class="eyebrow">v0.22.1 Armory status fix</p>
+    <h2>Armory lock status works on fresh systems</h2>
     <p>
-      <code>nex search</code>, <code>nex info</code>, and Armory installs now support registry discovery,
-      dependency locks, OCI materialization, computed SHA-256 verification, and Omegon activation locks.
+      <code>nex lock status</code> now reports an absent package lock as an empty state and runs before config resolution,
+      so fresh systems can inspect Armory status before a Nex repo exists.
     </p>
   </div>
 </section>
