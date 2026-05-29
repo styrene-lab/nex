@@ -918,4 +918,26 @@ Release bump commit:
   3dfbf9c docs(memory): update release audit log
   fd3e769 docs(memory): record armory release notes
   2b0de49 chore(release): bump version to 0.22.0
+## 2026-05-29 — main (18t 627tc 2m17s)
+
+**Task:** excellent. Adversarially assess
+
+**Outcome:** Site and docs are now aligned with reality, and I fixed the CI reality gap.
+
+## Site/docs status
+
+Confirmed deployed successfully for `v0.22.0`:
+
+- [Deploy nex.styrene.io](https://github.com/styrene-lab/nex/actions/runs/26657437341) — success
+- [Release](https://github.com/styrene-lab/nex/actions/ru
+
+**Model:** openai-codex:gpt-5.5 — 95799117 in / 114879 out tokens across 673 turns
+
+**Active:**
+- armory-package-manager (27/32)
+
+**Commits:**
+  45c2328 ci: align local validation with all-target clippy
+  3dfbf9c docs(memory): update release audit log
+  fd3e769 docs(memory): record armory release notes
 

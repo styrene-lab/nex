@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Mock nix binary for integration tests.
 # Handles: eval, search, build, shell, store, flake
-set -euo pipefail
+set -eo pipefail
 
 # Package database: attr → version
 declare -A NIXPKGS=(
