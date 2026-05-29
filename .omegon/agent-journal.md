@@ -698,4 +698,35 @@ Done.
   1bec409 fix(armory): verify materialized package digests
   d32092f feat(armory): materialize locked OCI packages
   62e71d1 feat(armory): write lock-only package installs
+## 2026-05-29 — main (24t 532tc 5m23s)
+
+**Task:** excellent. Adversarially assess
+
+**Outcome:** Continued forward and closed the main Phase 3 gap.
+
+Commit:
+
+```text
+befbe14 feat(armory): persist materialized lock paths
+```
+
+What changed:
+
+- Package lock entries now carry materialization state:
+  - `path`
+  - `verified`
+  - `installed_at`
+
+- `nex lock materialize` now:
+  - re-hashes existing or
+
+**Model:** openai-codex:gpt-5.5 — 77194684 in / 101125 out tokens across 571 turns
+
+**Active:**
+- armory-package-manager (25/31)
+
+**Commits:**
+  befbe14 feat(armory): persist materialized lock paths
+  1bec409 fix(armory): verify materialized package digests
+  d32092f feat(armory): materialize locked OCI packages
 

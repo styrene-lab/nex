@@ -30,7 +30,7 @@
 - [x] Verify fetched payload digest against registry metadata by computing local SHA-256 after fetch.
 - [x] Enforce registry trust policy, failing closed for signed registries without verifiable metadata.
 - [x] Extract payloads into the Nex store.
-- [x] Invoke existing validators for `machine-profile`, `materialization-payload`, and `forge-template` packages.
+- [x] Invoke existing validators for `machine-profile` and `materialization-payload`; fail closed for `forge-template` until schema validation exists.
 - [x] Update package lock entries with installed paths and verification status.
 - [x] Rewrite Omegon activation lock with installed local paths after materialization.
 - [x] Add tests for digest mismatch, missing `oras`, validator dispatch, store path calculation, and lock state updates.

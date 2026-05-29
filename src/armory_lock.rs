@@ -24,6 +24,8 @@ pub struct PackageLock {
 pub struct LockedRegistry {
     pub name: String,
     pub url: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trust: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -245,6 +247,7 @@ fn package_lock_for_graph(graph: &ResolvedGraph) -> PackageLock {
         registries: vec![LockedRegistry {
             name: graph.registry.name.clone(),
             url: graph.registry.url.clone(),
+            trust: graph.registry.trust.clone(),
         }],
         roots: vec![LockedRoot {
             package_ref: graph.root.to_string(),

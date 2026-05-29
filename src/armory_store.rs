@@ -25,6 +25,7 @@ pub fn materialize_lock() -> Result<Vec<StoreRecord>> {
 }
 
 pub fn materialize_package_lock(lock: &mut PackageLock) -> Result<Vec<StoreRecord>> {
+    enforce_trust_policy(lock)?;
     let mut records = Vec::new();
     for package in &mut lock.packages {
         let record = materialize_package(package)?;
@@ -34,6 +35,25 @@ pub fn materialize_package_lock(lock: &mut PackageLock) -> Result<Vec<StoreRecor
         records.push(record);
     }
     Ok(records)
+}
+
+fn enforce_trust_policy(lock: &PackageLock) -> Result<()> {
+    // Phase 3 has digest verification but no signature/attestation contract yet.
+    // Signed registries therefore fail closed instead of pretending digest-only
+    // verification satisfies a signed-trust policy.
+    for registry in &lock.registries {
+        if registry
+            .trust
+            .as_deref()
+            .is_some_and(|trust| trust.eq_ignore_ascii_case("signed"))
+        {
+            bail!(
+                "registry {} requires signed packages, but signature verification is not implemented yet",
+                registry.name
+            );
+        }
+    }
+    Ok(())
 }
 
 fn materialize_package(package: &LockedPackage) -> Result<StoreRecord> {
@@ -126,10 +146,10 @@ fn validate_package(package: &LockedPackage, path: &Path) -> Result<()> {
                 );
             }
         }
-        "forge-template" => {
-            // Forge-template package validation is intentionally deferred until the
-            // template schema stabilizes; Phase 3 wires the dispatch point.
-        }
+        "forge-template" => bail!(
+            "forge-template package validation is not supported yet for {}; refusing to mark installed",
+            package.package_ref
+        ),
         _ => {}
     }
     Ok(())
@@ -261,6 +281,7 @@ mod tests {
             registries: vec![LockedRegistry {
                 name: "test".to_string(),
                 url: "https://example.test/index.json".to_string(),
+                trust: None,
             }],
             roots: vec![LockedRoot {
                 package_ref: "profile/root".to_string(),
@@ -283,5 +304,45 @@ mod tests {
         assert_eq!(records.len(), 1);
         assert!(lock.packages[0].verified);
         assert!(lock.packages[0].installed_at.is_some());
+    }
+
+    #[test]
+    fn signed_registry_fails_closed_until_signature_verification_exists() {
+        let mut lock = PackageLock {
+            schema: PACKAGE_LOCK_SCHEMA.to_string(),
+            registries: vec![LockedRegistry {
+                name: "signed".to_string(),
+                url: "https://example.test/index.json".to_string(),
+                trust: Some("signed".to_string()),
+            }],
+            roots: vec![LockedRoot {
+                package_ref: "profile/root".to_string(),
+            }],
+            packages: Vec::new(),
+        };
+
+        let error = materialize_package_lock(&mut lock).expect_err("signed registry rejected");
+
+        assert!(format!("{error:#}").contains("signature verification is not implemented"));
+    }
+
+    #[test]
+    fn forge_template_validation_fails_closed() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let package = LockedPackage {
+            package_ref: "forge-template/base".to_string(),
+            version: Some("1.0.0".to_string()),
+            registry: "test".to_string(),
+            oci_ref: Some("oci://example/base".to_string()),
+            digest: Some(compute_path_sha256(dir.path()).expect("digest")),
+            dependencies: Vec::new(),
+            path: Some(dir.path().display().to_string()),
+            verified: false,
+            installed_at: None,
+        };
+
+        let error = super::validate_package(&package, dir.path()).expect_err("unsupported");
+
+        assert!(format!("{error:#}").contains("forge-template package validation is not supported"));
     }
 }
