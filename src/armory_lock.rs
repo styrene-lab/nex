@@ -41,6 +41,12 @@ pub struct LockedPackage {
     pub oci_ref: Option<String>,
     pub digest: Option<String>,
     pub dependencies: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(default)]
+    pub verified: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub installed_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -66,6 +72,12 @@ pub struct ActivationPackage {
     pub id: String,
     pub version: Option<String>,
     pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub digest: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(default)]
+    pub verified: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -188,6 +200,9 @@ fn resolve_one(
         oci_ref: package.oci_ref.clone(),
         digest: package.digest.clone(),
         dependencies,
+        path: None,
+        verified: false,
+        installed_at: None,
     };
 
     if let Some(existing) = packages.get(&key) {
@@ -260,11 +275,63 @@ fn activation_lock_for_graph(graph: &ResolvedGraph) -> Result<OmegonActivationLo
                     kind: package_ref.kind,
                     id: package_ref.id,
                     version: package.version.clone(),
-                    status: "pending".to_string(),
+                    status: if package.verified && package.path.is_some() {
+                        "installed".to_string()
+                    } else {
+                        "pending".to_string()
+                    },
+                    digest: package.digest.clone(),
+                    path: package.path.clone(),
+                    verified: package.verified,
                 })
             })
             .collect::<Result<Vec<_>>>()?,
     })
+}
+
+pub(crate) fn activation_lock_for_package_lock(
+    lock: &PackageLock,
+) -> Result<Option<OmegonActivationLock>> {
+    let Some(root) = lock.roots.first() else {
+        return Ok(None);
+    };
+    let root_ref = PackageRef::parse(&root.package_ref)?;
+    if !is_omegon_runtime_root(&root_ref.kind) {
+        return Ok(None);
+    }
+    let root_package = lock
+        .packages
+        .iter()
+        .find(|package| package.package_ref == root.package_ref)
+        .context("package lock missing root package")?;
+    Ok(Some(OmegonActivationLock {
+        schema: ACTIVATION_LOCK_SCHEMA.to_string(),
+        root: ActivationRoot {
+            kind: root_ref.kind,
+            id: root_ref.id,
+            version: root_package.version.clone(),
+        },
+        packages: lock
+            .packages
+            .iter()
+            .map(|package| {
+                let package_ref = PackageRef::parse(&package.package_ref)?;
+                Ok(ActivationPackage {
+                    kind: package_ref.kind,
+                    id: package_ref.id,
+                    version: package.version.clone(),
+                    status: if package.verified && package.path.is_some() {
+                        "installed".to_string()
+                    } else {
+                        "pending".to_string()
+                    },
+                    digest: package.digest.clone(),
+                    path: package.path.clone(),
+                    verified: package.verified,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?,
+    }))
 }
 
 fn is_omegon_runtime_root(kind: &str) -> bool {
@@ -285,7 +352,7 @@ fn print_plan(graph: &ResolvedGraph) {
     }
 }
 
-fn write_package_lock(lock: &PackageLock) -> Result<()> {
+pub(crate) fn write_package_lock(lock: &PackageLock) -> Result<()> {
     let path = package_lock_path()?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -295,7 +362,7 @@ fn write_package_lock(lock: &PackageLock) -> Result<()> {
     Ok(())
 }
 
-fn write_activation_lock(lock: &OmegonActivationLock) -> Result<()> {
+pub(crate) fn write_activation_lock(lock: &OmegonActivationLock) -> Result<()> {
     let path = activation_lock_path()?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;

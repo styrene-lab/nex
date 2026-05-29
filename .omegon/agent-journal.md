@@ -648,4 +648,54 @@ Fix: added a first Phase
   d32092f feat(armory): materialize locked OCI packages
   62e71d1 feat(armory): write lock-only package installs
   5765561 docs(armory): plan locking and activation phases
+## 2026-05-29 — main (13t 509tc 3m38s)
+
+**Task:** excellent. Adversarially assess
+
+**Outcome:** Laid down computed digest verification as the source of truth.
+
+Commit:
+
+```text
+1bec409 fix(armory): verify materialized package digests
+```
+
+What changed:
+
+- After `oras pull`, Nex now computes the local SHA-256 digest and compares it to the registry/lock digest.
+- Existing store paths are also re
+
+**Model:** openai-codex:gpt-5.5 — 72357827 in / 96453 out tokens across 546 turns
+
+**Active:**
+- armory-package-manager (24/30)
+
+**Commits:**
+  1bec409 fix(armory): verify materialized package digests
+  d32092f feat(armory): materialize locked OCI packages
+  62e71d1 feat(armory): write lock-only package installs
+## 2026-05-29 — main (1t 509tc 28s)
+
+**Task:** excellent. Adversarially assess
+
+**Outcome:** Issue #18 is now partially complete through the first materialization slice, but not finished if we interpret it as “Armory package manager” end-to-end.
+
+## Completed
+
+### Phase 1 — registry discovery
+
+Done.
+
+- `nex search <query>` searches configured Armory registries.
+- `nex info <kind>/<id>` show
+
+**Model:** openai-codex:gpt-5.5 — 72550467 in / 97624 out tokens across 547 turns
+
+**Active:**
+- armory-package-manager (24/30)
+
+**Commits:**
+  1bec409 fix(armory): verify materialized package digests
+  d32092f feat(armory): materialize locked OCI packages
+  62e71d1 feat(armory): write lock-only package installs
 

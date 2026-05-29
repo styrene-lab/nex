@@ -32,7 +32,8 @@
 - [x] Extract payloads into the Nex store.
 - [x] Invoke existing validators for `machine-profile`, `materialization-payload`, and `forge-template` packages.
 - [x] Update package lock entries with installed paths and verification status.
-- [x] Add tests for digest mismatch, missing `oras`, validator dispatch, and store path calculation.
+- [x] Rewrite Omegon activation lock with installed local paths after materialization.
+- [x] Add tests for digest mismatch, missing `oras`, validator dispatch, store path calculation, and lock state updates.
 
 ## 4. Omegon activation handoff
 <!-- specs: armory/activation -->

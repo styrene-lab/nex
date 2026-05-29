@@ -15,14 +15,23 @@ pub struct StoreRecord {
 }
 
 pub fn materialize_lock() -> Result<Vec<StoreRecord>> {
-    let lock = armory_lock::read_package_lock()?;
-    materialize_package_lock(&lock)
+    let mut lock = armory_lock::read_package_lock()?;
+    let records = materialize_package_lock(&mut lock)?;
+    armory_lock::write_package_lock(&lock)?;
+    if let Some(activation_lock) = armory_lock::activation_lock_for_package_lock(&lock)? {
+        armory_lock::write_activation_lock(&activation_lock)?;
+    }
+    Ok(records)
 }
 
-pub fn materialize_package_lock(lock: &PackageLock) -> Result<Vec<StoreRecord>> {
+pub fn materialize_package_lock(lock: &mut PackageLock) -> Result<Vec<StoreRecord>> {
     let mut records = Vec::new();
-    for package in &lock.packages {
-        records.push(materialize_package(package)?);
+    for package in &mut lock.packages {
+        let record = materialize_package(package)?;
+        package.path = Some(record.path.display().to_string());
+        package.verified = record.verified;
+        package.installed_at = Some(current_timestamp());
+        records.push(record);
     }
     Ok(records)
 }
@@ -41,7 +50,10 @@ fn materialize_package(package: &LockedPackage) -> Result<StoreRecord> {
         );
     };
 
-    let path = store_path_for_digest(digest)?;
+    let path = match package.path.as_deref() {
+        Some(path) => PathBuf::from(path),
+        None => store_path_for_digest(digest)?,
+    };
     if path.exists() {
         let actual = compute_path_sha256(&path)?;
         if actual != *digest {
@@ -179,6 +191,13 @@ fn sha256_hex(bytes: &[u8]) -> String {
     hex::encode(digest)
 }
 
+fn current_timestamp() -> String {
+    match std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH) {
+        Ok(duration) => duration.as_secs().to_string(),
+        Err(_) => "0".to_string(),
+    }
+}
+
 pub fn store_path_for_digest(digest: &str) -> Result<PathBuf> {
     let Some(hex) = digest.strip_prefix("sha256:") else {
         bail!("unsupported digest format {digest}; expected sha256:<hex>");
@@ -196,7 +215,10 @@ fn store_dir() -> Result<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{compute_path_sha256, store_path_for_digest};
+    use super::{compute_path_sha256, materialize_package_lock, store_path_for_digest};
+    use crate::armory_lock::{
+        LockedPackage, LockedRegistry, LockedRoot, PackageLock, PACKAGE_LOCK_SCHEMA,
+    };
 
     #[test]
     fn computes_content_addressed_store_path() {
@@ -228,5 +250,38 @@ mod tests {
         std::fs::write(dir.path().join("a.txt"), b"a").expect("write a");
         let digest = compute_path_sha256(dir.path()).expect("digest");
         assert!(digest.starts_with("sha256:"));
+    }
+
+    #[test]
+    fn materialization_updates_lock_entries() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let digest = compute_path_sha256(dir.path()).expect("digest");
+        let mut lock = PackageLock {
+            schema: PACKAGE_LOCK_SCHEMA.to_string(),
+            registries: vec![LockedRegistry {
+                name: "test".to_string(),
+                url: "https://example.test/index.json".to_string(),
+            }],
+            roots: vec![LockedRoot {
+                package_ref: "profile/root".to_string(),
+            }],
+            packages: vec![LockedPackage {
+                package_ref: "profile/root".to_string(),
+                version: Some("1.0.0".to_string()),
+                registry: "test".to_string(),
+                oci_ref: Some("oci://example/root".to_string()),
+                digest: Some(digest),
+                dependencies: Vec::new(),
+                path: Some(dir.path().display().to_string()),
+                verified: false,
+                installed_at: None,
+            }],
+        };
+
+        let records = materialize_package_lock(&mut lock).expect("materialize existing path");
+
+        assert_eq!(records.len(), 1);
+        assert!(lock.packages[0].verified);
+        assert!(lock.packages[0].installed_at.is_some());
     }
 }
