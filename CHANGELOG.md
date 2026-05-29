@@ -4,6 +4,11 @@ All notable changes to nex are documented here. Format follows [Keep a Changelog
 
 ## [Unreleased]
 
+## [0.21.9] - 2026-05-28
+
+### Fixed
+- `nex doctor` now recognizes nix-homebrew-managed prefixes and no longer reports healthy post-switch Homebrew installations as unmanaged.
+
 ## [0.21.8] - 2026-05-28
 
 ### Added
