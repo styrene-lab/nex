@@ -50,7 +50,11 @@ fn main() -> Result<()> {
     match cli.command {
         Command::Init { from } => return ops::init::run(from, cli.dry_run),
         Command::Relocate { ref to } => return ops::relocate::run(to.as_deref(), cli.dry_run),
-        Command::Search { .. } | Command::Info { .. } | Command::Lock { .. } => {}
+        Command::Search { .. } | Command::Info { .. } => {}
+        Command::Lock {
+            action: cli::LockAction::Status,
+        } => return ops::lock_status::status(),
+        Command::Lock { .. } => {}
         Command::SelfUpdate => return ops::self_update::run(),
         Command::Gc => return ops::gc::run(cli.dry_run),
         Command::Forge {
@@ -243,7 +247,9 @@ fn main() -> Result<()> {
         Command::Lock { action } => match action {
             cli::LockAction::Refresh => ops::lock::refresh(&config),
             cli::LockAction::Materialize => ops::lock::materialize(&config),
-            cli::LockAction::Status => ops::lock_status::status(),
+            cli::LockAction::Status => {
+                unreachable!("lock status is handled before config resolution")
+            }
         },
         Command::Profile { ref action } => match action {
             cli::ProfileAction::Apply { source, verify } => {
