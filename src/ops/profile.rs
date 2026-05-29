@@ -2315,6 +2315,7 @@ fn find_nix_module_body_open(content: &str) -> Option<usize> {
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod flat_configuration_import_tests {
     use super::patch_flat_configuration_import;
 
@@ -2350,7 +2351,14 @@ mod flat_configuration_import_tests {
 
         assert!(patched.contains("./keyd.nix"));
         assert!(patched.contains("./desktop.nix"));
-        assert!(patched.find("./keyd.nix").unwrap() < patched.find("./desktop.nix").unwrap());
+        assert!(
+            patched
+                .find("./keyd.nix")
+                .expect("keyd import should exist")
+                < patched
+                    .find("./desktop.nix")
+                    .expect("desktop import should exist")
+        );
     }
 }
 

@@ -533,7 +533,8 @@ mod tests {
             toml::Value::Boolean(true),
         );
 
-        let rendered = serialize_pkl_document(&toml::Value::Table(table)).unwrap();
+        let rendered =
+            serialize_pkl_document(&toml::Value::Table(table)).expect("operation should succeed");
         assert!(rendered.contains("repo_path = \"/tmp/repo\""));
         assert!(rendered.contains("hostname = \"test-host\""));
         assert!(rendered.contains("prefer_nix_on_equal = true"));
@@ -541,24 +542,25 @@ mod tests {
 
     #[test]
     fn resolves_pkl_before_toml() {
-        let dir = tempfile::tempdir().unwrap();
-        fs::write(dir.path().join(CONFIG_FILE), "repo_path = \"/pkl\"\n").unwrap();
+        let dir = tempfile::tempdir().expect("create temp dir");
+        fs::write(dir.path().join(CONFIG_FILE), "repo_path = \"/pkl\"\n")
+            .expect("operation should succeed");
         fs::write(
             dir.path().join(CONFIG_TOML_COMPAT_FILE),
             "repo_path = \"/toml\"\n",
         )
-        .unwrap();
+        .expect("operation should succeed");
 
         let pkl = dir.path().join(CONFIG_FILE);
         let toml = dir.path().join(CONFIG_TOML_COMPAT_FILE);
         assert!(pkl.exists());
         assert!(toml.exists());
         assert_eq!(
-            config_format_for_path(&pkl).unwrap(),
+            config_format_for_path(&pkl).expect("operation should succeed"),
             LocalConfigFormat::Pkl
         );
         assert_eq!(
-            config_format_for_path(&toml).unwrap(),
+            config_format_for_path(&toml).expect("operation should succeed"),
             LocalConfigFormat::TomlCompat
         );
     }
@@ -574,8 +576,10 @@ mod tests {
             toml::Value::String("test-host".to_string()),
         );
         let value = toml::Value::Table(table);
-        let pkl = serialize_config_value(&value, LocalConfigFormat::Pkl).unwrap();
-        let toml = serialize_config_value(&value, LocalConfigFormat::TomlCompat).unwrap();
+        let pkl = serialize_config_value(&value, LocalConfigFormat::Pkl)
+            .expect("operation should succeed");
+        let toml = serialize_config_value(&value, LocalConfigFormat::TomlCompat)
+            .expect("operation should succeed");
 
         assert!(pkl.contains("repo_path = \"/tmp/repo\""));
         assert!(toml.contains("repo_path = \"/tmp/repo\""));

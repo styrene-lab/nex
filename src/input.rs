@@ -114,11 +114,13 @@ impl InputProvider for TerminalInput {
 
 /// Test input — returns pre-programmed responses in order.
 #[cfg(test)]
+#[allow(dead_code)]
 pub struct ScriptedInput {
     responses: std::sync::Mutex<std::collections::VecDeque<String>>,
 }
 
 #[cfg(test)]
+#[allow(dead_code)]
 impl ScriptedInput {
     pub fn new(responses: Vec<&str>) -> Self {
         Self {
@@ -177,6 +179,7 @@ pub fn input() -> &'static dyn InputProvider {
 
 /// Set a custom input provider (for unit tests). Must be called before first use.
 #[cfg(test)]
+#[allow(dead_code)]
 pub fn set_input(provider: Box<dyn InputProvider>) {
     let _ = INPUT.set(provider);
 }

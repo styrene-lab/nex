@@ -877,4 +877,45 @@ What changed:
   2b0de49 chore(release): bump version to 0.22.0
   68cd0ed feat(armory): remove package lock roots
   1f49b53 feat(armory): report package lock status
+## 2026-05-29 — main (7t 610tc 52s)
+
+**Task:** excellent. Adversarially assess
+
+**Outcome:** Published and released `v0.22.0`.
+
+## Git
+
+Pushed:
+
+```text
+main -> origin/main
+v0.22.0 -> origin/v0.22.0
+```
+
+Release tag:
+
+```text
+v0.22.0
+```
+
+Current pushed head:
+
+```text
+3dfbf9c docs(memory): update release audit log
+```
+
+Release bump commit:
+
+```text
+2b0de49 chore(release): bump version to 0.
+
+**Model:** openai-codex:gpt-5.5 — 93471801 in / 113172 out tokens across 655 turns
+
+**Active:**
+- armory-package-manager (27/32)
+
+**Commits:**
+  3dfbf9c docs(memory): update release audit log
+  fd3e769 docs(memory): record armory release notes
+  2b0de49 chore(release): bump version to 0.22.0
 

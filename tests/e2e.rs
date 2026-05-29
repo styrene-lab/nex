@@ -307,6 +307,7 @@ fn identity_git_show_works() {
 
 // ── Machine profile tests ─────────────────────────────────────────────────
 
+#[allow(dead_code)]
 fn valid_machine_profile_toml() -> &'static str {
     r#"
 [machine_profile]
@@ -378,7 +379,13 @@ fn machine_profile_validate_accepts_valid_manifest() {
     let fake_pkl = write_fake_pkl(sb.home.path(), valid_machine_profile_pkl_json());
     sb.nex()
         .env("NEX_PKL", &fake_pkl)
-        .args(["machine-profile", "validate", profile_dir.to_str().unwrap()])
+        .args([
+            "machine-profile",
+            "validate",
+            profile_dir
+                .to_str()
+                .expect("test path should be valid UTF-8"),
+        ])
         .assert()
         .success()
         .stderr(predicate::str::contains("machine-profile.pkl is valid"));
@@ -397,7 +404,9 @@ fn machine_profile_inspect_prints_json_metadata() {
             "machine-profile",
             "inspect",
             "--json",
-            profile_path.to_str().unwrap(),
+            profile_path
+                .to_str()
+                .expect("test path should be valid UTF-8"),
         ])
         .assert()
         .success()
@@ -428,7 +437,9 @@ fn machine_profile_validate_accepts_apply_existing_profile() {
         .args([
             "machine-profile",
             "validate",
-            profile_path.to_str().unwrap(),
+            profile_path
+                .to_str()
+                .expect("test path should be valid UTF-8"),
         ])
         .assert()
         .success()
@@ -448,7 +459,9 @@ fn machine_profile_validate_rejects_secret_values() {
         .args([
             "machine-profile",
             "validate",
-            profile_path.to_str().unwrap(),
+            profile_path
+                .to_str()
+                .expect("test path should be valid UTF-8"),
         ])
         .assert()
         .failure()
@@ -494,7 +507,13 @@ artifact_type = "application/vnd.styrene.nex.machine-profile.v1+tar"
 
     sb.nex()
         .env("NEX_PKL", &fake_pkl)
-        .args(["artifact", "check", artifact_dir.to_str().unwrap()])
+        .args([
+            "artifact",
+            "check",
+            artifact_dir
+                .to_str()
+                .expect("test path should be valid UTF-8"),
+        ])
         .assert()
         .success()
         .stdout(predicate::str::contains("Artifact Check"))
@@ -519,7 +538,9 @@ fn artifact_check_accepts_materialization_payload_json() {
         .args([
             "artifact",
             "check",
-            artifact_dir.to_str().unwrap(),
+            artifact_dir
+                .to_str()
+                .expect("test path should be valid UTF-8"),
             "--json",
         ])
         .assert()
@@ -550,7 +571,9 @@ fn artifact_check_rejects_unsupported_evidence_tier() {
         .args([
             "artifact",
             "check",
-            artifact_dir.to_str().unwrap(),
+            artifact_dir
+                .to_str()
+                .expect("test path should be valid UTF-8"),
             "--evidence",
             "builds-image",
             "--json",
@@ -586,9 +609,13 @@ fn artifact_check_relationship_accepts_valid_pair() {
             "artifact",
             "check-relationship",
             "--profile",
-            profile_dir.to_str().unwrap(),
+            profile_dir
+                .to_str()
+                .expect("test path should be valid UTF-8"),
             "--payload",
-            payload_dir.to_str().unwrap(),
+            payload_dir
+                .to_str()
+                .expect("test path should be valid UTF-8"),
             "--json",
         ])
         .assert()
@@ -629,9 +656,13 @@ fn artifact_check_relationship_rejects_invalid_payload() {
             "artifact",
             "check-relationship",
             "--profile",
-            profile_dir.to_str().unwrap(),
+            profile_dir
+                .to_str()
+                .expect("test path should be valid UTF-8"),
             "--payload",
-            payload_dir.to_str().unwrap(),
+            payload_dir
+                .to_str()
+                .expect("test path should be valid UTF-8"),
             "--json",
         ])
         .assert()
@@ -659,7 +690,9 @@ fn artifact_check_rejects_boundary_field_before_deserialization() {
         .args([
             "artifact",
             "check",
-            artifact_dir.to_str().unwrap(),
+            artifact_dir
+                .to_str()
+                .expect("test path should be valid UTF-8"),
             "--json",
         ])
         .assert()
@@ -697,7 +730,9 @@ artifact_type = "application/vnd.styrene.nex.materialization-payload.v1+tar"
         .args([
             "artifact",
             "check",
-            artifact_dir.to_str().unwrap(),
+            artifact_dir
+                .to_str()
+                .expect("test path should be valid UTF-8"),
             "--json",
         ])
         .assert()
@@ -743,7 +778,9 @@ fn profile_fragment_validate_accepts_valid_manifest() {
         .args([
             "profile-fragment",
             "validate",
-            fragment_path.to_str().unwrap(),
+            fragment_path
+                .to_str()
+                .expect("test path should be valid UTF-8"),
         ])
         .assert()
         .success()
@@ -763,7 +800,9 @@ fn profile_fragment_inspect_prints_json_metadata() {
             "profile-fragment",
             "inspect",
             "--json",
-            fragment_path.to_str().unwrap(),
+            fragment_path
+                .to_str()
+                .expect("test path should be valid UTF-8"),
         ])
         .assert()
         .success()
@@ -785,7 +824,9 @@ fn profile_fragment_validate_rejects_missing_version() {
         .args([
             "profile-fragment",
             "validate",
-            fragment_path.to_str().unwrap(),
+            fragment_path
+                .to_str()
+                .expect("test path should be valid UTF-8"),
         ])
         .assert()
         .failure()
@@ -806,7 +847,9 @@ fn profile_fragment_validate_rejects_invalid_version() {
         .args([
             "profile-fragment",
             "validate",
-            fragment_path.to_str().unwrap(),
+            fragment_path
+                .to_str()
+                .expect("test path should be valid UTF-8"),
         ])
         .assert()
         .failure()
@@ -830,7 +873,9 @@ fn profile_fragment_directory_validation_checks_path_id() {
         .args([
             "profile-fragment",
             "validate",
-            fragment_dir.to_str().unwrap(),
+            fragment_dir
+                .to_str()
+                .expect("test path should be valid UTF-8"),
         ])
         .assert()
         .success()
@@ -852,7 +897,9 @@ fn profile_fragment_directory_validation_rejects_path_id_mismatch() {
         .args([
             "profile-fragment",
             "validate",
-            fragment_dir.to_str().unwrap(),
+            fragment_dir
+                .to_str()
+                .expect("test path should be valid UTF-8"),
         ])
         .assert()
         .failure()
@@ -876,7 +923,13 @@ fn profile_sign_creates_signed_toml() {
 
     // Run from home dir so the signed output lands there
     sb.nex()
-        .args(["profile", "sign", profile_path.to_str().unwrap()])
+        .args([
+            "profile",
+            "sign",
+            profile_path
+                .to_str()
+                .expect("test path should be valid UTF-8"),
+        ])
         .current_dir(sb.home.path())
         .assert()
         .success()
@@ -944,7 +997,7 @@ fn forge_check_materialization_evaluates_workspace() {
         .args([
             "forge",
             "check-materialization",
-            workspace.to_str().unwrap(),
+            workspace.to_str().expect("test path should be valid UTF-8"),
             "--hostname",
             "test-host",
         ])
@@ -965,7 +1018,7 @@ fn forge_check_materialization_rejects_invalid_hostname() {
         .args([
             "forge",
             "check-materialization",
-            workspace.to_str().unwrap(),
+            workspace.to_str().expect("test path should be valid UTF-8"),
             "--hostname",
             "bad/host",
         ])
@@ -984,7 +1037,7 @@ fn forge_check_materialization_rejects_workspace_without_flake() {
         .args([
             "forge",
             "check-materialization",
-            workspace.to_str().unwrap(),
+            workspace.to_str().expect("test path should be valid UTF-8"),
             "--hostname",
             "test-host",
         ])
@@ -1004,7 +1057,7 @@ fn forge_check_materialization_evaluates_sd_image_target() {
         .args([
             "forge",
             "check-materialization",
-            workspace.to_str().unwrap(),
+            workspace.to_str().expect("test path should be valid UTF-8"),
             "--hostname",
             "test-host",
             "--target",
@@ -1037,13 +1090,13 @@ fn forge_build_materialization_uses_pkl_source_and_output_link() {
         .args([
             "forge",
             "build-materialization",
-            source.to_str().unwrap(),
+            source.to_str().expect("test path should be valid UTF-8"),
             "--hostname",
             "test-host",
             "--target",
             "sd-image",
             "--output",
-            out_link.to_str().unwrap(),
+            out_link.to_str().expect("test path should be valid UTF-8"),
         ])
         .assert()
         .success()
@@ -1072,11 +1125,11 @@ fn forge_build_module_writes_module_flake() {
         .args([
             "forge",
             "build-module",
-            source.to_str().unwrap(),
+            source.to_str().expect("test path should be valid UTF-8"),
             "--name",
             "test_module",
             "--output",
-            output.to_str().unwrap(),
+            output.to_str().expect("test path should be valid UTF-8"),
         ])
         .assert()
         .success()
@@ -1109,11 +1162,11 @@ fn forge_build_module_rejects_impure_extra_config() {
         .args([
             "forge",
             "build-module",
-            source.to_str().unwrap(),
+            source.to_str().expect("test path should be valid UTF-8"),
             "--name",
             "test_module",
             "--output",
-            output.to_str().unwrap(),
+            output.to_str().expect("test path should be valid UTF-8"),
         ])
         .assert()
         .failure()
@@ -1214,9 +1267,11 @@ JSON
         .args([
             "forge",
             "check",
-            forge_pkl.to_str().unwrap(),
+            forge_pkl.to_str().expect("test path should be valid UTF-8"),
             "--metadata",
-            forge_toml.to_str().unwrap(),
+            forge_toml
+                .to_str()
+                .expect("test path should be valid UTF-8"),
             "--json",
             "--no-execute",
         ])
@@ -1256,7 +1311,7 @@ fn forge_run_dry_run_plans_request_without_building() {
             "forge",
             "run",
             "--request",
-            request.to_str().unwrap(),
+            request.to_str().expect("test path should be valid UTF-8"),
             "--events",
             "jsonl",
         ])
@@ -1296,7 +1351,7 @@ fn forge_run_refuses_blocked_destructive_request() {
             "forge",
             "run",
             "--request",
-            request.to_str().unwrap(),
+            request.to_str().expect("test path should be valid UTF-8"),
             "--events",
             "jsonl",
         ])
@@ -1392,7 +1447,13 @@ posture = "orchestrator"
     .expect("write package manifest");
 
     sb.nex()
-        .args(["build-image", package_dir.to_str().unwrap(), "--dry-run"])
+        .args([
+            "build-image",
+            package_dir
+                .to_str()
+                .expect("test path should be valid UTF-8"),
+            "--dry-run",
+        ])
         .assert()
         .success()
         .stdout(predicate::str::contains(
@@ -1465,7 +1526,9 @@ fn profile_apply_verify_unsigned_fails() {
         .args([
             "profile",
             "apply",
-            profile_path.to_str().unwrap(),
+            profile_path
+                .to_str()
+                .expect("test path should be valid UTF-8"),
             "--verify",
         ])
         .assert()

@@ -2648,6 +2648,7 @@ fn chrono_now() -> String {
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use super::*;
 

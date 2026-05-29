@@ -1102,7 +1102,7 @@ mod tests {
 
     #[test]
     fn scaffold_nixos_config_includes_materialization_flake_inputs() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("create temp dir");
         let profile = r#"
 [flake_inputs]
 dns-dhcp = "github:styrene-lab/dhcp-dns-work"
@@ -1112,8 +1112,9 @@ nixos-hardware = "github:NixOS/nixos-hardware"
 extra_config = ""
 "#;
 
-        scaffold_nixos_config(dir.path(), "test-host", profile).unwrap();
-        let flake = std::fs::read_to_string(dir.path().join("flake.nix")).unwrap();
+        scaffold_nixos_config(dir.path(), "test-host", profile).expect("operation should succeed");
+        let flake = std::fs::read_to_string(dir.path().join("flake.nix"))
+            .expect("operation should succeed");
 
         assert!(flake.contains("dns-dhcp.url = \"github:styrene-lab/dhcp-dns-work\";"));
         assert!(flake.contains("nixos-hardware.url = \"github:NixOS/nixos-hardware\";"));
@@ -1126,7 +1127,7 @@ extra_config = ""
 
     #[test]
     fn scaffold_nixos_config_rejects_invalid_flake_inputs() {
-        let dir = tempfile::tempdir().unwrap();
+        let dir = tempfile::tempdir().expect("create temp dir");
         let profile = r#"
 [flake_inputs]
 bad = "github:owner/repo;rm-rf"
@@ -1252,7 +1253,7 @@ system = "mips-linux"
 
     #[test]
     fn materialization_target_builds_sd_image_attr() {
-        let target = MaterializationTarget::parse("sd-image").unwrap();
+        let target = MaterializationTarget::parse("sd-image").expect("operation should succeed");
         assert_eq!(
             target.attr("test-host"),
             ".#nixosConfigurations.test-host.config.system.build.sdImage"
