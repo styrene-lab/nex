@@ -845,4 +845,36 @@ It prints:
   1f49b53 feat(armory): report package lock status
   8daccae feat(armory): materialize installs by default
   c2bf387 fix(armory): fail closed on unsigned trust gaps
+## 2026-05-29 — main (24t 604tc 5m3s)
+
+**Task:** excellent. Adversarially assess
+
+**Outcome:** Continued to release prep for the Armory work.
+
+Commit:
+
+```text
+2b0de49 chore(release): bump version to 0.22.0
+```
+
+What changed:
+
+- `Cargo.toml` / `Cargo.lock`
+  - bumped to `0.22.0`
+
+- `CHANGELOG.md`
+  - added `0.22.0` release section:
+    - Armory search/info
+    - Armory dependency locks
+    - 
+
+**Model:** openai-codex:gpt-5.5 — 92648132 in / 112412 out tokens across 648 turns
+
+**Active:**
+- armory-package-manager (27/32)
+
+**Commits:**
+  2b0de49 chore(release): bump version to 0.22.0
+  68cd0ed feat(armory): remove package lock roots
+  1f49b53 feat(armory): report package lock status
 
