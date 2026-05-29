@@ -90,7 +90,7 @@ pub struct ResolvedGraph {
     pub optional_skipped: Vec<String>,
 }
 
-pub fn install(config: &Config, root: &PackageRef, dry_run: bool) -> Result<()> {
+pub fn install(config: &Config, root: &PackageRef, dry_run: bool, lock_only: bool) -> Result<()> {
     let graph = resolve_from_config(config, root)?;
     print_plan(&graph);
     if dry_run {
@@ -109,6 +109,23 @@ pub fn install(config: &Config, root: &PackageRef, dry_run: bool) -> Result<()> 
     if is_omegon_runtime_root(&graph.root.kind) {
         println!("  wrote {}", activation_lock_path()?.display());
     }
+    if lock_only {
+        println!("  lock-only: run `nex lock materialize` to fetch packages");
+        return Ok(());
+    }
+    let records = crate::armory_store::materialize_lock()?;
+    for record in records {
+        println!(
+            "  {} -> {} ({})",
+            record.package_ref,
+            record.path.display(),
+            if record.verified {
+                "verified"
+            } else {
+                "unverified"
+            }
+        );
+    }
     Ok(())
 }
 
@@ -116,7 +133,7 @@ pub fn refresh(config: &Config) -> Result<()> {
     let existing = read_package_lock()?;
     for root in existing.roots {
         let package_ref = PackageRef::parse(&root.package_ref)?;
-        install(config, &package_ref, false)?;
+        install(config, &package_ref, false, true)?;
     }
     Ok(())
 }

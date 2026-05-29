@@ -207,6 +207,7 @@ fn main() -> Result<()> {
             nix,
             cask,
             brew,
+            lock_only,
             packages,
         } => {
             let mode = if nix {
@@ -218,7 +219,7 @@ fn main() -> Result<()> {
             } else {
                 ops::install::InstallMode::Auto
             };
-            ops::install::run(&config, mode, &packages, cli.dry_run)
+            ops::install::run(&config, mode, &packages, cli.dry_run, lock_only)
         }
         Command::Remove {
             cask,

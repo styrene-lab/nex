@@ -53,6 +53,9 @@ pub enum Command {
         /// Install as a Homebrew formula
         #[arg(long, conflicts_with_all = ["nix", "cask"])]
         brew: bool,
+        /// Resolve/write Armory package locks without fetching OCI payloads
+        #[arg(long)]
+        lock_only: bool,
         /// Package names
         packages: Vec<String>,
     },

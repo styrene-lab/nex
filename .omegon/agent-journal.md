@@ -729,4 +729,55 @@ What changed:
   befbe14 feat(armory): persist materialized lock paths
   1bec409 fix(armory): verify materialized package digests
   d32092f feat(armory): materialize locked OCI packages
+## 2026-05-29 — main (17t 548tc 3m9s)
+
+**Task:** excellent. Adversarially assess
+
+**Outcome:** Cleaned up the remaining nasties in the Armory materialization path.
+
+Commit:
+
+```text
+c2bf387 fix(armory): fail closed on unsigned trust gaps
+```
+
+What was fixed:
+
+- **Signed registry trust now fails closed.**
+  - `LockedRegistry` now preserves `trust`.
+  - `nex lock materialize` refuses `trust = "
+
+**Model:** openai-codex:gpt-5.5 — 80647388 in / 103809 out tokens across 588 turns
+
+**Active:**
+- armory-package-manager (25/31)
+
+**Commits:**
+  c2bf387 fix(armory): fail closed on unsigned trust gaps
+  befbe14 feat(armory): persist materialized lock paths
+  1bec409 fix(armory): verify materialized package digests
+## 2026-05-29 — main (3t 550tc 49s)
+
+**Task:** excellent. Adversarially assess
+
+**Outcome:** Assessment of issue #18 against current `main` work:
+
+## Status: mostly implemented, not fully closable yet
+
+Implemented commits relevant to #18:
+
+```text
+d194206 feat(armory): add registry search and package info
+5765561 docs(armory): plan locking and activation phases
+62e71d1 feat(armory): write l
+
+**Model:** openai-codex:gpt-5.5 — 81273405 in / 105396 out tokens across 591 turns
+
+**Active:**
+- armory-package-manager (25/31)
+
+**Commits:**
+  c2bf387 fix(armory): fail closed on unsigned trust gaps
+  befbe14 feat(armory): persist materialized lock paths
+  1bec409 fix(armory): verify materialized package digests
 

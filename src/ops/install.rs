@@ -19,11 +19,17 @@ pub enum InstallMode {
     Auto,
 }
 
-pub fn run(config: &Config, mode: InstallMode, packages: &[String], dry_run: bool) -> Result<()> {
+pub fn run(
+    config: &Config,
+    mode: InstallMode,
+    packages: &[String],
+    dry_run: bool,
+    lock_only: bool,
+) -> Result<()> {
     tracing::info!(packages = ?packages, dry_run, "install");
     if matches!(mode, InstallMode::Auto) && packages.len() == 1 {
         if let Ok(package_ref) = crate::armory::PackageRef::parse(&packages[0]) {
-            return armory_lock::install(config, &package_ref, dry_run);
+            return armory_lock::install(config, &package_ref, dry_run, lock_only);
         }
     }
     if packages.is_empty() {
