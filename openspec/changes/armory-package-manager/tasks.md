@@ -25,14 +25,14 @@
 ## 3. OCI fetch, store, and validation
 <!-- specs: armory/store -->
 
-- [ ] Add content-addressed Nex package store layout.
-- [ ] Add OCI fetch abstraction, initially shelling out to `oras` when available.
-- [ ] Verify fetched payload digest against registry metadata.
-- [ ] Enforce registry trust policy, failing closed for signed registries without verifiable metadata.
-- [ ] Extract payloads into the Nex store.
-- [ ] Invoke existing validators for `machine-profile`, `materialization-payload`, and `forge-template` packages.
-- [ ] Update package lock entries with installed paths and verification status.
-- [ ] Add tests for digest mismatch, missing `oras`, validator dispatch, and store path calculation.
+- [x] Add content-addressed Nex package store layout.
+- [x] Add OCI fetch abstraction, initially shelling out to `oras` when available.
+- [x] Verify fetched payload digest against registry metadata.
+- [x] Enforce registry trust policy, failing closed for signed registries without verifiable metadata.
+- [x] Extract payloads into the Nex store.
+- [x] Invoke existing validators for `machine-profile`, `materialization-payload`, and `forge-template` packages.
+- [x] Update package lock entries with installed paths and verification status.
+- [x] Add tests for digest mismatch, missing `oras`, validator dispatch, and store path calculation.
 
 ## 4. Omegon activation handoff
 <!-- specs: armory/activation -->

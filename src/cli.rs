@@ -214,6 +214,8 @@ pub enum Command {
 pub enum LockAction {
     /// Re-resolve roots from the package lock
     Refresh,
+    /// Materialize locked Armory packages into the local store
+    Materialize,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]

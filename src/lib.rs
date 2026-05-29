@@ -1,6 +1,8 @@
 pub mod ansi;
 pub mod armory;
 pub mod armory_lock;
+pub mod armory_store;
+pub mod artifact;
 pub mod bootstrap;
 pub mod config;
 pub mod discover;

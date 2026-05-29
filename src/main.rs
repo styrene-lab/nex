@@ -2,6 +2,7 @@ mod aliases;
 mod ansi;
 mod armory;
 mod armory_lock;
+mod armory_store;
 mod artifact;
 mod bootstrap;
 mod cli;
@@ -240,6 +241,7 @@ fn main() -> Result<()> {
         Command::Info { package_ref } => ops::info::run(&config, &package_ref),
         Command::Lock { action } => match action {
             cli::LockAction::Refresh => ops::lock::refresh(&config),
+            cli::LockAction::Materialize => ops::lock::materialize(&config),
         },
         Command::Profile { ref action } => match action {
             cli::ProfileAction::Apply { source, verify } => {

@@ -305,7 +305,7 @@ fn write_activation_lock(lock: &OmegonActivationLock) -> Result<()> {
     Ok(())
 }
 
-fn read_package_lock() -> Result<PackageLock> {
+pub(crate) fn read_package_lock() -> Result<PackageLock> {
     let path = package_lock_path()?;
     let bytes = std::fs::read(&path).with_context(|| format!("reading {}", path.display()))?;
     serde_json::from_slice(&bytes).context("parsing package lock")

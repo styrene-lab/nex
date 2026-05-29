@@ -596,4 +596,35 @@ Sc
   5765561 docs(armory): plan locking and activation phases
   d194206 feat(armory): add registry search and package info
   6a9ed7d chore(release): bump version to 0.21.9
+## 2026-05-29 — main (27t 477tc 6m35s)
+
+**Task:** excellent. Adversarially assess
+
+**Outcome:** Laid down Phase 2: lock-only Armory package installs.
+
+Commit:
+
+```text
+62e71d1 feat(armory): write lock-only package installs
+```
+
+What landed:
+
+- New `src/armory_lock.rs`
+  - Package lock schema:
+    ```text
+    io.styrene.nex.package-lock.v1
+    ```
+  - Provisional Omegon activation lock schema:
+
+
+**Model:** openai-codex:gpt-5.5 — 65891076 in / 91461 out tokens across 512 turns
+
+**Active:**
+- armory-package-manager (16/30)
+
+**Commits:**
+  62e71d1 feat(armory): write lock-only package installs
+  5765561 docs(armory): plan locking and activation phases
+  d194206 feat(armory): add registry search and package info
 
