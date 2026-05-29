@@ -567,4 +567,33 @@ What landed:
   d194206 feat(armory): add registry search and package info
   6a9ed7d chore(release): bump version to 0.21.9
   d11e87d fix(homebrew): recognize nix-homebrew managed prefixes
+## 2026-05-29 — main (14t 451tc 3m56s)
+
+**Task:** excellent. Adversarially assess
+
+**Outcome:** Designed and planned the next Armory/Nex slices, then committed the plan.
+
+Commit:
+
+```text
+5765561 docs(armory): plan locking and activation phases
+```
+
+## Slice plan
+
+### Phase 2 — lock-only graph resolution
+
+Goal: make `nex install <kind>/<id>` deterministic before OCI/materialization exists.
+
+Sc
+
+**Model:** openai-codex:gpt-5.5 — 60612779 in / 85260 out tokens across 485 turns
+
+**Active:**
+- armory-package-manager (5/30)
+
+**Commits:**
+  5765561 docs(armory): plan locking and activation phases
+  d194206 feat(armory): add registry search and package info
+  6a9ed7d chore(release): bump version to 0.21.9
 

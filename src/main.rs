@@ -1,6 +1,7 @@
 mod aliases;
 mod ansi;
 mod armory;
+mod armory_lock;
 mod artifact;
 mod bootstrap;
 mod cli;
@@ -48,7 +49,7 @@ fn main() -> Result<()> {
     match cli.command {
         Command::Init { from } => return ops::init::run(from, cli.dry_run),
         Command::Relocate { ref to } => return ops::relocate::run(to.as_deref(), cli.dry_run),
-        Command::Search { .. } | Command::Info { .. } => {}
+        Command::Search { .. } | Command::Info { .. } | Command::Lock { .. } => {}
         Command::SelfUpdate => return ops::self_update::run(),
         Command::Gc => return ops::gc::run(cli.dry_run),
         Command::Forge {
@@ -237,6 +238,9 @@ fn main() -> Result<()> {
         Command::Migrate => ops::migrate::run(&config),
         Command::Search { query } => ops::search::run(&config, &query),
         Command::Info { package_ref } => ops::info::run(&config, &package_ref),
+        Command::Lock { action } => match action {
+            cli::LockAction::Refresh => ops::lock::refresh(&config),
+        },
         Command::Profile { ref action } => match action {
             cli::ProfileAction::Apply { source, verify } => {
                 ops::profile::run(&config, source, *verify, cli.dry_run)

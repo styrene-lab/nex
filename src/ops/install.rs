@@ -1,5 +1,6 @@
 use anyhow::Result;
 
+use crate::armory_lock;
 use crate::config::Config;
 use crate::edit::{self, EditSession};
 use crate::exec;
@@ -20,6 +21,11 @@ pub enum InstallMode {
 
 pub fn run(config: &Config, mode: InstallMode, packages: &[String], dry_run: bool) -> Result<()> {
     tracing::info!(packages = ?packages, dry_run, "install");
+    if matches!(mode, InstallMode::Auto) && packages.len() == 1 {
+        if let Ok(package_ref) = crate::armory::PackageRef::parse(&packages[0]) {
+            return armory_lock::install(config, &package_ref, dry_run);
+        }
+    }
     if packages.is_empty() {
         anyhow::bail!("no packages specified");
     }

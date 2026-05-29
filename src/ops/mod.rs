@@ -14,6 +14,7 @@ pub mod info;
 pub mod init;
 pub mod install;
 pub mod list;
+pub mod lock;
 pub mod machine_profile;
 pub mod migrate;
 pub mod polymerize;

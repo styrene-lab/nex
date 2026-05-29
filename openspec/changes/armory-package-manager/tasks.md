@@ -10,17 +10,17 @@
 ## 2. Lock-only graph resolution
 <!-- specs: armory/lock -->
 
-- [ ] Add package lock structs and JSON serialization.
-- [ ] Add state path helpers for `~/.local/state/nex/packages.lock.json` and activation lock.
-- [ ] Implement dependency graph resolver over fetched registry indexes.
-- [ ] Detect missing required dependencies.
-- [ ] Detect dependency cycles and report the cycle path.
-- [ ] Collapse duplicate refs and reject conflicting version/digest records.
-- [ ] Route `nex install <kind>/<id>` to Armory lock-only install while preserving existing Nix/Homebrew install behavior for bare package names.
-- [ ] Implement `--dry-run` output for Armory installs.
-- [ ] Write package lock for non-dry-run installs.
-- [ ] Write provisional Omegon activation lock for Omegon-runtime roots.
-- [ ] Add tests for graph resolution, cycle detection, lock serialization, and install routing.
+- [x] Add package lock structs and JSON serialization.
+- [x] Add state path helpers for `~/.local/state/nex/packages.lock.json` and activation lock.
+- [x] Implement dependency graph resolver over fetched registry indexes.
+- [x] Detect missing required dependencies.
+- [x] Detect dependency cycles and report the cycle path.
+- [x] Collapse duplicate refs and reject conflicting version/digest records.
+- [x] Route `nex install <kind>/<id>` to Armory lock-only install while preserving existing Nix/Homebrew install behavior for bare package names.
+- [x] Implement `--dry-run` output for Armory installs.
+- [x] Write package lock for non-dry-run installs.
+- [x] Write provisional Omegon activation lock for Omegon-runtime roots.
+- [x] Add tests for graph resolution, cycle detection, lock serialization, and install routing.
 
 ## 3. OCI fetch, store, and validation
 <!-- specs: armory/store -->

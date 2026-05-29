@@ -197,12 +197,23 @@ pub enum Command {
         #[arg(value_enum)]
         scope: Option<DoctorScope>,
     },
+    /// Refresh Armory package locks
+    Lock {
+        #[command(subcommand)]
+        action: LockAction,
+    },
     /// Update nex itself to the latest release
     SelfUpdate,
     /// Preview what would change
     Diff,
     /// Garbage collect nix store
     Gc,
+}
+
+#[derive(Subcommand)]
+pub enum LockAction {
+    /// Re-resolve roots from the package lock
+    Refresh,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
