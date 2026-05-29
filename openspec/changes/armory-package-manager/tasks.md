@@ -42,5 +42,6 @@
 - [ ] Populate activation lock entries with local package paths after store materialization.
 - [ ] Encode runtime defaults for `profile`, `agent`, `extension`, and `workstation` roots.
 - [ ] Add `nex lock refresh` to re-resolve roots and update locks.
+- [x] Add `nex lock status` to inspect roots, package state, digests, and local paths.
 - [ ] Add remove/list UX for installed Armory package roots.
 - [ ] Add tests proving Omegon-runtime activation locks do not require registry access.

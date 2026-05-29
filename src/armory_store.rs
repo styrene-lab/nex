@@ -118,7 +118,7 @@ fn fetch_oci(oci_ref: &str, digest: &str, output: &Path) -> Result<()> {
         .args(["pull", oci_ref, "--output"])
         .arg(output)
         .status()
-        .context("oras is required for Armory OCI materialization; install oras first")?;
+        .context("oras is required for Armory OCI materialization; install it with `brew install oras`, `nix profile install nixpkgs#oras`, or your system package manager")?;
     if !status.success() {
         bail!("oras pull failed for {oci_ref}");
     }

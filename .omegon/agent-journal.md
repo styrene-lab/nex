@@ -780,4 +780,30 @@ d194206 feat(armory): add registry search and package info
   c2bf387 fix(armory): fail closed on unsigned trust gaps
   befbe14 feat(armory): persist materialized lock paths
   1bec409 fix(armory): verify materialized package digests
+## 2026-05-29 — main (24t 573tc 4m55s)
+
+**Task:** excellent. Adversarially assess
+
+**Outcome:** Assessed #18 and fixed the biggest remaining behavior gap.
+
+Commit:
+
+```text
+8daccae feat(armory): materialize installs by default
+```
+
+What was wrong:
+
+- `nex install <kind>/<id>` still stopped at lock writing.
+- That made the default install path incomplete: users had to know to run `nex lock mate
+
+**Model:** openai-codex:gpt-5.5 — 86141099 in / 107583 out tokens across 615 turns
+
+**Active:**
+- armory-package-manager (25/31)
+
+**Commits:**
+  8daccae feat(armory): materialize installs by default
+  c2bf387 fix(armory): fail closed on unsigned trust gaps
+  befbe14 feat(armory): persist materialized lock paths
 

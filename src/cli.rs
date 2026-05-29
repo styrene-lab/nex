@@ -219,6 +219,8 @@ pub enum LockAction {
     Refresh,
     /// Materialize locked Armory packages into the local store
     Materialize,
+    /// Show Armory package lock status
+    Status,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]

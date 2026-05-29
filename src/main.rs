@@ -243,6 +243,7 @@ fn main() -> Result<()> {
         Command::Lock { action } => match action {
             cli::LockAction::Refresh => ops::lock::refresh(&config),
             cli::LockAction::Materialize => ops::lock::materialize(&config),
+            cli::LockAction::Status => ops::lock_status::status(),
         },
         Command::Profile { ref action } => match action {
             cli::ProfileAction::Apply { source, verify } => {
