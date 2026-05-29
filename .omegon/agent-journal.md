@@ -418,4 +418,23 @@ Curre
   0ef266f feat(homebrew): offer migrate or quarantine reset during bootstrap
   0eb417d fix(install): prefer brew casks for nix redirect packages
   3acb3b9 chore(agent): record release operations
+## 2026-05-29 — main (22t 376tc 4m47s)
+
+**Task:** excellent. Adversarially assess
+
+**Outcome:** Adversarial review completed, reset path fixed, and release prep committed.
+
+## Problems found in reset path
+
+The reset implementation was safer than `rm -rf`, but still had sharp edges:
+
+- Confirmation was still too weak for a destructive/root-adjacent operation.
+- `brew bundle dump` command was ma
+
+**Model:** openai-codex:gpt-5.5 — 47052530 in / 68877 out tokens across 404 turns
+
+**Commits:**
+  c04f2fa chore(release): bump version to 0.21.8
+  c6bd0d3 fix(homebrew): quarantine reset instead of deleting installs
+  0ef266f feat(homebrew): offer migrate or quarantine reset during bootstrap
 
