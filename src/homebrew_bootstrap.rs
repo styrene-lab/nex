@@ -13,11 +13,14 @@ pub struct ExistingHomebrew {
     pub repository: PathBuf,
     pub brew_binary: Option<PathBuf>,
     pub auto_migrate_configured: bool,
+    pub managed_by_nix_homebrew: bool,
 }
 
 impl ExistingHomebrew {
     pub fn is_conflict(&self) -> bool {
-        (self.repository.exists() || self.brew_binary.is_some()) && !self.auto_migrate_configured
+        (self.repository.exists() || self.brew_binary.is_some())
+            && !self.auto_migrate_configured
+            && !self.managed_by_nix_homebrew
     }
 }
 
@@ -51,12 +54,46 @@ fn detect_existing_at(config: &Config, prefix: &Path) -> Result<Option<ExistingH
         return Ok(None);
     }
 
+    let managed_by_nix_homebrew =
+        managed_by_nix_homebrew(prefix, &repository, brew_binary.as_deref());
+
     Ok(Some(ExistingHomebrew {
         prefix: prefix.to_path_buf(),
         repository,
         brew_binary,
         auto_migrate_configured: homebrew_auto_migrate_configured(&config.homebrew_file)?,
+        managed_by_nix_homebrew,
     }))
+}
+
+fn managed_by_nix_homebrew(prefix: &Path, repository: &Path, brew_binary: Option<&Path>) -> bool {
+    let marker = repository.join(".homebrew-is-managed-by-nix");
+    if marker.exists() {
+        return true;
+    }
+
+    if path_resolves_into_nix_store(repository) {
+        return true;
+    }
+
+    if brew_binary.is_some_and(path_resolves_into_nix_store) {
+        return true;
+    }
+
+    let taps = prefix.join("Homebrew/Library/Taps");
+    if path_resolves_into_nix_store(&taps) {
+        return true;
+    }
+
+    false
+}
+
+fn path_resolves_into_nix_store(path: &Path) -> bool {
+    path.starts_with("/nix/store")
+        || path
+            .canonicalize()
+            .map(|resolved| resolved.starts_with("/nix/store"))
+            .unwrap_or(false)
 }
 
 pub(crate) fn preflight(config: &Config, dry_run: bool) -> Result<()> {
@@ -378,8 +415,11 @@ fn current_timestamp() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{add_auto_migrate_to_homebrew_module, next_quarantine_path};
-    use std::path::Path;
+    use super::{
+        add_auto_migrate_to_homebrew_module, managed_by_nix_homebrew, next_quarantine_path,
+        ExistingHomebrew,
+    };
+    use std::path::{Path, PathBuf};
 
     #[test]
     fn inserts_auto_migrate_after_enable() {
@@ -403,6 +443,55 @@ mod tests {
         assert!(path
             .to_string_lossy()
             .starts_with("/usr/local/Homebrew.before-nex-reset-"));
+    }
+
+    #[test]
+    fn marker_file_classifies_prefix_as_managed() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let repo = dir.path().join("Homebrew/Library/Homebrew");
+        std::fs::create_dir_all(&repo).expect("repo dir");
+        std::fs::write(repo.join(".homebrew-is-managed-by-nix"), "").expect("marker");
+
+        assert!(managed_by_nix_homebrew(dir.path(), &repo, None));
+    }
+
+    #[test]
+    fn nix_store_brew_symlink_classifies_prefix_as_managed() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let repo = dir.path().join("Homebrew/Library/Homebrew");
+        std::fs::create_dir_all(&repo).expect("repo dir");
+        let brew = PathBuf::from("/nix/store/nex-test-brew");
+
+        assert!(managed_by_nix_homebrew(dir.path(), &repo, Some(&brew)));
+    }
+
+    #[test]
+    fn managed_homebrew_is_not_a_conflict() {
+        let existing = ExistingHomebrew {
+            prefix: PathBuf::from("/usr/local"),
+            repository: PathBuf::from("/usr/local/Homebrew/Library/Homebrew"),
+            brew_binary: Some(PathBuf::from("/usr/local/bin/brew")),
+            auto_migrate_configured: false,
+            managed_by_nix_homebrew: true,
+        };
+
+        assert!(!existing.is_conflict());
+    }
+
+    #[test]
+    fn unmanaged_homebrew_is_a_conflict() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let repo = dir.path().join("Homebrew/Library/Homebrew");
+        std::fs::create_dir_all(&repo).expect("repo dir");
+        let existing = ExistingHomebrew {
+            prefix: dir.path().to_path_buf(),
+            repository: repo,
+            brew_binary: None,
+            auto_migrate_configured: false,
+            managed_by_nix_homebrew: false,
+        };
+
+        assert!(existing.is_conflict());
     }
 
     #[test]

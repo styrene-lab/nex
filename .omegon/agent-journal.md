@@ -437,4 +437,59 @@ The reset implementation was safer than `rm -rf`, but still had sharp edges:
   c04f2fa chore(release): bump version to 0.21.8
   c6bd0d3 fix(homebrew): quarantine reset instead of deleting installs
   0ef266f feat(homebrew): offer migrate or quarantine reset during bootstrap
+## 2026-05-29 — main (5t 380tc 60s)
+
+**Task:** excellent. Adversarially assess
+
+**Outcome:** Released v0.21.8.
+
+## Published
+
+Pushed:
+
+```text
+main -> origin/main
+v0.21.8 -> origin/v0.21.8
+```
+
+Release/head commit:
+
+```text
+b45665a chore(agent): record 0.21.8 release prep
+```
+
+Release commit included:
+
+```text
+c04f2fa chore(release): bump version to 0.21.8
+c6bd0d3 fix(homebrew): quarantine 
+
+**Model:** openai-codex:gpt-5.5 — 47876216 in / 69657 out tokens across 409 turns
+
+**Commits:**
+  b45665a chore(agent): record 0.21.8 release prep
+  c04f2fa chore(release): bump version to 0.21.8
+  c6bd0d3 fix(homebrew): quarantine reset instead of deleting installs
+## 2026-05-29 — main (3t 382tc 31s)
+
+**Task:** excellent. Adversarially assess
+
+**Outcome:** Issue #19 is a real false positive caused by our v0.21.8 detection being too coarse.
+
+Current logic effectively says:
+
+```rust
+(repository.exists() || brew_binary.is_some()) && !auto_migrate_configured
+```
+
+That treats a post-switch nix-homebrew-managed prefix as unmanaged because:
+
+- `/usr/local/Ho
+
+**Model:** openai-codex:gpt-5.5 — 48377296 in / 70260 out tokens across 412 turns
+
+**Commits:**
+  b45665a chore(agent): record 0.21.8 release prep
+  c04f2fa chore(release): bump version to 0.21.8
+  c6bd0d3 fix(homebrew): quarantine reset instead of deleting installs
 
