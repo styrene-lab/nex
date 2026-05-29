@@ -1,4 +1,5 @@
 pub mod ansi;
+pub mod armory;
 pub mod bootstrap;
 pub mod config;
 pub mod discover;

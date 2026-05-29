@@ -492,4 +492,52 @@ That treats a post-switch nix-homebrew-managed prefix as unmanaged because:
   b45665a chore(agent): record 0.21.8 release prep
   c04f2fa chore(release): bump version to 0.21.8
   c6bd0d3 fix(homebrew): quarantine reset instead of deleting installs
+## 2026-05-29 — main (15t 396tc 3m43s)
+
+**Task:** excellent. Adversarially assess
+
+**Outcome:** Fixed #19 and released v0.21.9.
+
+## Fix
+
+Commit:
+
+```text
+d11e87d fix(homebrew): recognize nix-homebrew managed prefixes
+```
+
+What changed:
+
+- `ExistingHomebrew` now tracks:
+
+```rust
+managed_by_nix_homebrew: bool
+```
+
+- A prefix is treated as managed/healthy if any of these are true:
+  - `.homebrew-
+
+**Model:** openai-codex:gpt-5.5 — 50915348 in / 73035 out tokens across 427 turns
+
+**Commits:**
+  6a9ed7d chore(release): bump version to 0.21.9
+  d11e87d fix(homebrew): recognize nix-homebrew managed prefixes
+  b45665a chore(agent): record 0.21.8 release prep
+## 2026-05-29 — main (2t 397tc 32s)
+
+**Task:** excellent. Adversarially assess
+
+**Outcome:** Issue #18 is **not a patch-release bug**. It is a substantial feature/spec item: Nex becomes the resolver/installer/lockfile plane for Armory/Omegon package refs.
+
+I would not jump directly into code without an OpenSpec/design pass, because the acceptance criteria cut across:
+
+- CLI surface:
+  - `ne
+
+**Model:** openai-codex:gpt-5.5 — 51264717 in / 74119 out tokens across 429 turns
+
+**Commits:**
+  6a9ed7d chore(release): bump version to 0.21.9
+  d11e87d fix(homebrew): recognize nix-homebrew managed prefixes
+  b45665a chore(agent): record 0.21.8 release prep
 

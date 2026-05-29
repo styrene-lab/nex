@@ -35,6 +35,8 @@ pub struct Config {
     pub prefer_nix_on_equal: bool,
     /// The detected platform (Darwin or Linux).
     pub platform: Platform,
+    /// Armory package registries for Omegon/package discovery.
+    pub registries: Vec<RegistryConfig>,
 }
 
 /// Optional config file at ~/.config/nex/config.pkl; config.toml is compatibility.
@@ -44,6 +46,7 @@ struct FileConfig {
     hostname: Option<String>,
     prefer_nix_on_equal: Option<bool>,
     identity: Option<IdentityConfig>,
+    registries: Option<Vec<RegistryConfig>>,
 }
 
 /// Identity-related configuration.
@@ -66,6 +69,13 @@ pub struct IdentityGitConfig {
 #[derive(Deserialize, Serialize, Default, Clone)]
 pub struct IdentitySshConfig {
     pub labels: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct RegistryConfig {
+    pub name: String,
+    pub url: String,
+    pub trust: Option<String>,
 }
 
 impl Config {
@@ -163,6 +173,10 @@ impl Config {
         }
 
         let prefer_nix_on_equal = file_config.prefer_nix_on_equal.unwrap_or(false);
+        let registries = file_config
+            .registries
+            .filter(|registries| !registries.is_empty())
+            .unwrap_or_else(|| vec![crate::armory::default_registry()]);
 
         Ok(Config {
             repo,
@@ -172,6 +186,7 @@ impl Config {
             module_files,
             prefer_nix_on_equal,
             platform,
+            registries,
         })
     }
 

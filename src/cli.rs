@@ -67,10 +67,15 @@ pub enum Command {
         /// Package names
         packages: Vec<String>,
     },
-    /// Search nixpkgs for a package
+    /// Search nixpkgs and configured Armory registries for a package
     Search {
         /// Search query
         query: String,
+    },
+    /// Show Armory package metadata for <kind>/<id>
+    Info {
+        /// Armory package ref, e.g. profile/rust-shop
+        package_ref: String,
     },
     /// List all declared packages
     List,
