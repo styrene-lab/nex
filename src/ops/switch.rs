@@ -4,6 +4,7 @@ use crate::bootstrap;
 use crate::config::Config;
 use crate::discover::Platform;
 use crate::exec;
+use crate::homebrew_bootstrap;
 use crate::output;
 
 pub fn run(config: &Config, dry_run: bool) -> Result<()> {
@@ -16,6 +17,7 @@ pub fn run(config: &Config, dry_run: bool) -> Result<()> {
         return Ok(());
     }
     bootstrap::ensure_switch_ready(config.platform)?;
+    homebrew_bootstrap::preflight(config, dry_run)?;
     output::status("switching...");
     exec::system_rebuild_switch(&config.repo, &config.hostname, config.platform)?;
     output::status("done");

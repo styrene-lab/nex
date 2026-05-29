@@ -3,12 +3,15 @@ use console::style;
 
 use crate::cli::DoctorScope;
 use crate::config::Config;
-use crate::{bootstrap, output};
+use crate::{bootstrap, homebrew_bootstrap, output};
 
 /// Check and fix common issues with the nex-managed config repo.
 pub fn run(config: &Config, fix: bool, scope: Option<DoctorScope>) -> Result<()> {
     if matches!(scope, Some(DoctorScope::DarwinBootstrap)) {
         return check_bootstrap(config, fix);
+    }
+    if matches!(scope, Some(DoctorScope::HomebrewBootstrap)) {
+        return homebrew_bootstrap::doctor(config, fix);
     }
 
     tracing::info!(fix, ?scope, "running doctor checks");
@@ -22,6 +25,7 @@ pub fn run(config: &Config, fix: bool, scope: Option<DoctorScope>) -> Result<()>
     let mut fixed = 0;
 
     check_bootstrap(config, fix)?;
+    homebrew_bootstrap::doctor(config, fix)?;
 
     // Check mac-app-util integration
     if check_mac_app_util(config, &mut fixed)? {

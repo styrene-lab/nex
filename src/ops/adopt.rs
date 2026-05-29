@@ -218,6 +218,11 @@ pub fn run(config: &Config, dry_run: bool) -> Result<()> {
     if let Some(report) = bootstrap::check(config.platform)? {
         bootstrap::print_recommendations(&report);
     }
+    if let Some(existing) = crate::homebrew_bootstrap::detect_existing(config)? {
+        if existing.is_conflict() {
+            crate::homebrew_bootstrap::print_existing_homebrew_warning(&existing);
+        }
+    }
 
     Ok(())
 }

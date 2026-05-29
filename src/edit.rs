@@ -240,6 +240,12 @@ pub struct EditSession {
     backups: Vec<(std::path::PathBuf, std::path::PathBuf)>, // (original, backup)
 }
 
+impl Default for EditSession {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl EditSession {
     pub fn new() -> Self {
         Self {

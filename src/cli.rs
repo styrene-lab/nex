@@ -204,6 +204,7 @@ pub enum Command {
 pub enum DoctorScope {
     All,
     DarwinBootstrap,
+    HomebrewBootstrap,
 }
 
 #[derive(Subcommand)]

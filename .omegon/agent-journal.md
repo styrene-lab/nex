@@ -319,4 +319,78 @@ recommended: same version in both — nix
   52da3f4 chore(release): bump version to 0.21.7
   f3372e9 fix(bootstrap): harden Darwin preflight repairs
   da7f721 feat(bootstrap): preflight Darwin activation blockers
+## 2026-05-29 — main (29t 293tc 4m48s)
+
+**Task:** excellent. Adversarially assess
+
+**Outcome:** Open upstream issues:
+
+1. [#17 — nex install on macOS should not blindly recommend nixpkgs for GUI apps](https://github.com/styrene-lab/nex/issues/17)
+2. [#16 — First-time macOS install: offer reset/migrate options for existing Homebrew](https://github.com/styrene-lab/nex/issues/16)
+3. [#12 — Add ca
+
+**Model:** openai-codex:gpt-5.5 — 34590686 in / 53802 out tokens across 316 turns
+
+**Commits:**
+  3acb3b9 chore(agent): record release operations
+  52da3f4 chore(release): bump version to 0.21.7
+  f3372e9 fix(bootstrap): harden Darwin preflight repairs
+## 2026-05-29 — main (7t 299tc 60s)
+
+**Task:** excellent. Adversarially assess
+
+**Outcome:** Priority plan:
+
+1. **#17 — GUI app source recommendation**  
+   Highest priority because it’s a narrow install sharp edge with low blast radius. It prevents `nex install kitty`-style cases from choosing a Nix package that is effectively a Homebrew-cask redirect/stub.
+
+   Status: implemented and comm
+
+**Model:** openai-codex:gpt-5.5 — 35515444 in / 54537 out tokens across 323 turns
+
+**Commits:**
+  0eb417d fix(install): prefer brew casks for nix redirect packages
+  3acb3b9 chore(agent): record release operations
+  52da3f4 chore(release): bump version to 0.21.7
+## 2026-05-29 — main (27t 325tc 4m40s)
+
+**Task:** excellent. Adversarially assess
+
+**Outcome:** Progress update:
+
+## Priority order
+
+1. **#17 — GUI app install source selection**
+   - Completed and committed:
+     ```text
+     0eb417d fix(install): prefer brew casks for nix redirect packages
+     ```
+   - This handles cases where a nixpkgs “version” is really a redirect message telling the ope
+
+**Model:** openai-codex:gpt-5.5 — 39121328 in / 59451 out tokens across 350 turns
+
+**Commits:**
+  0eb417d fix(install): prefer brew casks for nix redirect packages
+  3acb3b9 chore(agent): record release operations
+  52da3f4 chore(release): bump version to 0.21.7
+## 2026-05-29 — main (2t 326tc 37s)
+
+**Task:** excellent. Adversarially assess
+
+**Outcome:** Reset path review: I would **not ship this reset implementation as-is**.
+
+The migrate path is acceptable. The reset path has several sharp edges that can destroy more than intended or leave the operator with false confidence.
+
+## Blockers
+
+### 1. `sudo rm -rf /usr/local/Homebrew` is too blunt
+
+Curre
+
+**Model:** openai-codex:gpt-5.5 — 39410890 in / 60811 out tokens across 352 turns
+
+**Commits:**
+  0eb417d fix(install): prefer brew casks for nix redirect packages
+  3acb3b9 chore(agent): record release operations
+  52da3f4 chore(release): bump version to 0.21.7
 

@@ -6,6 +6,7 @@ use console::style;
 
 use crate::bootstrap;
 use crate::discover::{self, Platform};
+use crate::homebrew_bootstrap;
 use crate::output;
 
 /// Run `nex init` — bootstrap nix (+ homebrew on macOS) and a system config.
@@ -262,6 +263,9 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
     output::status("activating (sudo required)...");
 
     bootstrap::maybe_repair_for_init(platform, false)?;
+    let init_config =
+        crate::config::Config::resolve(Some(repo_path.clone()), Some(hostname.clone()))?;
+    homebrew_bootstrap::preflight(&init_config, false)?;
 
     // nix-darwin refuses to overwrite files in /etc on first run.
     // Move them out of the way so activation can proceed. (macOS only)

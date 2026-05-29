@@ -1,12 +1,17 @@
 pub mod ansi;
 pub mod bootstrap;
+pub mod config;
 pub mod discover;
 pub mod document;
+pub mod edit;
 pub mod exec;
 pub mod forge;
+#[allow(dead_code)]
+mod homebrew_bootstrap;
 pub mod input;
 pub mod machine_profile;
 pub mod materialization;
 pub mod menu;
+pub mod nixfile;
 pub mod pkl;
 pub mod profile_fragment;
