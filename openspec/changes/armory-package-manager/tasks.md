@@ -27,7 +27,7 @@
 
 - [x] Add content-addressed Nex package store layout.
 - [x] Add OCI fetch abstraction, initially shelling out to `oras` when available.
-- [x] Verify fetched payload digest against registry metadata.
+- [x] Verify fetched payload digest against registry metadata by computing local SHA-256 after fetch.
 - [x] Enforce registry trust policy, failing closed for signed registries without verifiable metadata.
 - [x] Extract payloads into the Nex store.
 - [x] Invoke existing validators for `machine-profile`, `materialization-payload`, and `forge-template` packages.

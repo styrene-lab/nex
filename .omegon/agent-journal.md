@@ -627,4 +627,25 @@ What landed:
   62e71d1 feat(armory): write lock-only package installs
   5765561 docs(armory): plan locking and activation phases
   d194206 feat(armory): add registry search and package info
+## 2026-05-29 — main (21t 497tc 3m20s)
+
+**Task:** excellent. Adversarially assess
+
+**Outcome:** Assessed Phase 2 and laid down the next Phase 3 slice.
+
+## Phase 2 assessment findings
+
+Main issue: lock-only install was useful but had no materialization command, so the lock had no forward path into local packages. That would strand users after `nex install profile/foo`.
+
+Fix: added a first Phase
+
+**Model:** openai-codex:gpt-5.5 — 69929835 in / 94481 out tokens across 533 turns
+
+**Active:**
+- armory-package-manager (24/30)
+
+**Commits:**
+  d32092f feat(armory): materialize locked OCI packages
+  62e71d1 feat(armory): write lock-only package installs
+  5765561 docs(armory): plan locking and activation phases
 
