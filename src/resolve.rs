@@ -165,6 +165,14 @@ fn recommend(candidates: &[Candidate]) -> (Source, String, bool) {
     if let (Some(n), Some(b)) = (nix, brew) {
         let eq = versions_equal(&n.version, &b.version);
 
+        if b.source == Source::BrewCask && package_has_cask_redirect(&n.version) {
+            return (
+                Source::BrewCask,
+                "nix package redirects to the Homebrew cask".into(),
+                eq,
+            );
+        }
+
         if eq {
             // Same version — recommend nix (declarative, reproducible)
             return (
@@ -193,6 +201,11 @@ fn recommend(candidates: &[Candidate]) -> (Source, String, bool) {
         "nix provides declarative management".into(),
         false,
     )
+}
+
+fn package_has_cask_redirect(version: &str) -> bool {
+    let lower = version.to_ascii_lowercase();
+    lower.contains("use brew cask") || lower.contains("homebrew cask")
 }
 
 /// Result of an interactive resolution prompt.
@@ -284,5 +297,30 @@ pub fn prompt_resolution(
             }))
         }
         None => Ok(None),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{recommend, Candidate, Source};
+
+    #[test]
+    fn recommends_brew_cask_when_nix_version_is_cask_redirect_message() {
+        let candidates = vec![
+            Candidate {
+                source: Source::Nix,
+                version: "Please use brew cask to install kitty".to_string(),
+            },
+            Candidate {
+                source: Source::BrewCask,
+                version: "Run `brew install --cask kitty`".to_string(),
+            },
+        ];
+
+        let (source, reason, versions_equal) = recommend(&candidates);
+
+        assert_eq!(source, Source::BrewCask);
+        assert!(reason.contains("brew cask"));
+        assert!(!versions_equal);
     }
 }

@@ -40,7 +40,7 @@ pub fn run(config: &Config, mode: InstallMode, packages: &[String], dry_run: boo
             InstallMode::Nix => Source::Nix,
             InstallMode::Cask => Source::BrewCask,
             InstallMode::Brew => Source::BrewFormula,
-            InstallMode::Auto => resolve_source(pkg, dry_run, config.prefer_nix_on_equal)?,
+            InstallMode::Auto => resolve_source(pkg, dry_run, config)?,
         };
 
         tracing::debug!(pkg, source = %source, "resolved install source");
@@ -119,7 +119,7 @@ fn is_already_declared(config: &Config, pkg: &str) -> Result<bool> {
 }
 
 /// Resolve which source to use for a package (auto mode).
-fn resolve_source(pkg: &str, dry_run: bool, prefer_nix_on_equal: bool) -> Result<Source> {
+fn resolve_source(pkg: &str, dry_run: bool, config: &Config) -> Result<Source> {
     let result = resolve::resolve(pkg)?;
 
     // Warn if brew wasn't available — the user might be getting nix-only
@@ -144,8 +144,16 @@ fn resolve_source(pkg: &str, dry_run: bool, prefer_nix_on_equal: bool) -> Result
             versions_equal,
         } => {
             // If user previously chose "always nix" and versions match, skip prompt
-            if versions_equal && prefer_nix_on_equal {
+            if versions_equal && config.prefer_nix_on_equal {
                 return Ok(Source::Nix);
+            }
+
+            // Some Nix packages intentionally point users at the Homebrew cask by
+            // printing an install-time message that names the cask. Treat that as
+            // stronger evidence than version equality so GUI apps like kitty do
+            // not auto-select a broken/placeholder nix derivation.
+            if versions_equal && recommended == Source::BrewCask {
+                return Ok(Source::BrewCask);
             }
 
             if dry_run {
