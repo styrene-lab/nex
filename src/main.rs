@@ -12,6 +12,7 @@ mod document;
 mod edit;
 mod exec;
 pub mod forge;
+pub mod hardware_inventory;
 pub mod homebrew_bootstrap;
 mod input;
 pub mod machine_profile;
@@ -184,6 +185,13 @@ fn main() -> Result<()> {
                 } => ops::artifact::run_check_relationship(profile, payload, *json),
             }
         }
+        Command::Hardware { ref action } => {
+            return match action {
+                cli::HardwareAction::Scan { json, output } => {
+                    ops::hardware::run_scan(*json, output.as_deref())
+                }
+            }
+        }
         Command::ProfileFragment { ref action } => {
             return match action {
                 cli::ProfileFragmentAction::Validate { path } => {
@@ -275,6 +283,7 @@ fn main() -> Result<()> {
         | Command::Develop { .. }
         | Command::Dev { .. }
         | Command::Artifact { .. }
+        | Command::Hardware { .. }
         | Command::MachineProfile { .. }
         | Command::ProfileFragment { .. }
         | Command::Config { .. }

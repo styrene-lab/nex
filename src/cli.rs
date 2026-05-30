@@ -95,6 +95,11 @@ pub enum Command {
     },
     /// Identify brew packages that can migrate to nix
     Migrate,
+    /// Inspect live host hardware and classify install-relevant devices
+    Hardware {
+        #[command(subcommand)]
+        action: HardwareAction,
+    },
     /// Inspect and validate Nex artifact directories for Armory distribution
     Artifact {
         #[command(subcommand)]
@@ -395,6 +400,20 @@ pub enum IdentityAction {
         /// Path to the identity file (default: ~/.config/styrene/identity.key)
         #[arg(long)]
         path: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum HardwareAction {
+    /// Scan this host and emit a hardware inventory
+    Scan {
+        /// Emit stable JSON output
+        #[arg(long)]
+        json: bool,
+
+        /// Write the inventory to a file instead of stdout
+        #[arg(long, short)]
+        output: Option<PathBuf>,
     },
 }
 

@@ -10,6 +10,7 @@ pub mod document;
 pub mod edit;
 pub mod exec;
 pub mod forge;
+pub mod hardware_inventory;
 #[allow(dead_code)]
 mod homebrew_bootstrap;
 pub mod input;
