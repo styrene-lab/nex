@@ -195,6 +195,13 @@ pub enum TargetAttestation {
     ExternalUsbSsd,
     ExternalThunderboltSsd,
     InternalAppleNvme,
+    InternalAppleStorage,
+}
+
+impl TargetAttestation {
+    fn is_internal_apple_storage(self) -> bool {
+        matches!(self, Self::InternalAppleNvme | Self::InternalAppleStorage)
+    }
 }
 
 impl Default for SafetyPolicy {
@@ -1068,12 +1075,10 @@ fn validate_target_attestation(
             format!("Target attestation {attestation:?} is listed in safety.forbidden_targets."),
         ));
     }
-    if matches!(attestation, TargetAttestation::InternalAppleNvme)
-        && !request.safety.allow_internal_disk_selection
-    {
+    if attestation.is_internal_apple_storage() && !request.safety.allow_internal_disk_selection {
         blockers.push(ForgeDiagnostic::new(
-            "INTERNAL_APPLE_NVME_FORBIDDEN",
-            "Internal Apple NVMe targets require safety.allow_internal_disk_selection = true.",
+            "INTERNAL_APPLE_STORAGE_FORBIDDEN",
+            "Internal Apple storage targets require safety.allow_internal_disk_selection = true.",
         ));
     }
 }
@@ -1408,6 +1413,9 @@ fn parse_target_attestation(value: &str) -> Result<TargetAttestation> {
             Ok(TargetAttestation::ExternalThunderboltSsd)
         }
         "internal-apple-nvme" | "internal_apple_nvme" => Ok(TargetAttestation::InternalAppleNvme),
+        "internal-apple-storage" | "internal_apple_storage" => {
+            Ok(TargetAttestation::InternalAppleStorage)
+        }
         other => anyhow::bail!("unsupported target attestation {other:?}"),
     }
 }
@@ -1843,7 +1851,42 @@ mod target_attestation_tests {
         assert!(plan
             .blockers
             .iter()
-            .any(|diag| diag.code == "INTERNAL_APPLE_NVME_FORBIDDEN"));
+            .any(|diag| diag.code == "INTERNAL_APPLE_STORAGE_FORBIDDEN"));
+        Ok(())
+    }
+
+    #[test]
+    fn blocks_internal_apple_storage_attestation_by_default() -> Result<()> {
+        let mut request = ForgeRequest::new(
+            ForgeOperation::UsbInstall,
+            "seed",
+            ForgeArch::X86_64,
+            ForgeTarget::usb(Some("TARGET")),
+        );
+        request.safety.allow_destructive_flash = true;
+        request.safety.requires_target_attestation = true;
+        request.safety.target_attestation = Some(TargetAttestation::InternalAppleStorage);
+        request.safety.allowed_targets = vec![
+            TargetAttestation::ExternalUsbSsd,
+            TargetAttestation::ExternalThunderboltSsd,
+        ];
+        request.safety.forbidden_targets = vec![TargetAttestation::InternalAppleStorage];
+
+        let plan = plan_request(&request)?;
+
+        assert!(plan.is_blocked());
+        assert!(plan
+            .blockers
+            .iter()
+            .any(|diag| diag.code == "TARGET_ATTESTATION_NOT_ALLOWED"));
+        assert!(plan
+            .blockers
+            .iter()
+            .any(|diag| diag.code == "TARGET_ATTESTATION_FORBIDDEN"));
+        assert!(plan
+            .blockers
+            .iter()
+            .any(|diag| diag.code == "INTERNAL_APPLE_STORAGE_FORBIDDEN"));
         Ok(())
     }
 
@@ -1859,7 +1902,7 @@ mod target_attestation_tests {
                 "requires_target_attestation": true,
                 "target_attestation": "external-usb-ssd",
                 "allowed_targets": ["external-usb-ssd", "external-thunderbolt-ssd"],
-                "forbidden_targets": ["internal-apple-nvme"]
+                "forbidden_targets": ["internal-apple-storage"]
             }
         });
 
@@ -1878,7 +1921,7 @@ mod target_attestation_tests {
         );
         assert_eq!(
             request.safety.forbidden_targets,
-            vec![TargetAttestation::InternalAppleNvme]
+            vec![TargetAttestation::InternalAppleStorage]
         );
         Ok(())
     }
