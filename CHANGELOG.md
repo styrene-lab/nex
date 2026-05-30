@@ -4,6 +4,11 @@ All notable changes to nex are documented here. Format follows [Keep a Changelog
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-05-30
+
+### Added
+- Forge USB install requests can now require target attestations, allow external USB/Thunderbolt SSD targets, forbid internal Apple NVMe targets by policy, and block destructive plans when attestation safety checks fail.
+
 ## [0.22.1] - 2026-05-29
 
 ### Fixed
