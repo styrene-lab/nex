@@ -179,6 +179,22 @@ pub struct SafetyPolicy {
     pub allow_internal_disk_selection: bool,
     #[serde(default = "default_require_operator_confirmation")]
     pub require_operator_confirmation: bool,
+    #[serde(default)]
+    pub requires_target_attestation: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_attestation: Option<TargetAttestation>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowed_targets: Vec<TargetAttestation>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub forbidden_targets: Vec<TargetAttestation>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum TargetAttestation {
+    ExternalUsbSsd,
+    ExternalThunderboltSsd,
+    InternalAppleNvme,
 }
 
 impl Default for SafetyPolicy {
@@ -187,6 +203,10 @@ impl Default for SafetyPolicy {
             allow_destructive_flash: false,
             allow_internal_disk_selection: false,
             require_operator_confirmation: true,
+            requires_target_attestation: false,
+            target_attestation: None,
+            allowed_targets: Vec::new(),
+            forbidden_targets: Vec::new(),
         }
     }
 }
@@ -990,6 +1010,7 @@ pub fn plan_request(request: &ForgeRequest) -> Result<ForgePlan> {
             "Request selects a destructive USB flash but safety.allow_destructive_flash is false.",
         ));
     }
+    validate_target_attestation(request, &destructive_actions, &mut blockers);
 
     Ok(ForgePlan {
         schema_version: FORGE_SCHEMA_VERSION,
@@ -1014,6 +1035,47 @@ fn default_wifi_allowed() -> bool {
 
 fn default_require_operator_confirmation() -> bool {
     true
+}
+
+fn validate_target_attestation(
+    request: &ForgeRequest,
+    destructive_actions: &[DestructiveAction],
+    blockers: &mut Vec<ForgeDiagnostic>,
+) {
+    if destructive_actions.is_empty() {
+        return;
+    }
+    let Some(attestation) = request.safety.target_attestation else {
+        if request.safety.requires_target_attestation {
+            blockers.push(ForgeDiagnostic::new(
+                "TARGET_ATTESTATION_REQUIRED",
+                "Request requires target attestation for destructive actions, but safety.target_attestation is not set.",
+            ));
+        }
+        return;
+    };
+    if !request.safety.allowed_targets.is_empty()
+        && !request.safety.allowed_targets.contains(&attestation)
+    {
+        blockers.push(ForgeDiagnostic::new(
+            "TARGET_ATTESTATION_NOT_ALLOWED",
+            format!("Target attestation {attestation:?} is not listed in safety.allowed_targets."),
+        ));
+    }
+    if request.safety.forbidden_targets.contains(&attestation) {
+        blockers.push(ForgeDiagnostic::new(
+            "TARGET_ATTESTATION_FORBIDDEN",
+            format!("Target attestation {attestation:?} is listed in safety.forbidden_targets."),
+        ));
+    }
+    if matches!(attestation, TargetAttestation::InternalAppleNvme)
+        && !request.safety.allow_internal_disk_selection
+    {
+        blockers.push(ForgeDiagnostic::new(
+            "INTERNAL_APPLE_NVME_FORBIDDEN",
+            "Internal Apple NVMe targets require safety.allow_internal_disk_selection = true.",
+        ));
+    }
 }
 
 fn uses_installer_iso(operation: ForgeOperation) -> bool {
@@ -1210,6 +1272,26 @@ fn request_from_evaluated_pkl(value: serde_json::Value) -> Result<ForgeRequest> 
         ) {
             builder.safety.require_operator_confirmation = require;
         }
+        if let Some(require) = value_bool(
+            safety,
+            &["requiresTargetAttestation", "requires_target_attestation"],
+        ) {
+            builder.safety.requires_target_attestation = require;
+        }
+        builder.safety.target_attestation =
+            value_string(safety, &["targetAttestation", "target_attestation"])
+                .map(|value| parse_target_attestation(&value))
+                .transpose()?;
+        builder.safety.allowed_targets =
+            value_string_array(safety, &["allowedTargets", "allowed_targets"])
+                .into_iter()
+                .map(|value| parse_target_attestation(&value))
+                .collect::<Result<Vec<_>>>()?;
+        builder.safety.forbidden_targets =
+            value_string_array(safety, &["forbiddenTargets", "forbidden_targets"])
+                .into_iter()
+                .map(|value| parse_target_attestation(&value))
+                .collect::<Result<Vec<_>>>()?;
     }
 
     if let Some(defaults) = object
@@ -1316,6 +1398,17 @@ fn parse_arch(value: &str) -> Result<ForgeArch> {
         "x86_64" | "x86" | "amd64" => Ok(ForgeArch::X86_64),
         "aarch64" | "arm64" | "arm" => Ok(ForgeArch::Aarch64),
         other => bail!("unsupported forge arch {other}"),
+    }
+}
+
+fn parse_target_attestation(value: &str) -> Result<TargetAttestation> {
+    match value {
+        "external-usb-ssd" | "external_usb_ssd" => Ok(TargetAttestation::ExternalUsbSsd),
+        "external-thunderbolt-ssd" | "external_thunderbolt_ssd" => {
+            Ok(TargetAttestation::ExternalThunderboltSsd)
+        }
+        "internal-apple-nvme" | "internal_apple_nvme" => Ok(TargetAttestation::InternalAppleNvme),
+        other => anyhow::bail!("unsupported target attestation {other:?}"),
     }
 }
 
@@ -1667,6 +1760,126 @@ mod tests {
         assert_eq!(request.hostname, "seed");
         assert_eq!(request.operation, ForgeOperation::UsbInstall);
         assert_eq!(request.target.disk.as_deref(), Some("/dev/disk9"));
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod target_attestation_tests {
+    use super::*;
+
+    #[test]
+    fn blocks_destructive_flash_when_target_attestation_required_but_missing() -> Result<()> {
+        let mut request = ForgeRequest::new(
+            ForgeOperation::UsbInstall,
+            "seed",
+            ForgeArch::X86_64,
+            ForgeTarget::usb(Some("TARGET")),
+        );
+        request.safety.allow_destructive_flash = true;
+        request.safety.requires_target_attestation = true;
+
+        let plan = plan_request(&request)?;
+
+        assert!(plan.is_blocked());
+        assert!(plan
+            .blockers
+            .iter()
+            .any(|diag| diag.code == "TARGET_ATTESTATION_REQUIRED"));
+        Ok(())
+    }
+
+    #[test]
+    fn allows_destructive_flash_with_allowed_external_attestation() -> Result<()> {
+        let mut request = ForgeRequest::new(
+            ForgeOperation::UsbInstall,
+            "seed",
+            ForgeArch::X86_64,
+            ForgeTarget::usb(Some("TARGET")),
+        );
+        request.safety.allow_destructive_flash = true;
+        request.safety.requires_target_attestation = true;
+        request.safety.target_attestation = Some(TargetAttestation::ExternalUsbSsd);
+        request.safety.allowed_targets = vec![
+            TargetAttestation::ExternalUsbSsd,
+            TargetAttestation::ExternalThunderboltSsd,
+        ];
+        request.safety.forbidden_targets = vec![TargetAttestation::InternalAppleNvme];
+
+        let plan = plan_request(&request)?;
+
+        assert!(!plan.is_blocked());
+        Ok(())
+    }
+
+    #[test]
+    fn blocks_internal_apple_nvme_attestation_by_default() -> Result<()> {
+        let mut request = ForgeRequest::new(
+            ForgeOperation::UsbInstall,
+            "seed",
+            ForgeArch::X86_64,
+            ForgeTarget::usb(Some("TARGET")),
+        );
+        request.safety.allow_destructive_flash = true;
+        request.safety.requires_target_attestation = true;
+        request.safety.target_attestation = Some(TargetAttestation::InternalAppleNvme);
+        request.safety.allowed_targets = vec![
+            TargetAttestation::ExternalUsbSsd,
+            TargetAttestation::ExternalThunderboltSsd,
+        ];
+        request.safety.forbidden_targets = vec![TargetAttestation::InternalAppleNvme];
+
+        let plan = plan_request(&request)?;
+
+        assert!(plan.is_blocked());
+        assert!(plan
+            .blockers
+            .iter()
+            .any(|diag| diag.code == "TARGET_ATTESTATION_NOT_ALLOWED"));
+        assert!(plan
+            .blockers
+            .iter()
+            .any(|diag| diag.code == "TARGET_ATTESTATION_FORBIDDEN"));
+        assert!(plan
+            .blockers
+            .iter()
+            .any(|diag| diag.code == "INTERNAL_APPLE_NVME_FORBIDDEN"));
+        Ok(())
+    }
+
+    #[test]
+    fn parses_target_attestation_from_json_transport() -> Result<()> {
+        let value = serde_json::json!({
+            "operation": "usb-install",
+            "hostname": "seed",
+            "arch": "x86_64",
+            "target": { "kind": "usb", "disk": "TARGET" },
+            "safety": {
+                "allow_destructive_flash": true,
+                "requires_target_attestation": true,
+                "target_attestation": "external-usb-ssd",
+                "allowed_targets": ["external-usb-ssd", "external-thunderbolt-ssd"],
+                "forbidden_targets": ["internal-apple-nvme"]
+            }
+        });
+
+        let request = request_from_evaluated_pkl(value)?;
+
+        assert_eq!(
+            request.safety.target_attestation,
+            Some(TargetAttestation::ExternalUsbSsd)
+        );
+        assert_eq!(
+            request.safety.allowed_targets,
+            vec![
+                TargetAttestation::ExternalUsbSsd,
+                TargetAttestation::ExternalThunderboltSsd
+            ]
+        );
+        assert_eq!(
+            request.safety.forbidden_targets,
+            vec![TargetAttestation::InternalAppleNvme]
+        );
         Ok(())
     }
 }
