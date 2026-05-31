@@ -2,7 +2,7 @@ use std::path::Path;
 
 use anyhow::Result;
 
-use crate::devenv_import::inspect_devenv_project;
+use crate::devenv_import::{inspect_devenv_project, plan_devenv_migration};
 
 pub fn run_inspect(path: &Path, json: bool) -> Result<()> {
     let report = inspect_devenv_project(path)?;
@@ -30,6 +30,44 @@ pub fn run_inspect(path: &Path, json: bool) -> Result<()> {
             "  - {:?} {:?}: {} -> {}",
             item.kind, item.bucket, item.devenv.option, target
         );
+    }
+    Ok(())
+}
+
+pub fn run_plan(path: &Path, json: bool) -> Result<()> {
+    let plan = plan_devenv_migration(path)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&plan)?);
+        return Ok(());
+    }
+    println!("devenv migration plan: {}", plan.root.display());
+    println!(
+        "  ready: {}  blocked: {}  portable: {}  machine candidates: {}  review: {}",
+        plan.actions.len(),
+        plan.blocked.len(),
+        plan.summary.portable,
+        plan.summary.machine_scoped_candidate,
+        plan.summary.requires_review
+    );
+    if !plan.actions.is_empty() {
+        println!("ready actions:");
+        for action in &plan.actions {
+            println!(
+                "  - {:?}: {} -> {}",
+                action.action, action.id, action.target
+            );
+        }
+    }
+    if !plan.blocked.is_empty() {
+        println!("blocked pending review:");
+        for action in &plan.blocked {
+            let reason = action
+                .blockers
+                .first()
+                .map(|b| b.message.as_str())
+                .unwrap_or("operator review required");
+            println!("  - {:?}: {} ({reason})", action.action, action.id);
+        }
     }
     Ok(())
 }

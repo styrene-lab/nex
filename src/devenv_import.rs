@@ -475,6 +475,114 @@ fn summarize(items: &[DevenvImportItem]) -> DevenvImportSummary {
     summary
 }
 
+pub const DEVENVP_MIGRATION_PLAN_SCHEMA_V1: &str = "io.styrene.nex.devenv-migration-plan.v1";
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DevenvMigrationPlan {
+    pub schema: String,
+    pub root: PathBuf,
+    pub import_schema: String,
+    pub summary: DevenvImportSummary,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub actions: Vec<DevenvMigrationAction>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub blocked: Vec<DevenvMigrationAction>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DevenvMigrationAction {
+    pub id: String,
+    pub kind: DevenvImportKind,
+    pub bucket: DevenvImportBucket,
+    pub source: DevenvImportSource,
+    pub action: DevenvMigrationActionKind,
+    pub target: String,
+    pub value_summary: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub safety: Vec<DevenvSafetyTag>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub blockers: Vec<DevenvImportMessage>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum DevenvMigrationActionKind {
+    GenerateProfileFragment,
+    GenerateSecretContract,
+    GenerateProfileOutput,
+    ManualReview,
+    SkipLocalOnly,
+}
+
+pub fn plan_devenv_migration(root: &Path) -> Result<DevenvMigrationPlan> {
+    let report = inspect_devenv_project(root)?;
+    let mut actions = Vec::new();
+    let mut blocked = Vec::new();
+    for item in &report.items {
+        let target = item
+            .nex_candidate
+            .as_ref()
+            .map(|candidate| candidate.target.clone())
+            .unwrap_or_else(|| "manual-review".to_string());
+        let action = action_for_item(item);
+        let mut migration = DevenvMigrationAction {
+            id: item.id.clone(),
+            kind: item.kind.clone(),
+            bucket: item.bucket,
+            source: item.source.clone(),
+            action,
+            target,
+            value_summary: item.devenv.value_summary.clone(),
+            safety: item.safety.clone(),
+            blockers: Vec::new(),
+        };
+        if item.review.required || item.bucket == DevenvImportBucket::MachineScopedCandidate {
+            migration.blockers.push(DevenvImportMessage {
+                code: "REVIEW_REQUIRED".to_string(),
+                message: item
+                    .review
+                    .reason
+                    .clone()
+                    .unwrap_or_else(|| "operator review required before migration".to_string()),
+            });
+        }
+        if migration.blockers.is_empty() {
+            actions.push(migration);
+        } else {
+            blocked.push(migration);
+        }
+    }
+    Ok(DevenvMigrationPlan {
+        schema: DEVENVP_MIGRATION_PLAN_SCHEMA_V1.to_string(),
+        root: report.root,
+        import_schema: report.schema,
+        summary: report.summary,
+        actions,
+        blocked,
+    })
+}
+
+fn action_for_item(item: &DevenvImportItem) -> DevenvMigrationActionKind {
+    match item.bucket {
+        DevenvImportBucket::ProjectScoped => return DevenvMigrationActionKind::SkipLocalOnly,
+        DevenvImportBucket::RequiresReview
+        | DevenvImportBucket::MachineScopedCandidate
+        | DevenvImportBucket::Unsupported => return DevenvMigrationActionKind::ManualReview,
+        DevenvImportBucket::Portable => {}
+    }
+    match item.kind {
+        DevenvImportKind::SecretContract | DevenvImportKind::DotenvProvider => {
+            DevenvMigrationActionKind::GenerateSecretContract
+        }
+        DevenvImportKind::Output | DevenvImportKind::Container => {
+            DevenvMigrationActionKind::GenerateProfileOutput
+        }
+        _ => DevenvMigrationActionKind::GenerateProfileFragment,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

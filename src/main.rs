@@ -197,6 +197,7 @@ fn main() -> Result<()> {
         Command::Devenv { ref action } => {
             return match action {
                 cli::DevenvAction::Inspect { path, json } => ops::devenv::run_inspect(path, *json),
+                cli::DevenvAction::Plan { path, json } => ops::devenv::run_plan(path, *json),
                 cli::DevenvAction::Explain { path, json } => ops::devenv::run_explain(path, *json),
             }
         }

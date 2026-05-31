@@ -432,6 +432,16 @@ pub enum DevenvAction {
         #[arg(long)]
         json: bool,
     },
+    /// Plan a safe migration from devenv concepts into Nex artifacts
+    Plan {
+        /// Path to a devenv project directory
+        #[arg(value_name = "PATH")]
+        path: PathBuf,
+
+        /// Emit stable JSON output
+        #[arg(long)]
+        json: bool,
+    },
     /// Explain how a devenv project maps into Nex concepts
     Explain {
         /// Path to a devenv project directory
