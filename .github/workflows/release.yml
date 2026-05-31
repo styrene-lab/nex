@@ -26,6 +26,7 @@ jobs:
   build-binaries:
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      PKL_VERSION: "0.31.1"
     name: Build ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -58,11 +59,36 @@ jobs:
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
 
-      - name: Package
+      - name: Download private Pkl evaluator
+        shell: bash
         run: |
-          cd target/${{ matrix.target }}/release
-          tar -czf nex-${{ matrix.target }}.tar.gz nex
-          mv nex-${{ matrix.target }}.tar.gz ../../../
+          set -euo pipefail
+          case "${{ matrix.target }}" in
+            aarch64-apple-darwin) pkl_asset="pkl-macos-aarch64" ;;
+            x86_64-apple-darwin) pkl_asset="pkl-macos-amd64" ;;
+            x86_64-unknown-linux-gnu) pkl_asset="pkl-linux-amd64" ;;
+            aarch64-unknown-linux-gnu) pkl_asset="pkl-linux-aarch64" ;;
+            *) echo "unsupported target ${{ matrix.target }}" >&2; exit 1 ;;
+          esac
+          mkdir -p target/pkl
+          curl -fsSL             "https://github.com/apple/pkl/releases/download/${PKL_VERSION}/${pkl_asset}"             -o target/pkl/pkl
+          chmod 0755 target/pkl/pkl
+          curl -fsSL             "https://raw.githubusercontent.com/apple/pkl/${PKL_VERSION}/LICENSE.txt"             -o target/pkl/LICENSE.txt
+          curl -fsSL             "https://raw.githubusercontent.com/apple/pkl/${PKL_VERSION}/THIRD-PARTY-NOTICES.txt"             -o target/pkl/THIRD-PARTY-NOTICES.txt
+
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          package="nex-${{ matrix.target }}"
+          staging="target/package/${package}"
+          mkdir -p "$staging/bin" "$staging/libexec/nex" "$staging/share/doc/nex/third-party/pkl"
+          cp "target/${{ matrix.target }}/release/nex" "$staging/bin/nex"
+          cp target/pkl/pkl "$staging/libexec/nex/pkl"
+          cp target/pkl/LICENSE.txt "$staging/share/doc/nex/third-party/pkl/LICENSE.txt"
+          cp target/pkl/THIRD-PARTY-NOTICES.txt "$staging/share/doc/nex/third-party/pkl/THIRD-PARTY-NOTICES.txt"
+          cp THIRD-PARTY-NOTICES.md "$staging/share/doc/nex/THIRD-PARTY-NOTICES.md"
+          tar -C target/package -czf "nex-${{ matrix.target }}.tar.gz" "$package"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v5

@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use anyhow::{bail, Context, Result};
@@ -14,25 +14,15 @@ fn run_eval_json(path: &Path) -> Result<Vec<u8>> {
     let mut attempts = Vec::new();
 
     if let Ok(bin) = std::env::var("NEX_PKL") {
-        attempts.push(PklCommand {
-            program: bin,
-            args: vec![
-                "eval".into(),
-                "--format".into(),
-                "json".into(),
-                path_arg.clone(),
-            ],
-        });
+        attempts.push(PklCommand::eval_json(bin, path_arg.clone()));
     }
-    attempts.push(PklCommand {
-        program: "pkl".into(),
-        args: vec![
-            "eval".into(),
-            "--format".into(),
-            "json".into(),
+    if let Some(bin) = bundled_pkl_path() {
+        attempts.push(PklCommand::eval_json(
+            bin.display().to_string(),
             path_arg.clone(),
-        ],
-    });
+        ));
+    }
+    attempts.push(PklCommand::eval_json("pkl".to_string(), path_arg.clone()));
     attempts.push(PklCommand {
         program: "nix".into(),
         args: vec![
@@ -88,6 +78,26 @@ struct PklCommand {
     args: Vec<String>,
 }
 
+impl PklCommand {
+    fn eval_json(program: String, path_arg: String) -> Self {
+        Self {
+            program,
+            args: vec!["eval".into(), "--format".into(), "json".into(), path_arg],
+        }
+    }
+}
+
+fn bundled_pkl_path() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    bundled_pkl_path_for_exe(&exe).filter(|path| path.is_file())
+}
+
+fn bundled_pkl_path_for_exe(exe: &Path) -> Option<PathBuf> {
+    let bin_dir = exe.parent()?;
+    let root = bin_dir.parent()?;
+    Some(root.join("libexec").join("nex").join("pkl"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -95,6 +105,12 @@ mod tests {
 
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn resolves_bundled_pkl_next_to_release_binary() {
+        let path = bundled_pkl_path_for_exe(Path::new("/opt/nex/bin/nex")).expect("bundled path");
+        assert_eq!(path, Path::new("/opt/nex/libexec/nex/pkl"));
+    }
 
     #[test]
     #[cfg(unix)]
