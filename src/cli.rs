@@ -262,12 +262,20 @@ pub enum ForgeAction {
         /// Canonical Pkl request/template path. JSON is accepted as transport fallback.
         #[arg(long)]
         request: PathBuf,
+
+        /// Hardware inventory JSON from `nex hardware scan --json`
+        #[arg(long)]
+        inventory: Option<PathBuf>,
     },
     /// Execute a forge request after planning and safety checks
     Run {
         /// Canonical Pkl request path. JSON is accepted as transport fallback.
         #[arg(long)]
         request: PathBuf,
+
+        /// Hardware inventory JSON from `nex hardware scan --json`
+        #[arg(long)]
+        inventory: Option<PathBuf>,
 
         /// Emit phase/blocker/artifact events as JSON lines
         #[arg(long, value_name = "FORMAT", default_value = "human")]
@@ -278,6 +286,10 @@ pub enum ForgeAction {
         /// Canonical Pkl request path. JSON is accepted as transport fallback.
         #[arg(long)]
         request: PathBuf,
+
+        /// Hardware inventory JSON from `nex hardware scan --json`
+        #[arg(long)]
+        inventory: Option<PathBuf>,
 
         /// Emit a stable JSON report
         #[arg(long)]

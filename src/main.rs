@@ -68,13 +68,21 @@ fn main() -> Result<()> {
         } => {
             if let Some(action) = action {
                 return match action {
-                    cli::ForgeAction::Plan { request } => ops::forge::run_plan(request),
-                    cli::ForgeAction::Run { request, events } => {
-                        ops::forge::run_request(request, events, cli.dry_run)
+                    cli::ForgeAction::Plan { request, inventory } => {
+                        ops::forge::run_plan(request, inventory.as_deref())
                     }
-                    cli::ForgeAction::Preflight { request, json } => {
-                        ops::forge::run_preflight(request, *json)
+                    cli::ForgeAction::Run {
+                        request,
+                        inventory,
+                        events,
+                    } => {
+                        ops::forge::run_request(request, inventory.as_deref(), events, cli.dry_run)
                     }
+                    cli::ForgeAction::Preflight {
+                        request,
+                        inventory,
+                        json,
+                    } => ops::forge::run_preflight(request, inventory.as_deref(), *json),
                     cli::ForgeAction::Check {
                         path,
                         metadata,

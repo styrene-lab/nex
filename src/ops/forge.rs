@@ -6,7 +6,7 @@ use console::style;
 
 use crate::forge::{
     ForgeArch, ForgeDiagnostic, ForgeEvent, ForgeOperation, ForgePlan, ForgePreflightReport,
-    ForgeRequest, NetworkPolicy, PolymerizeDefaults,
+    ForgeRequest, NetworkPolicy, PolymerizeDefaults, TargetAttestation,
 };
 use crate::input::input;
 use crate::output;
@@ -714,14 +714,20 @@ fn run_with_options(
     Ok(())
 }
 
-pub fn run_plan(request_path: &Path) -> Result<()> {
+pub fn run_plan(request_path: &Path, inventory_path: Option<&Path>) -> Result<()> {
     let request = crate::forge::load_request(request_path)?;
-    let plan = crate::forge::plan_request(&request)?;
+    let mut plan = crate::forge::plan_request(&request)?;
+    apply_inventory_attestation(&request, inventory_path, &mut plan)?;
     println!("{}", serde_json::to_string_pretty(&plan)?);
     Ok(())
 }
 
-pub fn run_request(request_path: &Path, events: &str, dry_run: bool) -> Result<()> {
+pub fn run_request(
+    request_path: &Path,
+    inventory_path: Option<&Path>,
+    events: &str,
+    dry_run: bool,
+) -> Result<()> {
     let events = EventMode::parse(events)?;
     emit_event(
         events,
@@ -747,6 +753,8 @@ pub fn run_request(request_path: &Path, events: &str, dry_run: bool) -> Result<(
         },
     )?;
     let plan = crate::forge::plan_request(&request)?;
+    let mut plan = plan;
+    apply_inventory_attestation(&request, inventory_path, &mut plan)?;
     for warning in &plan.warnings {
         emit_event(
             events,
@@ -851,9 +859,10 @@ pub fn run_request(request_path: &Path, events: &str, dry_run: bool) -> Result<(
     Ok(())
 }
 
-pub fn run_preflight(request_path: &Path, json: bool) -> Result<()> {
+pub fn run_preflight(request_path: &Path, inventory_path: Option<&Path>, json: bool) -> Result<()> {
     let request = crate::forge::load_request(request_path)?;
-    let plan = crate::forge::plan_request(&request)?;
+    let mut plan = crate::forge::plan_request(&request)?;
+    apply_inventory_attestation(&request, inventory_path, &mut plan)?;
     let mut preflight = preflight_request(&request, &plan);
     preflight.errors.extend(plan.blockers);
     preflight.warnings.extend(plan.warnings);
@@ -925,6 +934,92 @@ fn bail_with_preflight_errors(report: &ForgePreflightReport) -> ! {
         );
     }
     std::process::exit(1);
+}
+
+fn apply_inventory_attestation(
+    request: &ForgeRequest,
+    inventory_path: Option<&Path>,
+    plan: &mut ForgePlan,
+) -> Result<()> {
+    let Some(inventory_path) = inventory_path else {
+        return Ok(());
+    };
+    let content = std::fs::read_to_string(inventory_path)
+        .with_context(|| format!("reading hardware inventory {}", inventory_path.display()))?;
+    let inventory: crate::hardware_inventory::HardwareInventory = serde_json::from_str(&content)
+        .with_context(|| format!("decoding hardware inventory {}", inventory_path.display()))?;
+    let Some(target_disk) = request.target.disk.as_deref() else {
+        return Ok(());
+    };
+    let Some(inventory_disk) = inventory
+        .disks
+        .iter()
+        .find(|disk| disk_matches_target(disk, target_disk))
+    else {
+        plan.blockers.push(ForgeDiagnostic::new(
+            "TARGET_DISK_NOT_IN_INVENTORY",
+            format!("Request target disk {target_disk:?} was not found in hardware inventory."),
+        ));
+        return Ok(());
+    };
+    if inventory_disk.classification.confidence
+        != crate::hardware_inventory::ClassificationConfidence::Strong
+    {
+        plan.warnings.push(ForgeDiagnostic::new(
+            "TARGET_ATTESTATION_INVENTORY_UNKNOWN",
+            format!(
+                "Hardware inventory does not strongly classify target disk {target_disk:?}; explicit operator attestation is still required."
+            ),
+        ));
+        return Ok(());
+    }
+    let Some(inventory_attestation) =
+        inventory_attestation_for_forge(&inventory_disk.classification.target_attestation)
+    else {
+        return Ok(());
+    };
+    if let Some(request_attestation) = request.safety.target_attestation {
+        if request_attestation != inventory_attestation {
+            plan.blockers.push(ForgeDiagnostic::new(
+                "TARGET_ATTESTATION_CONFLICT",
+                format!(
+                    "Request attests target disk {target_disk:?} as {request_attestation:?}, but hardware inventory strongly classifies it as {inventory_attestation:?}."
+                ),
+            ));
+        }
+    } else {
+        plan.warnings.push(ForgeDiagnostic::new(
+            "TARGET_ATTESTATION_SUGGESTED",
+            format!(
+                "Hardware inventory strongly classifies target disk {target_disk:?} as {inventory_attestation:?}; add safety.target_attestation to the request to make this explicit."
+            ),
+        ));
+    }
+    Ok(())
+}
+
+fn disk_matches_target(disk: &crate::hardware_inventory::HardwareDisk, target: &str) -> bool {
+    let normalized = target.strip_prefix("/dev/").unwrap_or(target);
+    disk.id == normalized
+        || disk.path == target
+        || disk.path.strip_prefix("/dev/") == Some(normalized)
+}
+
+fn inventory_attestation_for_forge(
+    attestation: &crate::hardware_inventory::TargetAttestationCandidate,
+) -> Option<TargetAttestation> {
+    match attestation {
+        crate::hardware_inventory::TargetAttestationCandidate::ExternalUsbSsd => {
+            Some(TargetAttestation::ExternalUsbSsd)
+        }
+        crate::hardware_inventory::TargetAttestationCandidate::ExternalThunderboltSsd => {
+            Some(TargetAttestation::ExternalThunderboltSsd)
+        }
+        crate::hardware_inventory::TargetAttestationCandidate::InternalAppleStorage => {
+            Some(TargetAttestation::InternalAppleStorage)
+        }
+        crate::hardware_inventory::TargetAttestationCandidate::Unknown => None,
+    }
 }
 
 fn confirm_destructive_actions(request: &ForgeRequest, plan: &ForgePlan) -> Result<()> {
