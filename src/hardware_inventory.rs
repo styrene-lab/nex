@@ -48,6 +48,43 @@ pub struct HardwareMemorySummary {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub struct HardwareProfileMatchReport {
+    pub schema: String,
+    pub inventory_schema: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub requested_purpose: Option<String>,
+    pub hardware_class: HardwareClassCandidate,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub recommendations: Vec<HardwareProfileRecommendation>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<HardwareWarning>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct HardwareProfileRecommendation {
+    pub profile_ref: String,
+    pub score: u8,
+    pub confidence: ClassificationConfidence,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reasons: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub missing: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum HardwareClassCandidate {
+    MacosArm64,
+    MacosAmd64,
+    Amd64AppleT2,
+    Amd64Generic,
+    Arm64Generic,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct DiskAttestationReport {
     pub schema: String,
     pub disk: HardwareDisk,
@@ -160,6 +197,13 @@ pub fn scan_host() -> Result<HardwareInventory> {
 
 pub fn attest_disk(disk: &str) -> Result<DiskAttestationReport> {
     let inventory = scan_host()?;
+    attest_disk_from_inventory(inventory, disk)
+}
+
+pub fn attest_disk_from_inventory(
+    inventory: HardwareInventory,
+    disk: &str,
+) -> Result<DiskAttestationReport> {
     let normalized = normalize_disk_selector(disk);
     let disk = inventory
         .disks
@@ -174,6 +218,83 @@ pub fn attest_disk(disk: &str) -> Result<DiskAttestationReport> {
         schema: "io.styrene.nex.disk-attestation.v1".to_string(),
         disk,
     })
+}
+
+pub fn match_profiles(
+    inventory: &HardwareInventory,
+    purpose: Option<&str>,
+) -> HardwareProfileMatchReport {
+    let hardware_class = classify_hardware(inventory);
+    let mut recommendations = Vec::new();
+    if let Some(profile_ref) = starter_profile_for(&hardware_class, purpose) {
+        recommendations.push(HardwareProfileRecommendation {
+            profile_ref,
+            score: if purpose.is_some() { 85 } else { 70 },
+            confidence: if purpose.is_some() {
+                ClassificationConfidence::Strong
+            } else {
+                ClassificationConfidence::Weak
+            },
+            reasons: vec![format!(
+                "inventory matches hardware class {hardware_class:?}"
+            )],
+            missing: if purpose.is_some() {
+                Vec::new()
+            } else {
+                vec!["purpose not supplied".to_string()]
+            },
+        });
+    }
+    HardwareProfileMatchReport {
+        schema: "io.styrene.nex.hardware-profile-match.v1".to_string(),
+        inventory_schema: inventory.schema.clone(),
+        requested_purpose: purpose.map(ToString::to_string),
+        hardware_class,
+        recommendations,
+        warnings: Vec::new(),
+    }
+}
+
+fn classify_hardware(inventory: &HardwareInventory) -> HardwareClassCandidate {
+    match inventory.platform {
+        HardwarePlatform::Darwin if inventory.arch == "aarch64" => {
+            HardwareClassCandidate::MacosArm64
+        }
+        HardwarePlatform::Darwin if inventory.arch == "x86_64" => {
+            if inventory
+                .model
+                .as_deref()
+                .is_some_and(|model| model.starts_with("MacBookPro"))
+            {
+                HardwareClassCandidate::Amd64AppleT2
+            } else {
+                HardwareClassCandidate::MacosAmd64
+            }
+        }
+        HardwarePlatform::Linux if inventory.arch == "aarch64" => {
+            HardwareClassCandidate::Arm64Generic
+        }
+        HardwarePlatform::Linux if inventory.arch == "x86_64" => {
+            HardwareClassCandidate::Amd64Generic
+        }
+        _ => HardwareClassCandidate::Unknown,
+    }
+}
+
+fn starter_profile_for(
+    hardware_class: &HardwareClassCandidate,
+    purpose: Option<&str>,
+) -> Option<String> {
+    let purpose = purpose.unwrap_or("dev");
+    let hardware = match hardware_class {
+        HardwareClassCandidate::MacosArm64 => "macos-arm64",
+        HardwareClassCandidate::MacosAmd64 => "macos-amd64",
+        HardwareClassCandidate::Amd64AppleT2 => "amd64-apple-t2",
+        HardwareClassCandidate::Amd64Generic => "amd64",
+        HardwareClassCandidate::Arm64Generic => "arm64",
+        HardwareClassCandidate::Unknown => return None,
+    };
+    Some(format!("starter/{hardware}-{purpose}"))
 }
 
 fn normalize_disk_selector(disk: &str) -> String {
@@ -555,5 +676,34 @@ mod tests {
     fn attestation_selector_normalizes_dev_paths() {
         assert_eq!(normalize_disk_selector("/dev/disk4"), "disk4");
         assert_eq!(normalize_disk_selector("disk4"), "disk4");
+    }
+
+    #[test]
+    fn matches_macos_arm64_dev_starter() {
+        let inventory = HardwareInventory {
+            schema: HARDWARE_INVENTORY_SCHEMA_V1.to_string(),
+            platform: HardwarePlatform::Darwin,
+            arch: "aarch64".to_string(),
+            vendor: Some("Apple".to_string()),
+            model: Some("Mac17,7".to_string()),
+            model_name: Some("MacBook Pro".to_string()),
+            cpu: None,
+            memory: None,
+            disks: Vec::new(),
+            evidence: HardwareEvidence::default(),
+            warnings: Vec::new(),
+        };
+
+        let report = match_profiles(&inventory, Some("dev"));
+
+        assert_eq!(report.hardware_class, HardwareClassCandidate::MacosArm64);
+        assert_eq!(
+            report.recommendations[0].profile_ref,
+            "starter/macos-arm64-dev"
+        );
+        assert_eq!(
+            report.recommendations[0].confidence,
+            ClassificationConfidence::Strong
+        );
     }
 }

@@ -437,6 +437,20 @@ pub enum HardwareAction {
         #[arg(long)]
         json: bool,
     },
+    /// Recommend starter profile surfaces for this host
+    Match {
+        /// Hardware inventory JSON from `nex hardware scan --json`; scans live host when omitted
+        #[arg(long)]
+        inventory: Option<PathBuf>,
+
+        /// Desired purpose, e.g. dev, desktop, server, gaming, mesh-node
+        #[arg(long)]
+        purpose: Option<String>,
+
+        /// Emit stable JSON output
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]

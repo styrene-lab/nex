@@ -201,6 +201,11 @@ fn main() -> Result<()> {
                 cli::HardwareAction::Attest { disk, json } => {
                     ops::hardware::run_attest(disk, *json)
                 }
+                cli::HardwareAction::Match {
+                    inventory,
+                    purpose,
+                    json,
+                } => ops::hardware::run_match(inventory.as_deref(), purpose.as_deref(), *json),
             }
         }
         Command::ProfileFragment { ref action } => {
