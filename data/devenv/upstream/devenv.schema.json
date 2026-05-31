@@ -1,0 +1,221 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Config",
+  "type": "object",
+  "properties": {
+    "inputs": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/Input"
+      }
+    },
+    "allowUnfree": {
+      "type": "boolean"
+    },
+    "allowBroken": {
+      "type": "boolean"
+    },
+    "nixpkgs": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Nixpkgs"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "imports": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "permittedInsecurePackages": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "clean": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Clean"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "impure": {
+      "type": "boolean"
+    },
+    "backend": {
+      "$ref": "#/$defs/NixBackendType"
+    },
+    "secretspec": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SecretspecConfig"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "profile": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "$defs": {
+    "Input": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "flake": {
+          "type": "boolean"
+        },
+        "follows": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "inputs": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Input"
+          }
+        },
+        "overlays": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "Nixpkgs": {
+      "type": "object",
+      "properties": {
+        "allowUnfree": {
+          "type": "boolean"
+        },
+        "allowBroken": {
+          "type": "boolean"
+        },
+        "cudaSupport": {
+          "type": "boolean"
+        },
+        "cudaCapabilities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "permittedInsecurePackages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "permittedUnfreePackages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "per-platform": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/NixpkgsConfig"
+          }
+        }
+      }
+    },
+    "NixpkgsConfig": {
+      "type": "object",
+      "properties": {
+        "allowUnfree": {
+          "type": "boolean"
+        },
+        "allowBroken": {
+          "type": "boolean"
+        },
+        "cudaSupport": {
+          "type": "boolean"
+        },
+        "cudaCapabilities": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "permittedInsecurePackages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "permittedUnfreePackages": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "Clean": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "keep": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "enabled",
+        "keep"
+      ]
+    },
+    "NixBackendType": {
+      "type": "string",
+      "enum": [
+        "nix"
+      ]
+    },
+    "SecretspecConfig": {
+      "type": "object",
+      "properties": {
+        "enable": {
+          "type": "boolean"
+        },
+        "profile": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "provider": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    }
+  }
+}

@@ -452,6 +452,21 @@ pub enum DevenvAction {
         #[arg(long)]
         json: bool,
     },
+    /// List or validate Nex's devenv surface-awareness catalog
+    Catalog {
+        #[command(subcommand)]
+        action: DevenvCatalogAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum DevenvCatalogAction {
+    /// List the embedded Nex policy mappings for known devenv surfaces
+    List {
+        /// Emit stable JSON output
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]

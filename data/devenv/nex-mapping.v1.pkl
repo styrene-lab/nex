@@ -1,0 +1,104 @@
+schema = "io.styrene.nex.devenv-mapping.v1"
+reviewedAt = "2026-05-31"
+source = "devenv surface awareness design"
+
+mappings {
+  ["packages"] {
+    kind = "package"
+    bucket = "portable"
+    target = "profile.packages"
+    safety = List("build")
+    action = "generate-profile-fragment"
+  }
+
+  ["languages.*"] {
+    kind = "language"
+    bucket = "portable"
+    target = "profile.fragments.dev"
+    safety = List("build")
+    action = "generate-profile-fragment"
+  }
+
+  ["services.*"] {
+    kind = "service"
+    bucket = "machine-scoped-candidate"
+    target = "profile.services"
+    safety = List("system-config-mutation")
+    action = "manual-review"
+    rationale = "devenv services are project-local; Nex services may become machine lifecycle state"
+  }
+
+  ["processes"] {
+    kind = "process"
+    bucket = "project-scoped"
+    target = "profile.processes"
+    safety = List("arbitrary-command")
+    action = "skip-local-only"
+    rationale = "process managers are project runtime behavior until explicitly lifted into a profile output"
+  }
+
+  ["tasks.*"] {
+    kind = "task"
+    bucket = "requires-review"
+    target = "profile.tasks"
+    safety = List("arbitrary-command")
+    action = "manual-review"
+  }
+
+  ["enterShell"] {
+    kind = "shell-hook"
+    bucket = "requires-review"
+    target = "profile.shellHooks"
+    safety = List("arbitrary-command")
+    action = "manual-review"
+  }
+
+  ["enterTest"] {
+    kind = "test"
+    bucket = "portable"
+    target = "profile.tests"
+    safety = List("build")
+    action = "generate-profile-fragment"
+  }
+
+  ["outputs"] {
+    kind = "output"
+    bucket = "portable"
+    target = "profile.outputs"
+    safety = List("build")
+    action = "generate-profile-output"
+  }
+
+  ["containers.*"] {
+    kind = "container"
+    bucket = "portable"
+    target = "profile.outputs.container"
+    safety = List("build")
+    action = "generate-profile-output"
+  }
+
+  ["git-hooks.*"] {
+    kind = "git-hook"
+    bucket = "project-scoped"
+    target = "profile.gitHooks"
+    safety = List("local-file-write", "arbitrary-command")
+    action = "skip-local-only"
+  }
+
+  ["imports"] {
+    kind = "import"
+    bucket = "requires-review"
+    target = "profile.imports"
+    safety = List("build")
+    action = "manual-review"
+    rationale = "devenv imports can pull arbitrary Nix modules or nested project configuration"
+  }
+
+  ["secretspec"] {
+    kind = "secret-contract"
+    bucket = "portable"
+    target = "profile.secrets"
+    safety = List("secret-contract")
+    action = "generate-secret-contract"
+  }
+}

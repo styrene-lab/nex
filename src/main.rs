@@ -8,6 +8,7 @@ mod bootstrap;
 mod cli;
 mod config;
 mod devenv_import;
+mod devenv_surface;
 mod discover;
 mod document;
 mod edit;
@@ -199,6 +200,9 @@ fn main() -> Result<()> {
                 cli::DevenvAction::Inspect { path, json } => ops::devenv::run_inspect(path, *json),
                 cli::DevenvAction::Plan { path, json } => ops::devenv::run_plan(path, *json),
                 cli::DevenvAction::Explain { path, json } => ops::devenv::run_explain(path, *json),
+                cli::DevenvAction::Catalog { action } => match action {
+                    cli::DevenvCatalogAction::List { json } => ops::devenv::run_catalog_list(*json),
+                },
             }
         }
         Command::Hardware { ref action } => {

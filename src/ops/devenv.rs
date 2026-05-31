@@ -3,6 +3,7 @@ use std::path::Path;
 use anyhow::Result;
 
 use crate::devenv_import::{inspect_devenv_project, plan_devenv_migration};
+use crate::devenv_surface::load_devenv_surface_catalog;
 
 pub fn run_inspect(path: &Path, json: bool) -> Result<()> {
     let report = inspect_devenv_project(path)?;
@@ -68,6 +69,41 @@ pub fn run_plan(path: &Path, json: bool) -> Result<()> {
                 .unwrap_or("operator review required");
             println!("  - {:?}: {} ({reason})", action.action, action.id);
         }
+    }
+    Ok(())
+}
+
+pub fn run_catalog_list(json: bool) -> Result<()> {
+    let report = load_devenv_surface_catalog()?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+        return Ok(());
+    }
+
+    println!("devenv surface catalog");
+    println!(
+        "  upstream: {} @ {}",
+        report.upstream.repo, report.upstream.rev
+    );
+    println!("  mapping reviewed: {}", report.mapping.reviewed_at);
+    println!("  mappings: {}", report.mapping.mappings.len());
+    println!(
+        "  devenv.yaml top-level keys: {}",
+        report.yaml_top_level_properties.join(", ")
+    );
+    if let Some((pattern, mapping)) =
+        crate::devenv_surface::find_mapping(&report.mapping, "languages.rust.enable")
+    {
+        println!(
+            "  example: languages.rust.enable matches {pattern} -> {}",
+            mapping.target
+        );
+    }
+    for (pattern, mapping) in &report.mapping.mappings {
+        println!(
+            "  - {pattern}: {} -> {} ({})",
+            mapping.kind, mapping.target, mapping.bucket
+        );
     }
     Ok(())
 }

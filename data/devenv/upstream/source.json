@@ -1,0 +1,12 @@
+{
+  "schema": "io.styrene.nex.devenv-upstream-source.v1",
+  "repo": "https://github.com/cachix/devenv",
+  "rev": "21d68a204558895af93ad82014f8fa83f9c9a51e",
+  "reviewed_at": "2026-05-31",
+  "options_source": "docs/gen outputs.devenv-docs-options-json",
+  "yaml_schema_source": "docs/src/devenv.schema.json",
+  "notes": [
+    "devenv.nix options are generated upstream with pkgs.nixosOptionsDoc as outputs.devenv-docs-options-json.",
+    "devenv.yaml schema is published at https://devenv.sh/devenv.schema.json and mirrored from docs/src/devenv.schema.json."
+  ]
+}
