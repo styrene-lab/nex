@@ -23,6 +23,11 @@
             version = cargoToml.package.version;
             src = pkgs.lib.cleanSource ./.;
             cargoLock.lockFile = ./Cargo.lock;
+            nativeBuildInputs = [ pkgs.makeWrapper ];
+            postInstall = ''
+              wrapProgram $out/bin/nex \
+                --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.pkl ]}
+            '';
             meta = with pkgs.lib; {
               description = "Package manager UX for nix-darwin + homebrew";
               homepage = "https://nex.styrene.io";
