@@ -5,6 +5,7 @@ pub mod armory_store;
 pub mod artifact;
 pub mod bootstrap;
 pub mod config;
+pub mod devenv_import;
 pub mod discover;
 pub mod document;
 pub mod edit;

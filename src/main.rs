@@ -7,6 +7,7 @@ mod artifact;
 mod bootstrap;
 mod cli;
 mod config;
+mod devenv_import;
 mod discover;
 mod document;
 mod edit;
@@ -193,6 +194,12 @@ fn main() -> Result<()> {
                 } => ops::artifact::run_check_relationship(profile, payload, *json),
             }
         }
+        Command::Devenv { ref action } => {
+            return match action {
+                cli::DevenvAction::Inspect { path, json } => ops::devenv::run_inspect(path, *json),
+                cli::DevenvAction::Explain { path, json } => ops::devenv::run_explain(path, *json),
+            }
+        }
         Command::Hardware { ref action } => {
             return match action {
                 cli::HardwareAction::Scan { json, output } => {
@@ -299,6 +306,7 @@ fn main() -> Result<()> {
         | Command::Develop { .. }
         | Command::Dev { .. }
         | Command::Artifact { .. }
+        | Command::Devenv { .. }
         | Command::Hardware { .. }
         | Command::MachineProfile { .. }
         | Command::ProfileFragment { .. }

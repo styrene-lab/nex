@@ -4,6 +4,7 @@ pub mod build_image;
 pub mod config;
 pub mod dev;
 pub mod develop;
+pub mod devenv;
 pub mod diff;
 pub mod doctor;
 pub mod forge;

@@ -16,6 +16,7 @@ anyhow = "1"
 clap = { version = "4", features = ["derive", "env"] }
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
+serde_yaml = "0.9"
 tempfile = "3"
 dirs = "6"
 console = "0.15"

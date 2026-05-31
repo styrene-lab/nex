@@ -95,6 +95,11 @@ pub enum Command {
     },
     /// Identify brew packages that can migrate to nix
     Migrate,
+    /// Inspect and migrate devenv projects into Nex profiles
+    Devenv {
+        #[command(subcommand)]
+        action: DevenvAction,
+    },
     /// Inspect live host hardware and classify install-relevant devices
     Hardware {
         #[command(subcommand)]
@@ -412,6 +417,30 @@ pub enum IdentityAction {
         /// Path to the identity file (default: ~/.config/styrene/identity.key)
         #[arg(long)]
         path: Option<PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum DevenvAction {
+    /// Inspect a devenv project and emit an import report
+    Inspect {
+        /// Path to a devenv project directory
+        #[arg(value_name = "PATH")]
+        path: PathBuf,
+
+        /// Emit stable JSON output
+        #[arg(long)]
+        json: bool,
+    },
+    /// Explain how a devenv project maps into Nex concepts
+    Explain {
+        /// Path to a devenv project directory
+        #[arg(value_name = "PATH")]
+        path: PathBuf,
+
+        /// Emit stable JSON output
+        #[arg(long)]
+        json: bool,
     },
 }
 
