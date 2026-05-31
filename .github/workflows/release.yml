@@ -7,6 +7,8 @@ on:
 
 jobs:
   publish-crate:
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     name: Publish to crates.io
     runs-on: ubuntu-latest
     # Don't block the release if crate is already published
@@ -22,6 +24,8 @@ jobs:
         run: cargo publish --allow-dirty
 
   build-binaries:
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     name: Build ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -67,6 +71,8 @@ jobs:
           path: nex-${{ matrix.target }}.tar.gz
 
   github-release:
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     name: GitHub Release
     needs: [publish-crate, build-binaries]
     runs-on: ubuntu-latest
