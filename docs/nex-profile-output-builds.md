@@ -8,7 +8,7 @@ status = "exploring"
 issue_type = "architecture"
 priority = 3
 parent = "nex-devenv-parallels"
-dependencies = []
+dependencies = ["nex-devenv-container-strategy"]
 open_questions = [
   "Which outputs are canonical for v1: module, installer, sd-image, vm, container?",
   "Should outputs be declared by profiles or inferred from target/purpose?",
@@ -28,6 +28,7 @@ installer     bootable installer media plan/artifact
 sd-image      Raspberry Pi / appliance image
 vm            VM image for test or deployment
 container     OCI container for process/profile subsets
+validation-container OCI container that runs profile or repository validation tasks
 activation    local apply/switch closure
 ```
 
@@ -38,6 +39,9 @@ nex profile outputs <profile>
 nex profile build <profile> --output module
 nex profile build <profile> --output installer
 nex profile build <profile> --output sd-image
+nex profile build <profile> --output vm
+nex profile build <profile> --output container
+nex profile build <profile> --output validation-container
 nex profile build <profile> --all
 ```
 
@@ -55,3 +59,4 @@ A named-output model can unify these into a clearer user model.
 - Proposed: expose outputs as named artifacts derived from profiles.
 - Proposed: output builds should be visible in `profile explain` and validated in `profile test`.
 - Proposed: output artifacts should use existing Armory artifact boundary validation.
+- Proposed: container outputs are process/service scoped; they must not claim to represent full-machine installation semantics.
