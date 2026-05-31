@@ -4,6 +4,17 @@ All notable changes to nex are documented here. Format follows [Keep a Changelog
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-05-30
+
+### Added
+- Added initial macOS hardware inventory scanning with `nex hardware scan`, including human-readable and JSON output.
+- Added `nex hardware attest --disk` for focused disk safety classification.
+- Added `nex hardware match` as the starter-profile recommendation adapter surface.
+- Forge `plan`, `preflight`, and `run` can validate target attestations against hardware inventory via `--inventory`, blocking conflicts such as an external USB attestation for internal Apple storage.
+
+### Changed
+- Forge target attestation now accepts `internal-apple-storage` alongside `internal-apple-nvme` for Apple Silicon and other Apple internal storage evidence.
+
 ## [0.23.0] - 2026-05-30
 
 ### Added
