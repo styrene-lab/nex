@@ -48,6 +48,13 @@ pub struct HardwareMemorySummary {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub struct DiskAttestationReport {
+    pub schema: String,
+    pub disk: HardwareDisk,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct HardwareDisk {
     pub id: String,
     pub path: String,
@@ -149,6 +156,28 @@ pub fn scan_host() -> Result<HardwareInventory> {
         "UNSUPPORTED_PLATFORM",
         "Live hardware scanning is not implemented for this platform yet.",
     ))
+}
+
+pub fn attest_disk(disk: &str) -> Result<DiskAttestationReport> {
+    let inventory = scan_host()?;
+    let normalized = normalize_disk_selector(disk);
+    let disk = inventory
+        .disks
+        .into_iter()
+        .find(|candidate| {
+            candidate.id == normalized
+                || candidate.path == disk
+                || candidate.path.strip_prefix("/dev/") == Some(normalized.as_str())
+        })
+        .with_context(|| format!("disk {disk:?} was not found in hardware inventory"))?;
+    Ok(DiskAttestationReport {
+        schema: "io.styrene.nex.disk-attestation.v1".to_string(),
+        disk,
+    })
+}
+
+fn normalize_disk_selector(disk: &str) -> String {
+    disk.strip_prefix("/dev/").unwrap_or(disk).to_string()
 }
 
 fn degraded_inventory(
@@ -520,5 +549,11 @@ mod tests {
             ClassificationConfidence::Strong
         );
         Ok(())
+    }
+
+    #[test]
+    fn attestation_selector_normalizes_dev_paths() {
+        assert_eq!(normalize_disk_selector("/dev/disk4"), "disk4");
+        assert_eq!(normalize_disk_selector("disk4"), "disk4");
     }
 }

@@ -190,6 +190,9 @@ fn main() -> Result<()> {
                 cli::HardwareAction::Scan { json, output } => {
                     ops::hardware::run_scan(*json, output.as_deref())
                 }
+                cli::HardwareAction::Attest { disk, json } => {
+                    ops::hardware::run_attest(disk, *json)
+                }
             }
         }
         Command::ProfileFragment { ref action } => {

@@ -415,6 +415,16 @@ pub enum HardwareAction {
         #[arg(long, short)]
         output: Option<PathBuf>,
     },
+    /// Classify one disk for Forge target-attestation safety
+    Attest {
+        /// Disk identifier or path, e.g. disk4 or /dev/disk4
+        #[arg(long)]
+        disk: String,
+
+        /// Emit stable JSON output
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]
