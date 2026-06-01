@@ -4,6 +4,11 @@ All notable changes to nex are documented here. Format follows [Keep a Changelog
 
 ## [Unreleased]
 
+## [0.25.5] - 2026-06-01
+
+### Fixed
+- Publish corrected hotfix version after v0.25.4 tag built with stale crate metadata.
+
 ## [0.25.3] - 2026-06-01
 
 ### Fixed
