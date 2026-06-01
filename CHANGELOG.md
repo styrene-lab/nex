@@ -4,6 +4,18 @@ All notable changes to nex are documented here. Format follows [Keep a Changelog
 
 ## [Unreleased]
 
+## [0.25.2] - 2026-06-01
+
+### Added
+- Added `nex capabilities --json` for provider-facing command discovery.
+- Added read-only `nex doctor --json` host readiness reports for substrate integrations.
+
+### Changed
+- Hardened clean/unknown macOS onboarding by making Homebrew cleanup adoption-safe and surfacing the second-switch hint after nix-homebrew bootstraps Homebrew.
+
+### Fixed
+- Gated generated nix-darwin Homebrew package activation until the expected Homebrew binary exists.
+
 ## [0.25.1] - 2026-06-01
 
 ### Changed
