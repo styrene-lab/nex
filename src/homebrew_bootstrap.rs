@@ -398,6 +398,20 @@ fn homebrew_auto_migrate_configured(path: &Path) -> Result<bool> {
     Ok(content.contains("autoMigrate = true;"))
 }
 
+pub(crate) fn expected_brew_binary_exists() -> bool {
+    expected_homebrew_prefix_for_host()
+        .join("bin/brew")
+        .exists()
+}
+
+fn expected_homebrew_prefix_for_host() -> PathBuf {
+    if cfg!(target_arch = "aarch64") {
+        PathBuf::from("/opt/homebrew")
+    } else {
+        PathBuf::from("/usr/local")
+    }
+}
+
 fn homebrew_prefixes_for_host() -> Vec<PathBuf> {
     if cfg!(target_arch = "aarch64") {
         vec![PathBuf::from("/opt/homebrew"), PathBuf::from("/usr/local")]

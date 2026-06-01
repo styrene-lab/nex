@@ -216,9 +216,8 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
         );
     }
 
-    // Check for existing brew packages BEFORE activating, because
-    // homebrew.onActivation.cleanup = "zap" will remove anything not in the
-    // nix-managed brew lists. Run nex adopt to capture them first.
+    // Check for existing brew packages BEFORE activating. The scaffold defaults to
+    // cleanup = "none" for unknown Macs, but adopting keeps the config explicit.
     if platform == Platform::Darwin {
         let has_brew_packages = crate::exec::brew_available()
             && (!crate::exec::brew_leaves().unwrap_or_default().is_empty()
@@ -233,8 +232,8 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
                 style("!").yellow().bold()
             );
             eprintln!(
-                "  This prevents {} from removing your installed packages.",
-                style("cleanup = \"zap\"").dim()
+                "  This records them in your Nex config before activation ({}).",
+                style("nex adopt").dim()
             );
             println!();
             // Run nex adopt to capture existing packages into the nix config
@@ -1043,7 +1042,9 @@ in
       # Run `nex update` to bump the pinned tap content instead.
       autoUpdate = false;
       upgrade = true;
-      cleanup = "zap";
+      # Adoption-safe default: do not remove unmanaged brew packages/apps on unknown Macs.
+      # After `nex adopt` captures existing packages, operators may change this to "zap".
+      cleanup = "none";
     }};
     brews = [
     ];

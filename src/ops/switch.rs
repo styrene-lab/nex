@@ -18,8 +18,14 @@ pub fn run(config: &Config, dry_run: bool) -> Result<()> {
     }
     bootstrap::ensure_switch_ready(config.platform)?;
     homebrew_bootstrap::preflight(config, dry_run)?;
+    let brew_missing_before =
+        config.platform == Platform::Darwin && !homebrew_bootstrap::expected_brew_binary_exists();
     output::status("switching...");
     exec::system_rebuild_switch(&config.repo, &config.hostname, config.platform)?;
     output::status("done");
+    if brew_missing_before && homebrew_bootstrap::expected_brew_binary_exists() {
+        output::status("Homebrew was bootstrapped by nix-homebrew");
+        eprintln!("  Run `nex switch` once more to activate declarative brew/cask management.");
+    }
     Ok(())
 }
