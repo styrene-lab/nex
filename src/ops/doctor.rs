@@ -1,12 +1,213 @@
 use anyhow::{Context, Result};
 use console::style;
+use serde::Serialize;
 
 use crate::cli::DoctorScope;
 use crate::config::Config;
 use crate::{bootstrap, homebrew_bootstrap, output};
 
+const HOST_READINESS_SCHEMA: &str = "io.styrene.nex.host-readiness.v1";
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HostReadinessReport {
+    schema: &'static str,
+    platform: String,
+    repo: String,
+    hostname: String,
+    checks: Vec<ReadinessCheck>,
+    summary: ReadinessSummary,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReadinessCheck {
+    id: &'static str,
+    status: ReadinessStatus,
+    severity: ReadinessSeverity,
+    message: String,
+    suggested_action: Option<String>,
+    read_only: bool,
+}
+
+#[derive(Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+enum ReadinessStatus {
+    Ok,
+    Warning,
+    Missing,
+}
+
+#[derive(Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+enum ReadinessSeverity {
+    Info,
+    Warning,
+    Blocker,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReadinessSummary {
+    ok: usize,
+    warnings: usize,
+    blockers: usize,
+}
+
+fn run_json(config: &Config) -> Result<()> {
+    let checks = readiness_checks(config)?;
+    let summary = summarize_readiness(&checks);
+    let report = HostReadinessReport {
+        schema: HOST_READINESS_SCHEMA,
+        platform: format!("{:?}", config.platform).to_ascii_lowercase(),
+        repo: config.repo.display().to_string(),
+        hostname: config.hostname.clone(),
+        checks,
+        summary,
+    };
+    println!("{}", serde_json::to_string_pretty(&report)?);
+    Ok(())
+}
+
+fn readiness_checks(config: &Config) -> Result<Vec<ReadinessCheck>> {
+    let mut checks = Vec::new();
+    checks.push(command_check(
+        "git",
+        &["--version"],
+        "Install git / Xcode Command Line Tools",
+    ));
+    checks.push(command_check(
+        "nix",
+        &["--version"],
+        "Install Nix, then rerun nex init",
+    ));
+
+    if config.platform == crate::discover::Platform::Darwin {
+        checks.push(command_check(
+            "xcode-select",
+            &["-p"],
+            "Run `xcode-select --install`",
+        ));
+        let brew_exists = crate::homebrew_bootstrap::expected_brew_binary_exists();
+        checks.push(ReadinessCheck {
+            id: "homebrew-expected-prefix",
+            status: if brew_exists {
+                ReadinessStatus::Ok
+            } else {
+                ReadinessStatus::Warning
+            },
+            severity: if brew_exists {
+                ReadinessSeverity::Info
+            } else {
+                ReadinessSeverity::Warning
+            },
+            message: if brew_exists {
+                "expected Homebrew binary exists".to_string()
+            } else {
+                "expected Homebrew binary is missing; nix-homebrew may bootstrap it on first switch"
+                    .to_string()
+            },
+            suggested_action: (!brew_exists).then(|| {
+                "Run `nex switch`; if Homebrew is bootstrapped, run it once more".to_string()
+            }),
+            read_only: true,
+        });
+    }
+
+    checks.push(path_check(
+        "config-repo",
+        config.repo.exists(),
+        format!("config repo {}", config.repo.display()),
+        "Run `nex init`".to_string(),
+    ));
+    checks.push(path_check(
+        "homebrew-module",
+        config.homebrew_file.exists(),
+        format!("homebrew module {}", config.homebrew_file.display()),
+        "Run `nex init` or repair the config repo".to_string(),
+    ));
+
+    Ok(checks)
+}
+
+fn command_check(
+    command: &'static str,
+    args: &[&str],
+    suggested_action: &'static str,
+) -> ReadinessCheck {
+    let status = std::process::Command::new(command)
+        .args(args)
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false);
+    ReadinessCheck {
+        id: command,
+        status: if status {
+            ReadinessStatus::Ok
+        } else {
+            ReadinessStatus::Missing
+        },
+        severity: if status {
+            ReadinessSeverity::Info
+        } else {
+            ReadinessSeverity::Blocker
+        },
+        message: if status {
+            format!("{command} is available")
+        } else {
+            format!("{command} is missing or not functional")
+        },
+        suggested_action: (!status).then(|| suggested_action.to_string()),
+        read_only: true,
+    }
+}
+
+fn path_check(
+    id: &'static str,
+    exists: bool,
+    message: String,
+    suggested_action: String,
+) -> ReadinessCheck {
+    ReadinessCheck {
+        id,
+        status: if exists {
+            ReadinessStatus::Ok
+        } else {
+            ReadinessStatus::Missing
+        },
+        severity: if exists {
+            ReadinessSeverity::Info
+        } else {
+            ReadinessSeverity::Blocker
+        },
+        message,
+        suggested_action: (!exists).then_some(suggested_action),
+        read_only: true,
+    }
+}
+
+fn summarize_readiness(checks: &[ReadinessCheck]) -> ReadinessSummary {
+    ReadinessSummary {
+        ok: checks
+            .iter()
+            .filter(|check| check.status == ReadinessStatus::Ok)
+            .count(),
+        warnings: checks
+            .iter()
+            .filter(|check| check.severity == ReadinessSeverity::Warning)
+            .count(),
+        blockers: checks
+            .iter()
+            .filter(|check| check.severity == ReadinessSeverity::Blocker)
+            .count(),
+    }
+}
+
 /// Check and fix common issues with the nex-managed config repo.
-pub fn run(config: &Config, fix: bool, scope: Option<DoctorScope>) -> Result<()> {
+pub fn run(config: &Config, fix: bool, json: bool, scope: Option<DoctorScope>) -> Result<()> {
+    if json {
+        return run_json(config);
+    }
     if matches!(scope, Some(DoctorScope::DarwinBootstrap)) {
         return check_bootstrap(config, fix);
     }

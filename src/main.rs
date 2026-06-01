@@ -51,6 +51,7 @@ fn main() -> Result<()> {
 
     // Commands that don't need config resolution
     match cli.command {
+        Command::Capabilities { json } => return ops::capabilities::run(json),
         Command::Init { from } => return ops::init::run(from, cli.dry_run),
         Command::Relocate { ref to } => return ops::relocate::run(to.as_deref(), cli.dry_run),
         Command::Search { .. } | Command::Info { .. } => {}
@@ -294,14 +295,15 @@ fn main() -> Result<()> {
             // Sign and Verify are handled in the pre-config block above
             _ => unreachable!(),
         },
-        Command::Doctor { fix, scope } => ops::doctor::run(&config, fix, scope),
+        Command::Doctor { fix, json, scope } => ops::doctor::run(&config, fix, json, scope),
         Command::Switch => ops::switch::run(&config, cli.dry_run),
         Command::Update => ops::update::run(&config, cli.dry_run),
         Command::Rollback => ops::rollback::run(&config, cli.dry_run),
         Command::Try { package } => ops::try_pkg::run(&package, cli.dry_run),
         Command::Diff => ops::diff::run(&config),
         // Already handled above
-        Command::Init { .. }
+        Command::Capabilities { .. }
+        | Command::Init { .. }
         | Command::Relocate { .. }
         | Command::SelfUpdate
         | Command::Gc

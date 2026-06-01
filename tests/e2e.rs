@@ -1558,6 +1558,60 @@ fn help_lists_devenv_command_group() {
 }
 
 #[test]
+fn capabilities_json_advertises_provider_surfaces() {
+    let output = Command::cargo_bin("nex")
+        .expect("find binary")
+        .args(["capabilities", "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let value: serde_json::Value =
+        serde_json::from_slice(&output).expect("parse capabilities JSON");
+
+    assert_eq!(
+        value["schema"],
+        serde_json::json!("io.styrene.nex.capabilities.v1")
+    );
+    let commands = value["commands"]
+        .as_array()
+        .expect("commands should be an array");
+    assert!(commands.iter().any(|command| {
+        command["id"] == "devenv.inspect"
+            && command["readOnly"] == true
+            && command["outputSchema"] == "io.styrene.nex.devenv-import-report.v1"
+    }));
+    assert!(commands
+        .iter()
+        .any(|command| command["id"] == "doctor.readiness"));
+}
+
+#[test]
+fn doctor_json_emits_read_only_host_readiness() {
+    let sb = Sandbox::new().with_config();
+    let output = sb
+        .nex()
+        .args(["doctor", "--json"])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let value: serde_json::Value = serde_json::from_slice(&output).expect("parse doctor JSON");
+
+    assert_eq!(
+        value["schema"],
+        serde_json::json!("io.styrene.nex.host-readiness.v1")
+    );
+    assert!(value["checks"]
+        .as_array()
+        .expect("checks array")
+        .iter()
+        .any(|check| { check["id"] == "config-repo" && check["readOnly"] == true }));
+}
+
+#[test]
 fn devenv_inspect_emits_read_only_import_report_json() {
     let sb = Sandbox::new();
     let project = sb.home.path().join("devenv-project");

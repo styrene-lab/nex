@@ -27,6 +27,12 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
+    /// List provider-facing stable command capabilities
+    Capabilities {
+        /// Emit stable JSON output
+        #[arg(long)]
+        json: bool,
+    },
     /// Set up nix-darwin + homebrew (macOS) or NixOS (Linux) on this machine
     Init {
         /// Clone an existing nix-darwin repo instead of scaffolding
@@ -205,6 +211,10 @@ pub enum Command {
         /// Apply supported bootstrap/root repairs
         #[arg(long)]
         fix: bool,
+
+        /// Emit stable JSON readiness report without applying fixes
+        #[arg(long, conflicts_with = "fix")]
+        json: bool,
 
         /// Limit fixes to one doctor scope
         #[arg(value_enum)]

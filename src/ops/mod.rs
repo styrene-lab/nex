@@ -1,6 +1,7 @@
 pub mod adopt;
 pub mod artifact;
 pub mod build_image;
+pub mod capabilities;
 pub mod config;
 pub mod dev;
 pub mod develop;
