@@ -4,6 +4,17 @@ All notable changes to nex are documented here. Format follows [Keep a Changelog
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-05-31
+
+### Added
+- Release archives now bundle a private Pkl evaluator under `libexec/nex/pkl`, with third-party notices included alongside Nex documentation.
+- The curl installer now installs bundled release support files, including the private Pkl evaluator and third-party notices, while remaining compatible with older flat archives.
+- Added `nex devenv inspect`, `nex devenv plan`, `nex devenv explain`, and `nex devenv catalog list` as the first devenv adapter and surface-awareness commands.
+- Added an embedded devenv surface catalog and Nex policy mapping for packages, languages, services, tasks, containers, outputs, git hooks, imports, and SecretSpec.
+
+### Changed
+- Pkl evaluation now prefers `NEX_PKL`, then Nex's bundled evaluator, then ambient `pkl`, then the `nix shell nixpkgs#pkl` fallback.
+
 ## [0.24.0] - 2026-05-30
 
 ### Added
