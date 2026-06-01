@@ -952,12 +952,14 @@ nix-darwin.lib.darwinSystem {
     // Host default.nix
     crate::edit::atomic_write_bytes(
         &host_dir.join("default.nix"),
-        r#"{ pkgs, hostname, username, ... }:
+        r#"{ lib, pkgs, hostname, username, ... }:
 
 {
   imports = [
     ../../modules/darwin/base.nix
     ../../modules/darwin/homebrew.nix
+  ] ++ lib.optionals (builtins.pathExists "/opt/homebrew/bin/brew" || builtins.pathExists "/usr/local/bin/brew") [
+    ../../modules/darwin/homebrew-packages.nix
   ];
 
   networking.hostName = hostname;
@@ -1007,20 +1009,15 @@ nix-darwin.lib.darwinSystem {
         .as_bytes(),
     )?;
 
-    // darwin/homebrew.nix
+    // darwin/homebrew.nix — bootstrap Homebrew itself. Do not set nix-darwin's
+    // `homebrew.*` options here: nix-darwin asserts that brew already exists
+    // before activation, while nix-homebrew creates it during activation.
     crate::edit::atomic_write_bytes(
         &darwin_dir.join("homebrew.nix"),
         format!(
-            r#"{{ config, lib, pkgs, username, homebrew-core, homebrew-cask, ... }}:
+            r#"{{ username, homebrew-core, homebrew-cask, ... }}:
 
-let
-  brewPrefix = if pkgs.stdenv.hostPlatform.isAarch64 then "/opt/homebrew" else "/usr/local";
-  brewExists = builtins.pathExists "${{brewPrefix}}/bin/brew";
-in
 {{
-  # nix-homebrew installs and pins Homebrew itself + the core/cask taps.
-  # nix-darwin's homebrew module validates that brew exists before activation,
-  # so gate declarative package activation until after nix-homebrew bootstraps it.
   nix-homebrew = {{
     enable = true;
     enableRosetta = {enable_rosetta};
@@ -1031,29 +1028,39 @@ in
     }};
     mutableTaps = false;
   }};
+}}
+"#
+        )
+        .as_bytes(),
+    )?;
 
-  homebrew = lib.mkIf brewExists {{
+    // darwin/homebrew-packages.nix — declarative package management after brew exists.
+    crate::edit::atomic_write_bytes(
+        &darwin_dir.join("homebrew-packages.nix"),
+        r#"{ config, ... }:
+
+{
+  homebrew = {
     enable = true;
     # Keep nix-darwin's tap list aligned with nix-homebrew's pinned taps.
     taps = builtins.attrNames config.nix-homebrew.taps;
-    onActivation = {{
+    onActivation = {
       # Taps are pinned via flake inputs and live in the read-only /nix/store,
       # so `brew update` (which does git fetch+reset inside the tap dir) fails.
       # Run `nex update` to bump the pinned tap content instead.
       autoUpdate = false;
       upgrade = true;
-      # Adoption-safe default: do not remove unmanaged brew packages/apps on unknown Macs.
-      # After `nex adopt` captures existing packages, operators may change this to "zap".
+      # Unknown Macs may already have unmanaged packages/apps. Keep cleanup off
+      # until `nex adopt` records them explicitly; operators can opt into zap later.
       cleanup = "none";
-    }};
+    };
     brews = [
     ];
     casks = [
     ];
-  }};
-}}
+  };
+}
 "#
-        )
         .as_bytes(),
     )?;
 
@@ -1279,11 +1286,16 @@ mod tests {
             "aarch64-darwin",
             "tester",
         )?;
+        let host = std::fs::read_to_string(dir.path().join("nix/hosts/test-host/default.nix"))?;
         let homebrew = std::fs::read_to_string(dir.path().join("nix/modules/darwin/homebrew.nix"))?;
+        let packages =
+            std::fs::read_to_string(dir.path().join("nix/modules/darwin/homebrew-packages.nix"))?;
 
-        assert!(homebrew.contains("brewExists = builtins.pathExists"));
-        assert!(homebrew.contains("homebrew = lib.mkIf brewExists"));
+        assert!(host.contains("builtins.pathExists \"/opt/homebrew/bin/brew\""));
+        assert!(host.contains("homebrew-packages.nix"));
         assert!(homebrew.contains("nix-homebrew ="));
+        assert!(!homebrew.contains("  homebrew ="));
+        assert!(packages.contains("homebrew ="));
         Ok(())
     }
 }
