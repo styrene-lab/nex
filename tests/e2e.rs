@@ -1548,6 +1548,101 @@ fn help_shows_version() {
 }
 
 #[test]
+fn help_lists_devenv_command_group() {
+    Command::cargo_bin("nex")
+        .expect("find binary")
+        .args(["--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("devenv"));
+}
+
+#[test]
+fn devenv_inspect_emits_read_only_import_report_json() {
+    let sb = Sandbox::new();
+    let project = sb.home.path().join("devenv-project");
+    fs::create_dir_all(&project).expect("create devenv project");
+    fs::write(
+        project.join("devenv.nix"),
+        r#"{ pkgs, ... }: {
+  packages = [ pkgs.git ];
+  languages.rust.enable = true;
+}
+"#,
+    )
+    .expect("write devenv.nix");
+    fs::write(
+        project.join("devenv.yaml"),
+        "secretspec:\n  enable: true\n  provider: keyring\n  profile: default\n",
+    )
+    .expect("write devenv.yaml");
+    fs::write(
+        project.join("secretspec.toml"),
+        r#"[profiles.default]
+DATABASE_URL = { description = "Database URL", required = true }
+"#,
+    )
+    .expect("write secretspec.toml");
+
+    let output = sb
+        .nex()
+        .args([
+            "devenv",
+            "inspect",
+            project.to_str().expect("test path should be valid UTF-8"),
+            "--json",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let value: serde_json::Value = serde_json::from_slice(&output).expect("parse inspect JSON");
+
+    assert_eq!(
+        value["schema"],
+        serde_json::json!("io.styrene.nex.devenv-import-report.v1")
+    );
+    assert_eq!(value["detected"]["devenvNix"], serde_json::json!(true));
+    assert_eq!(value["detected"]["devenvYaml"], serde_json::json!(true));
+    assert_eq!(value["detected"]["secretspecToml"], serde_json::json!(true));
+    let kinds = value["items"]
+        .as_array()
+        .expect("items should be an array")
+        .iter()
+        .filter_map(|item| item["kind"].as_str())
+        .collect::<Vec<_>>();
+    assert!(kinds.contains(&"secret-contract"));
+}
+
+#[test]
+fn devenv_explain_json_uses_import_report_schema() {
+    let sb = Sandbox::new();
+    let project = sb.home.path().join("empty-devenv-project");
+    fs::create_dir_all(&project).expect("create devenv project");
+    fs::write(project.join("devenv.nix"), "{ ... }: {}\n").expect("write devenv.nix");
+
+    let output = sb
+        .nex()
+        .args([
+            "devenv",
+            "explain",
+            project.to_str().expect("test path should be valid UTF-8"),
+            "--json",
+        ])
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let value: serde_json::Value = serde_json::from_slice(&output).expect("parse explain JSON");
+    assert_eq!(
+        value["schema"],
+        serde_json::json!("io.styrene.nex.devenv-import-report.v1")
+    );
+}
+
+#[test]
 fn config_export_toml_from_pkl() {
     let sb = Sandbox::new().with_pkl_config();
     let fake_pkl = std::env::var_os("NEX_E2E_PKL").expect("fake pkl path");
