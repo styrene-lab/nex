@@ -4,6 +4,11 @@ All notable changes to nex are documented here. Format follows [Keep a Changelog
 
 ## [Unreleased]
 
+## [0.25.3] - 2026-06-01
+
+### Fixed
+- Split generated Darwin Homebrew bootstrap from nix-darwin package management so clean Macs can bootstrap Homebrew before enabling declarative brew/cask activation.
+
 ## [0.25.2] - 2026-06-01
 
 ### Added
