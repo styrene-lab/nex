@@ -68,6 +68,43 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
             eprintln!();
             return Ok(());
         }
+
+        let default_repo = default_scaffold_repo_path()?;
+        ensure_replaceable_existing_repo(&existing, &default_repo)?;
+        let backup = replacement_backup_path(&existing);
+        let replace = crate::input::input().confirm(
+            &format!(
+                "  Move existing default config aside to {} and create a fresh Nex config at {}?",
+                backup.display(),
+                default_repo.display()
+            ),
+            true,
+        )?;
+        if !replace {
+            bail!("init aborted; existing config was not adopted or replaced");
+        }
+        if dry_run {
+            output::dry_run(&format!(
+                "would move {} to {}",
+                existing.display(),
+                backup.display()
+            ));
+        } else {
+            std::fs::rename(&existing, &backup).with_context(|| {
+                format!(
+                    "failed to move existing config {} to {}",
+                    existing.display(),
+                    backup.display()
+                )
+            })?;
+            if existing.exists() {
+                bail!(
+                    "existing config path still exists after backup move: {}",
+                    existing.display()
+                );
+            }
+            info("backup", &backup.display().to_string());
+        }
         eprintln!();
     }
 
@@ -634,8 +671,7 @@ fn install_homebrew() -> Result<()> {
 }
 
 fn clone_repo(url: &str, dry_run: bool) -> Result<PathBuf> {
-    let home = dirs::home_dir().context("no home directory")?;
-    let repo_path = home.join(discover::default_repo_name());
+    let repo_path = default_scaffold_repo_path()?;
 
     if repo_path.exists() {
         return Ok(repo_path);
@@ -659,11 +695,54 @@ fn clone_repo(url: &str, dry_run: bool) -> Result<PathBuf> {
     Ok(repo_path)
 }
 
+fn replacement_backup_path(existing: &Path) -> PathBuf {
+    let parent = existing.parent().unwrap_or_else(|| Path::new("."));
+    let name = existing
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("nix-config");
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0);
+    let base = parent.join(format!("{name}.before-nex-{stamp}"));
+    if !base.exists() {
+        return base;
+    }
+    for suffix in 2..1000 {
+        let candidate = parent.join(format!("{name}.before-nex-{stamp}-{suffix}"));
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+    parent.join(format!("{name}.before-nex-{stamp}-{}", std::process::id()))
+}
+
+fn default_scaffold_repo_path() -> Result<PathBuf> {
+    let home = dirs::home_dir().context("no home directory")?;
+    Ok(home.join(discover::default_repo_name()))
+}
+
+fn ensure_replaceable_existing_repo(existing: &Path, default_path: &Path) -> Result<()> {
+    if existing == default_path {
+        return Ok(());
+    }
+    bail!(
+        "refusing to replace non-default config automatically: {}
+         default Nex config path is: {}
+         Move the existing config manually or rerun nex init from a neutral directory.",
+        existing.display(),
+        default_path.display()
+    )
+}
+
 fn scaffold_repo(hostname: &str, dry_run: bool) -> Result<PathBuf> {
     let platform = discover::detect_platform();
-    let home = dirs::home_dir().context("no home directory")?;
-    let default_path = home.join(discover::default_repo_name());
-    let repo_path = available_scaffold_repo_path(&home, &default_path);
+    let repo_path = default_scaffold_repo_path()?;
+
+    if repo_path.exists() {
+        return Ok(repo_path);
+    }
 
     if dry_run {
         output::dry_run(&format!(
@@ -671,14 +750,6 @@ fn scaffold_repo(hostname: &str, dry_run: bool) -> Result<PathBuf> {
             repo_path.display()
         ));
         return Ok(repo_path);
-    }
-
-    if repo_path != default_path {
-        output::warn(&format!(
-            "{} already exists; creating fresh config at {}",
-            default_path.display(),
-            repo_path.display()
-        ));
     }
 
     let config_label = match platform {
@@ -845,25 +916,6 @@ fn scaffold_repo(hostname: &str, dry_run: bool) -> Result<PathBuf> {
     }
 
     Ok(repo_path)
-}
-
-fn available_scaffold_repo_path(home: &Path, default_path: &Path) -> PathBuf {
-    if !default_path.exists() {
-        return default_path.to_path_buf();
-    }
-
-    for suffix in 2..1000 {
-        let candidate = home.join(format!("{}-{suffix}", discover::default_repo_name()));
-        if !candidate.exists() {
-            return candidate;
-        }
-    }
-
-    home.join(format!(
-        "{}-{}",
-        discover::default_repo_name(),
-        std::process::id()
-    ))
 }
 
 // ── Darwin (macOS) scaffolding ───────────────────────────────────────────
@@ -1296,15 +1348,34 @@ mod tests {
     }
 
     #[test]
-    fn fresh_scaffold_uses_suffixed_path_when_default_repo_exists() -> Result<()> {
+    fn non_default_repo_replacement_is_refused() -> Result<()> {
         let dir = tempfile::tempdir()?;
+        let existing = dir.path().join("workspace/macos-nix");
         let default = dir.path().join("macos-nix");
-        std::fs::create_dir_all(&default)?;
 
-        assert_eq!(
-            available_scaffold_repo_path(dir.path(), &default),
-            dir.path().join("macos-nix-2")
-        );
+        let error = ensure_replaceable_existing_repo(&existing, &default)
+            .expect_err("non-default repo should not be automatically replaceable");
+
+        assert!(error
+            .to_string()
+            .contains("refusing to replace non-default config"));
+        assert!(error.to_string().contains(&default.display().to_string()));
+        Ok(())
+    }
+
+    #[test]
+    fn replacement_backup_path_preserves_canonical_repo_name() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let existing = dir.path().join("macos-nix");
+        std::fs::create_dir_all(&existing)?;
+
+        let backup = replacement_backup_path(&existing);
+
+        assert_eq!(backup.parent(), Some(dir.path()));
+        assert!(backup
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with("macos-nix.before-nex-")));
         Ok(())
     }
 
