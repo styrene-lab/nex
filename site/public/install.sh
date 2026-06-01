@@ -128,22 +128,52 @@ try_prebuilt() {
     return 1
   fi
 
-  if [ ! -f "$_TMPDIR/nex" ]; then
+  archive_root="$(find_archive_root "$_TMPDIR")"
+  nex_bin="${archive_root}/bin/nex"
+  if [ ! -f "$nex_bin" ] && [ -f "$_TMPDIR/nex" ]; then
+    # Backward compatibility with older release archives that contained only ./nex.
+    nex_bin="$_TMPDIR/nex"
+    archive_root="$_TMPDIR"
+  fi
+  if [ ! -f "$nex_bin" ]; then
     warn "binary not found in archive"
     return 1
   fi
 
   install_dir="$(pick_install_dir)"
+  install_root="$(install_root_for_bin_dir "$install_dir")"
 
   # Try creating as the user first — avoids root-owning ~/.local
-  if mkdir -p "$install_dir" 2>/dev/null && [ -w "$install_dir" ]; then
-    mv "$_TMPDIR/nex" "$install_dir/nex"
+  if mkdir -p "$install_dir" "$install_root/libexec" "$install_root/share/doc" 2>/dev/null && [ -w "$install_dir" ] && [ -w "$install_root" ]; then
+    cp "$nex_bin" "$install_dir/nex"
     chmod +x "$install_dir/nex"
+    if [ -d "$archive_root/libexec/nex" ]; then
+      rm -rf "$install_root/libexec/nex"
+      mkdir -p "$install_root/libexec"
+      cp -R "$archive_root/libexec/nex" "$install_root/libexec/nex"
+      chmod +x "$install_root/libexec/nex/pkl" 2>/dev/null || true
+    fi
+    if [ -d "$archive_root/share/doc/nex" ]; then
+      mkdir -p "$install_root/share/doc"
+      rm -rf "$install_root/share/doc/nex"
+      cp -R "$archive_root/share/doc/nex" "$install_root/share/doc/nex"
+    fi
   else
-    info "installing to ${install_dir} (sudo required)..."
-    sudo mkdir -p "$install_dir" </dev/tty 2>/dev/null || mkdir -p "$install_dir"
-    sudo mv "$_TMPDIR/nex" "$install_dir/nex" </dev/tty
+    info "installing to ${install_root} (sudo required)..."
+    sudo mkdir -p "$install_dir" "$install_root/libexec" "$install_root/share/doc" </dev/tty 2>/dev/null || mkdir -p "$install_dir"
+    sudo cp "$nex_bin" "$install_dir/nex" </dev/tty
     sudo chmod +x "$install_dir/nex" </dev/tty
+    if [ -d "$archive_root/libexec/nex" ]; then
+      sudo rm -rf "$install_root/libexec/nex" </dev/tty 2>/dev/null || true
+      sudo mkdir -p "$install_root/libexec" </dev/tty
+      sudo cp -R "$archive_root/libexec/nex" "$install_root/libexec/nex" </dev/tty
+      sudo chmod +x "$install_root/libexec/nex/pkl" </dev/tty 2>/dev/null || true
+    fi
+    if [ -d "$archive_root/share/doc/nex" ]; then
+      sudo mkdir -p "$install_root/share/doc" </dev/tty
+      sudo rm -rf "$install_root/share/doc/nex" </dev/tty 2>/dev/null || true
+      sudo cp -R "$archive_root/share/doc/nex" "$install_root/share/doc/nex" </dev/tty
+    fi
   fi
 
   rm -rf "$_TMPDIR"
@@ -227,6 +257,28 @@ try_cargo() {
     cargo install nex-pkg --version "$NEX_VERSION" --quiet
   fi
   return 0
+}
+
+find_archive_root() {
+  dir="$1"
+  if [ -f "$dir/bin/nex" ]; then
+    printf '%s' "$dir"
+    return
+  fi
+  first_dir=$(find "$dir" -mindepth 1 -maxdepth 1 -type d | head -n 1)
+  if [ -n "$first_dir" ] && [ -f "$first_dir/bin/nex" ]; then
+    printf '%s' "$first_dir"
+    return
+  fi
+  printf '%s' "$dir"
+}
+
+install_root_for_bin_dir() {
+  bin_dir="$1"
+  case "$bin_dir" in
+    */bin) dirname "$bin_dir" ;;
+    *)     printf '%s' "$bin_dir" ;;
+  esac
 }
 
 # Choose the best install directory.
