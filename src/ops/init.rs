@@ -95,14 +95,16 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
             if from.is_some() {
                 output::dry_run("would install Homebrew (clone path)");
             } else {
-                output::dry_run("Homebrew will be installed by nix-homebrew on first switch");
+                output::dry_run(
+                    "nix-homebrew bootstrap; nix-darwin package management after brew exists",
+                );
             }
         } else if from.is_some() {
             install_homebrew()?;
         } else {
             info(
                 "homebrew",
-                "deferred — nix-homebrew will install on first switch",
+                "bootstrap via nix-homebrew; package management starts after brew exists",
             );
         }
         has_brew || !dry_run
@@ -1010,11 +1012,16 @@ nix-darwin.lib.darwinSystem {
     crate::edit::atomic_write_bytes(
         &darwin_dir.join("homebrew.nix"),
         format!(
-            r#"{{ config, username, homebrew-core, homebrew-cask, ... }}:
+            r#"{{ config, lib, pkgs, username, homebrew-core, homebrew-cask, ... }}:
 
+let
+  brewPrefix = if pkgs.stdenv.hostPlatform.isAarch64 then "/opt/homebrew" else "/usr/local";
+  brewExists = builtins.pathExists "${{brewPrefix}}/bin/brew";
+in
 {{
   # nix-homebrew installs and pins Homebrew itself + the core/cask taps.
-  # It does NOT install packages — that's still done by the homebrew.* options below.
+  # nix-darwin's homebrew module validates that brew exists before activation,
+  # so gate declarative package activation until after nix-homebrew bootstraps it.
   nix-homebrew = {{
     enable = true;
     enableRosetta = {enable_rosetta};
@@ -1026,7 +1033,7 @@ nix-darwin.lib.darwinSystem {
     mutableTaps = false;
   }};
 
-  homebrew = {{
+  homebrew = lib.mkIf brewExists {{
     enable = true;
     # Keep nix-darwin's tap list aligned with nix-homebrew's pinned taps.
     taps = builtins.attrNames config.nix-homebrew.taps;
@@ -1254,5 +1261,28 @@ mod tests {
         std::env::set_var("NEX_FORCE_OFFICIAL_NIX_FALLBACK", "1");
         assert!(should_use_official_nix_fallback());
         std::env::remove_var("NEX_FORCE_OFFICIAL_NIX_FALLBACK");
+    }
+
+    #[test]
+    fn darwin_homebrew_module_gates_nix_darwin_until_brew_exists() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        std::fs::create_dir_all(dir.path().join("nix/hosts/test-host"))?;
+        std::fs::create_dir_all(dir.path().join("nix/modules/darwin"))?;
+        std::fs::create_dir_all(dir.path().join("nix/lib"))?;
+        scaffold_darwin(
+            dir.path(),
+            &dir.path().join("nix/hosts/test-host"),
+            &dir.path().join("nix/modules/darwin"),
+            &dir.path().join("nix/lib"),
+            "test-host",
+            "aarch64-darwin",
+            "tester",
+        )?;
+        let homebrew = std::fs::read_to_string(dir.path().join("nix/modules/darwin/homebrew.nix"))?;
+
+        assert!(homebrew.contains("brewExists = builtins.pathExists"));
+        assert!(homebrew.contains("homebrew = lib.mkIf brewExists"));
+        assert!(homebrew.contains("nix-homebrew ="));
+        Ok(())
     }
 }
