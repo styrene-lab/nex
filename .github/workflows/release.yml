@@ -14,7 +14,7 @@ jobs:
     # Don't block the release if crate is already published
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
         with:
           toolchain: stable
@@ -42,7 +42,7 @@ jobs:
             os: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v5
 
       - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
         with:
@@ -91,7 +91,7 @@ jobs:
           tar -C target/package -czf "nex-${{ matrix.target }}.tar.gz" "$package"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v5
         with:
           name: nex-${{ matrix.target }}
           path: nex-${{ matrix.target }}.tar.gz
@@ -105,9 +105,9 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v5
 
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@v5
         with:
           merge-multiple: true
 

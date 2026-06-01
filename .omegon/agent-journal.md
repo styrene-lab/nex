@@ -940,31 +940,4 @@ Confirmed deployed successfully for `v0.22.0`:
   45c2328 ci: align local validation with all-target clippy
   3dfbf9c docs(memory): update release audit log
   fd3e769 docs(memory): record armory release notes
-## 2026-06-01 — main (8t 460tc 4m28s)
-
-**Task:** get it merged and released
-
-**Outcome:** Released.
-
-## Published
-
-- Tag pushed: `v0.25.0`
-- Main pushed through commit: `586883b fix(nix): provide e2e host tools during package checks`
-- GitHub release: [v0.25.0](https://github.com/styrene-lab/nex/releases/tag/v0.25.0)
-
-## CI / release status
-
-Passed:
-
-- Main CI: [26761548219](https://gith
-
-**Model:** openai-codex:gpt-5.5 — 74460374 in / 134929 out tokens across 492 turns
-
-**Active:**
-- armory-package-manager (27/32)
-
-**Commits:**
-  586883b fix(nix): provide e2e host tools during package checks
-  880b3ef chore(release): bump version to 0.25.0
-  f0d2945 fix(install): install bundled release support files
 
