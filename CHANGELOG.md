@@ -4,6 +4,11 @@ All notable changes to nex are documented here. Format follows [Keep a Changelog
 
 ## [Unreleased]
 
+## [0.25.1] - 2026-06-01
+
+### Changed
+- Updated GitHub Actions workflow dependencies to Node 24-compatible releases for checkout, setup-node, upload-artifact, and download-artifact.
+
 ## [0.25.0] - 2026-05-31
 
 ### Added
