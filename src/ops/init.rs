@@ -662,11 +662,8 @@ fn clone_repo(url: &str, dry_run: bool) -> Result<PathBuf> {
 fn scaffold_repo(hostname: &str, dry_run: bool) -> Result<PathBuf> {
     let platform = discover::detect_platform();
     let home = dirs::home_dir().context("no home directory")?;
-    let repo_path = home.join(discover::default_repo_name());
-
-    if repo_path.exists() {
-        return Ok(repo_path);
-    }
+    let default_path = home.join(discover::default_repo_name());
+    let repo_path = available_scaffold_repo_path(&home, &default_path);
 
     if dry_run {
         output::dry_run(&format!(
@@ -674,6 +671,14 @@ fn scaffold_repo(hostname: &str, dry_run: bool) -> Result<PathBuf> {
             repo_path.display()
         ));
         return Ok(repo_path);
+    }
+
+    if repo_path != default_path {
+        output::warn(&format!(
+            "{} already exists; creating fresh config at {}",
+            default_path.display(),
+            repo_path.display()
+        ));
     }
 
     let config_label = match platform {
@@ -840,6 +845,25 @@ fn scaffold_repo(hostname: &str, dry_run: bool) -> Result<PathBuf> {
     }
 
     Ok(repo_path)
+}
+
+fn available_scaffold_repo_path(home: &Path, default_path: &Path) -> PathBuf {
+    if !default_path.exists() {
+        return default_path.to_path_buf();
+    }
+
+    for suffix in 2..1000 {
+        let candidate = home.join(format!("{}-{suffix}", discover::default_repo_name()));
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+
+    home.join(format!(
+        "{}-{}",
+        discover::default_repo_name(),
+        std::process::id()
+    ))
 }
 
 // ── Darwin (macOS) scaffolding ───────────────────────────────────────────
@@ -1269,6 +1293,19 @@ mod tests {
         std::env::set_var("NEX_FORCE_OFFICIAL_NIX_FALLBACK", "1");
         assert!(should_use_official_nix_fallback());
         std::env::remove_var("NEX_FORCE_OFFICIAL_NIX_FALLBACK");
+    }
+
+    #[test]
+    fn fresh_scaffold_uses_suffixed_path_when_default_repo_exists() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let default = dir.path().join("macos-nix");
+        std::fs::create_dir_all(&default)?;
+
+        assert_eq!(
+            available_scaffold_repo_path(dir.path(), &default),
+            dir.path().join("macos-nix-2")
+        );
+        Ok(())
     }
 
     #[test]
