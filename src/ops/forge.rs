@@ -1158,13 +1158,8 @@ fn looks_like_local_profile(profile: &str) -> bool {
 }
 
 fn command_exists(command: &str) -> bool {
-    Command::new("which")
-        .arg(command)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map(|status| status.success())
-        .unwrap_or(false)
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    std::env::split_paths(&path).any(|dir| dir.join(command).is_file())
 }
 
 fn require_command(command: &str, errors: &mut Vec<ForgeDiagnostic>) {
