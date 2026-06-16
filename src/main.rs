@@ -161,6 +161,7 @@ fn main() -> Result<()> {
                 cli::IdentityAction::Init { path } => ops::identity::run_init(path.clone()),
                 cli::IdentityAction::Show { path } => ops::identity::run_show(path.clone()),
                 cli::IdentityAction::List => ops::identity::run_list(),
+                cli::IdentityAction::Status => ops::identity::run_status(),
                 cli::IdentityAction::Ssh { label, list, add } => {
                     ops::identity::run_ssh(label.clone(), *list, add.clone())
                 }

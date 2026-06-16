@@ -242,6 +242,134 @@ fn print_identity_metadata(path: &PathBuf, label: &str) {
     }
 }
 
+// ── status ─────────────────────────────────────────────────────────────────
+
+pub fn run_status() -> Result<()> {
+    eprintln!();
+    output::status("styrene identity readiness");
+
+    let path = default_path();
+    if path.exists() {
+        let meta =
+            std::fs::metadata(&path).with_context(|| format!("reading {}", path.display()))?;
+        if meta.len() == 97 {
+            status_ok("identity file", &format!("{}", path.display()));
+        } else {
+            status_warn(
+                "identity file",
+                &format!("{} bytes at {} (expected 97)", meta.len(), path.display()),
+            );
+        }
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = meta.permissions().mode() & 0o777;
+            if mode == 0o600 {
+                status_ok("identity permissions", "0600");
+            } else {
+                status_warn(
+                    "identity permissions",
+                    &format!("{mode:#o} — should be 0o600"),
+                );
+            }
+        }
+    } else {
+        status_warn("identity file", "missing — run `nex identity init`");
+    }
+
+    let git_format = git_config_value("gpg.format");
+    let git_signing_key = git_config_value("user.signingkey");
+    let git_sign_commits = git_config_value("commit.gpgsign");
+    if git_format.as_deref() == Some("ssh")
+        && git_signing_key.as_deref().is_some_and(|v| !v.is_empty())
+        && git_sign_commits.as_deref() == Some("true")
+    {
+        status_ok("git signing", "enabled with SSH signing key");
+    } else {
+        status_warn(
+            "git signing",
+            "not fully configured — run `nex identity git`",
+        );
+    }
+
+    match crate::config::load_identity_config() {
+        Ok(config) => {
+            let labels = config.ssh.and_then(|s| s.labels).unwrap_or_default();
+            if labels.is_empty() {
+                status_warn(
+                    "ssh labels",
+                    "none registered — run `nex identity ssh --add github`",
+                );
+            } else {
+                status_ok("ssh labels", &labels.join(", "));
+            }
+        }
+        Err(err) => status_warn("ssh labels", &format!("could not read Nex config: {err}")),
+    }
+
+    let ssh_config = dirs::home_dir().map(|home| home.join(".ssh/config"));
+    match ssh_config {
+        Some(config_path) => match std::fs::read_to_string(&config_path) {
+            Ok(text)
+                if text
+                    .lines()
+                    .any(|line| line.trim() == "Include ~/.ssh/config.d/nex.conf") =>
+            {
+                status_ok("ssh materialization", "Nex include installed");
+            }
+            Ok(_) => status_warn(
+                "ssh materialization",
+                "Nex include not installed — apply a profile with [ssh] hosts",
+            ),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => status_warn(
+                "ssh materialization",
+                "~/.ssh/config missing — apply a profile with [ssh] hosts",
+            ),
+            Err(err) => status_warn(
+                "ssh materialization",
+                &format!("could not read config: {err}"),
+            ),
+        },
+        None => status_warn("ssh materialization", "could not determine home directory"),
+    }
+
+    eprintln!();
+    Ok(())
+}
+
+fn git_config_value(key: &str) -> Option<String> {
+    std::process::Command::new("git")
+        .args(["config", "--global", key])
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| {
+            crate::exec::captured_text(&output.stdout)
+                .trim()
+                .to_string()
+        })
+        .filter(|value| !value.is_empty())
+}
+
+fn status_ok(label: &str, detail: &str) {
+    eprintln!(
+        "  {} {}: {}",
+        console::style("✓").green().bold(),
+        label,
+        console::style(detail).dim()
+    );
+}
+
+fn status_warn(label: &str, detail: &str) {
+    eprintln!(
+        "  {} {}: {}",
+        console::style("!").yellow().bold(),
+        label,
+        console::style(detail).dim()
+    );
+}
+
 // ── ssh ─────────────────────────────────────────────────────────────────────
 
 pub fn run_ssh(label: Option<String>, list: bool, add: Option<String>) -> Result<()> {

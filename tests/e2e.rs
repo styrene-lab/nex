@@ -264,6 +264,37 @@ fn identity_list_empty_when_no_identity() {
 }
 
 #[test]
+fn identity_status_reports_readiness_gaps() {
+    let sb = Sandbox::new().with_config();
+
+    sb.nex()
+        .args(["identity", "status"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("styrene identity readiness"))
+        .stderr(predicate::str::contains("identity file"))
+        .stderr(predicate::str::contains("nex identity init"))
+        .stderr(predicate::str::contains("ssh labels"));
+}
+
+#[test]
+fn identity_status_reports_registered_ssh_labels() {
+    let sb = Sandbox::new().with_identity().with_config();
+    let config_path = sb.home.path().join(".config/nex/config.toml");
+    let mut config = fs::read_to_string(&config_path).expect("read config");
+    config.push_str("\n[identity.ssh]\nlabels = [\"github\"]\n");
+    fs::write(&config_path, config).expect("write config");
+
+    sb.nex()
+        .args(["identity", "status"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("styrene identity readiness"))
+        .stderr(predicate::str::contains("identity file"))
+        .stderr(predicate::str::contains("github"));
+}
+
+#[test]
 fn identity_ssh_exports_pubkey() {
     let sb = Sandbox::new().with_identity();
 

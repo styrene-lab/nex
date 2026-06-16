@@ -396,6 +396,8 @@ pub enum IdentityAction {
     },
     /// Scan for all identities on this machine
     List,
+    /// Show identity readiness for Nex workflows
+    Status,
     /// Export or manage SSH public keys derived from identity
     Ssh {
         /// Label for the SSH key (e.g. "github", "work")
