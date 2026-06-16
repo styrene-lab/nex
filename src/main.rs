@@ -162,6 +162,7 @@ fn main() -> Result<()> {
                 cli::IdentityAction::Show { path } => ops::identity::run_show(path.clone()),
                 cli::IdentityAction::List => ops::identity::run_list(),
                 cli::IdentityAction::Status => ops::identity::run_status(),
+                cli::IdentityAction::Backup { output } => ops::identity::run_backup(output),
                 cli::IdentityAction::Ssh { label, list, add } => {
                     ops::identity::run_ssh(label.clone(), *list, add.clone())
                 }

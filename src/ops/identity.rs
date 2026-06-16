@@ -117,6 +117,55 @@ pub fn run_show(path: Option<PathBuf>) -> Result<()> {
     Ok(())
 }
 
+// ── backup ─────────────────────────────────────────────────────────────────
+
+pub fn run_backup(output: &PathBuf) -> Result<()> {
+    let path = default_path();
+    if !path.exists() {
+        bail!(
+            "no identity at {}\nrun `nex identity init` to create one",
+            path.display()
+        );
+    }
+    if output.exists() {
+        bail!("backup already exists at {}", output.display());
+    }
+    if let Some(parent) = output.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("creating backup directory {}", parent.display()))?;
+    }
+
+    std::fs::copy(&path, output)
+        .with_context(|| format!("copying {} to {}", path.display(), output.display()))?;
+    set_identity_file_permissions(output)?;
+
+    eprintln!();
+    output::status("identity backup written");
+    eprintln!("  source  {}", path.display());
+    eprintln!("  backup  {}", output.display());
+    eprintln!();
+    eprintln!(
+        "  {}",
+        console::style("Keep this encrypted file somewhere durable and private.").dim()
+    );
+
+    Ok(())
+}
+
+#[cfg(unix)]
+fn set_identity_file_permissions(path: &PathBuf) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let mut permissions = std::fs::metadata(path)?.permissions();
+    permissions.set_mode(0o600);
+    std::fs::set_permissions(path, permissions)?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn set_identity_file_permissions(_path: &PathBuf) -> Result<()> {
+    Ok(())
+}
+
 // ── list ────────────────────────────────────────────────────────────────────
 
 pub fn run_list() -> Result<()> {

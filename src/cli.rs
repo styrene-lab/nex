@@ -398,6 +398,11 @@ pub enum IdentityAction {
     List,
     /// Show identity readiness for Nex workflows
     Status,
+    /// Copy the encrypted identity file to a backup path
+    Backup {
+        /// Output path for the encrypted identity backup
+        output: PathBuf,
+    },
     /// Export or manage SSH public keys derived from identity
     Ssh {
         /// Label for the SSH key (e.g. "github", "work")

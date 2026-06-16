@@ -296,6 +296,35 @@ fn identity_status_reports_registered_ssh_labels() {
 }
 
 #[test]
+fn identity_backup_copies_encrypted_identity() {
+    let sb = Sandbox::new().with_identity();
+    let backup = sb.home.path().join("backups/identity.key");
+
+    sb.nex()
+        .args(["identity", "backup", backup.to_str().expect("utf8 path")])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("identity backup written"));
+
+    let source = fs::read(sb.home.path().join(".config/styrene/identity.key")).expect("source");
+    let copied = fs::read(&backup).expect("backup");
+    assert_eq!(copied, source);
+}
+
+#[test]
+fn identity_backup_refuses_to_overwrite() {
+    let sb = Sandbox::new().with_identity();
+    let backup = sb.home.path().join("identity-backup.key");
+    fs::write(&backup, "existing").expect("seed backup");
+
+    sb.nex()
+        .args(["identity", "backup", backup.to_str().expect("utf8 path")])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("backup already exists"));
+}
+
+#[test]
 fn identity_ssh_exports_pubkey() {
     let sb = Sandbox::new().with_identity();
 
