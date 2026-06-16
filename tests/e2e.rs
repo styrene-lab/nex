@@ -274,7 +274,8 @@ fn identity_status_reports_readiness_gaps() {
         .stderr(predicate::str::contains("styrene identity readiness"))
         .stderr(predicate::str::contains("identity file"))
         .stderr(predicate::str::contains("nex identity init"))
-        .stderr(predicate::str::contains("ssh labels"));
+        .stderr(predicate::str::contains("ssh labels"))
+        .stderr(predicate::str::contains("styrene ssh agent"));
 }
 
 #[test]

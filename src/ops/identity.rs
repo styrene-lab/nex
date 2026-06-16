@@ -308,30 +308,37 @@ pub fn run_status() -> Result<()> {
         Err(err) => status_warn("ssh labels", &format!("could not read Nex config: {err}")),
     }
 
-    let ssh_config = dirs::home_dir().map(|home| home.join(".ssh/config"));
-    match ssh_config {
-        Some(config_path) => match std::fs::read_to_string(&config_path) {
-            Ok(text)
-                if text
-                    .lines()
-                    .any(|line| line.trim() == "Include ~/.ssh/config.d/nex.conf") =>
-            {
-                status_ok("ssh materialization", "Nex include installed");
+    match dirs::home_dir() {
+        Some(home) => {
+            let ssh_config = home.join(".ssh/config");
+            match std::fs::read_to_string(&ssh_config) {
+                Ok(text)
+                    if text
+                        .lines()
+                        .any(|line| line.trim() == "Include ~/.ssh/config.d/nex.conf") =>
+                {
+                    status_ok("ssh materialization", "Nex include installed");
+                }
+                Ok(_) => status_warn(
+                    "ssh materialization",
+                    "Nex include not installed — apply a profile with [ssh] hosts",
+                ),
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => status_warn(
+                    "ssh materialization",
+                    "~/.ssh/config missing — apply a profile with [ssh] hosts",
+                ),
+                Err(err) => status_warn(
+                    "ssh materialization",
+                    &format!("could not read config: {err}"),
+                ),
             }
-            Ok(_) => status_warn(
-                "ssh materialization",
-                "Nex include not installed — apply a profile with [ssh] hosts",
-            ),
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound => status_warn(
-                "ssh materialization",
-                "~/.ssh/config missing — apply a profile with [ssh] hosts",
-            ),
-            Err(err) => status_warn(
-                "ssh materialization",
-                &format!("could not read config: {err}"),
-            ),
-        },
-        None => status_warn("ssh materialization", "could not determine home directory"),
+
+            report_styrene_ssh_agent(&home);
+        }
+        None => {
+            status_warn("ssh materialization", "could not determine home directory");
+            status_warn("styrene ssh agent", "could not determine home directory");
+        }
     }
 
     eprintln!();
@@ -350,6 +357,49 @@ fn git_config_value(key: &str) -> Option<String> {
                 .to_string()
         })
         .filter(|value| !value.is_empty())
+}
+
+#[cfg(unix)]
+fn report_styrene_ssh_agent(home: &std::path::Path) {
+    use std::os::unix::fs::FileTypeExt;
+
+    let socket = home.join(".styrene/ssh-agent.sock");
+    match std::fs::metadata(&socket) {
+        Ok(meta) if meta.file_type().is_socket() => {
+            status_ok(
+                "styrene ssh agent",
+                &format!("socket at {}", socket.display()),
+            );
+        }
+        Ok(_) => status_warn(
+            "styrene ssh agent",
+            &format!("{} exists but is not a socket", socket.display()),
+        ),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => status_warn(
+            "styrene ssh agent",
+            "not detected — identity_label hosts need the Styrene SSH agent",
+        ),
+        Err(err) => status_warn(
+            "styrene ssh agent",
+            &format!("could not inspect socket: {err}"),
+        ),
+    }
+}
+
+#[cfg(not(unix))]
+fn report_styrene_ssh_agent(home: &std::path::Path) {
+    let socket = home.join(".styrene/ssh-agent.sock");
+    if socket.exists() {
+        status_ok(
+            "styrene ssh agent",
+            &format!("path at {}", socket.display()),
+        );
+    } else {
+        status_warn(
+            "styrene ssh agent",
+            "not detected — identity_label hosts need the Styrene SSH agent",
+        );
+    }
 }
 
 fn status_ok(label: &str, detail: &str) {
