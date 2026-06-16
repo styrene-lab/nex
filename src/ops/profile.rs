@@ -24,6 +24,7 @@ struct Profile {
     macos: Option<ProfileMacos>,
     linux: Option<ProfileLinux>,
     security: Option<ProfileSecurity>,
+    ssh: Option<ProfileSsh>,
 }
 
 #[derive(Clone, serde::Deserialize)]
@@ -165,6 +166,36 @@ struct ProfileDefaultApps {
     browser: Option<String>, // bundle id, e.g. "com.apple.Safari"
 }
 
+// ── SSH client profile structs ───────────────────────────────────────────
+
+#[derive(Clone, serde::Deserialize)]
+#[allow(dead_code)]
+struct ProfileSsh {
+    canonical_domains: Option<Vec<String>>,
+    hosts: Option<Vec<ProfileSshHost>>,
+}
+
+#[derive(Clone, serde::Deserialize)]
+#[allow(dead_code)]
+struct ProfileSshHost {
+    pattern: String,
+    user: Option<String>,
+    hostname: Option<String>,
+    port: Option<u16>,
+    identity_files: Option<Vec<String>>,
+    identity_label: Option<String>,
+    identity_agent: Option<String>,
+    identities_only: Option<bool>,
+    forward_agent: Option<bool>,
+    proxy_jump: Option<String>,
+}
+
+#[derive(Default)]
+struct MergedSsh {
+    canonical_domains: Vec<String>,
+    hosts: Vec<ProfileSshHost>,
+}
+
 // ── Linux / NixOS profile structs ────────────────────────────────────────
 
 #[derive(Clone, serde::Deserialize)]
@@ -301,6 +332,7 @@ struct MergedProfile {
     macos: Option<ProfileMacos>,
     linux: Option<ProfileLinux>,
     security: Option<ProfileSecurity>,
+    ssh: MergedSsh,
 }
 
 /// Walk the extends chain and resolve compose fragments.
@@ -415,6 +447,7 @@ impl MergedProfile {
             macos: None,
             linux: None,
             security: None,
+            ssh: MergedSsh::default(),
         }
     }
 
@@ -460,6 +493,11 @@ impl MergedProfile {
             }
         }
 
+        // SSH: append/dedupe domains and upsert hosts by pattern.
+        if let Some(ssh) = &profile.ssh {
+            self.ssh.merge_from(ssh);
+        }
+
         // Kitty, macOS, Linux, Security: last-writer-wins (whole struct)
         if profile.kitty.is_some() {
             self.kitty = profile.kitty.clone();
@@ -484,6 +522,28 @@ fn union_dedup(target: &mut Vec<String>, source: Option<&[String]>) {
                 target.push(item.clone());
             }
         }
+    }
+}
+
+impl MergedSsh {
+    fn merge_from(&mut self, ssh: &ProfileSsh) {
+        union_dedup(
+            &mut self.canonical_domains,
+            ssh.canonical_domains.as_deref(),
+        );
+        if let Some(hosts) = &ssh.hosts {
+            for host in hosts {
+                if let Some(existing) = self.hosts.iter_mut().find(|h| h.pattern == host.pattern) {
+                    *existing = host.clone();
+                } else {
+                    self.hosts.push(host.clone());
+                }
+            }
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.canonical_domains.is_empty() && self.hosts.is_empty()
     }
 }
 
@@ -789,6 +849,11 @@ pub fn run(config: &Config, repo_ref: &str, verify: bool, dry_run: bool) -> Resu
     // Git
     if merged.git.name.is_some() || merged.git.email.is_some() {
         apply_git_merged(config, &merged.git, dry_run)?;
+    }
+
+    // SSH client configuration
+    if !merged.ssh.is_empty() {
+        apply_ssh_client(&merged.ssh, dry_run)?;
     }
 
     // macOS
@@ -2315,6 +2380,81 @@ fn find_nix_module_body_open(content: &str) -> Option<usize> {
 }
 
 #[cfg(test)]
+mod ssh_profile_tests {
+    use super::*;
+
+    fn host(pattern: &str) -> ProfileSshHost {
+        ProfileSshHost {
+            pattern: pattern.to_string(),
+            user: None,
+            hostname: None,
+            port: None,
+            identity_files: None,
+            identity_label: None,
+            identity_agent: None,
+            identities_only: None,
+            forward_agent: None,
+            proxy_jump: None,
+        }
+    }
+
+    #[test]
+    fn render_ssh_config_outputs_include_target() {
+        let mut ssh = MergedSsh::default();
+        ssh.canonical_domains.push("vanderlyn.local".to_string());
+        let mut h = host("git.styrene.io");
+        h.user = Some("git".to_string());
+        h.identity_label = Some("styrene-git".to_string());
+        h.identities_only = Some(true);
+        ssh.hosts.push(h);
+
+        let rendered = render_ssh_config(&ssh);
+
+        assert!(rendered.contains("CanonicalDomains vanderlyn.local"));
+        assert!(rendered.contains("Host git.styrene.io"));
+        assert!(rendered.contains("    User git"));
+        assert!(rendered.contains("    IdentityAgent ~/.styrene/ssh-agent.sock"));
+        assert!(rendered.contains("    # StyreneIdentity label: styrene-git"));
+        assert!(rendered.contains("    IdentitiesOnly yes"));
+    }
+
+    #[test]
+    fn ssh_merge_upserts_hosts_by_pattern() {
+        let mut merged = MergedSsh::default();
+        let mut base = host("github.com");
+        base.user = Some("git".to_string());
+        merged.merge_from(&ProfileSsh {
+            canonical_domains: Some(vec!["one.local".to_string()]),
+            hosts: Some(vec![base]),
+        });
+
+        let mut overlay = host("github.com");
+        overlay.user = Some("git-overlay".to_string());
+        overlay.identity_label = Some("github".to_string());
+        merged.merge_from(&ProfileSsh {
+            canonical_domains: Some(vec!["one.local".to_string(), "two.local".to_string()]),
+            hosts: Some(vec![overlay]),
+        });
+
+        assert_eq!(merged.canonical_domains, vec!["one.local", "two.local"]);
+        assert_eq!(merged.hosts.len(), 1);
+        assert_eq!(merged.hosts[0].user.as_deref(), Some("git-overlay"));
+        assert_eq!(merged.hosts[0].identity_label.as_deref(), Some("github"));
+    }
+
+    #[test]
+    fn ssh_validation_rejects_control_characters() {
+        let mut ssh = MergedSsh::default();
+        let mut h = host("github.com\nHost *");
+        h.user = Some("git".to_string());
+        ssh.hosts.push(h);
+
+        let err = validate_ssh_config(&ssh).expect_err("newline should be rejected");
+        assert!(err.to_string().contains("control characters"));
+    }
+}
+
+#[cfg(test)]
 #[allow(clippy::items_after_test_module)]
 mod flat_configuration_import_tests {
     use super::patch_flat_configuration_import;
@@ -2360,6 +2500,198 @@ mod flat_configuration_import_tests {
                     .expect("desktop import should exist")
         );
     }
+}
+
+// ── SSH client config materialization ─────────────────────────────────────
+
+const NEX_SSH_INCLUDE: &str = "Include ~/.ssh/config.d/nex.conf";
+const DEFAULT_STYRENE_SSH_AGENT: &str = "~/.styrene/ssh-agent.sock";
+
+fn apply_ssh_client(ssh: &MergedSsh, dry_run: bool) -> Result<()> {
+    validate_ssh_config(ssh)?;
+    if dry_run {
+        output::dry_run("would apply SSH client configuration");
+        return Ok(());
+    }
+
+    let home = dirs::home_dir().context("could not determine home directory")?;
+    let ssh_dir = home.join(".ssh");
+    let config_dir = ssh_dir.join("config.d");
+    let config_path = ssh_dir.join("config");
+    let nex_config_path = config_dir.join("nex.conf");
+
+    std::fs::create_dir_all(&config_dir)?;
+    set_private_dir_permissions(&ssh_dir)?;
+    set_private_dir_permissions(&config_dir)?;
+
+    ensure_ssh_include(&config_path)?;
+    crate::edit::atomic_write_bytes(&nex_config_path, render_ssh_config(ssh).as_bytes())?;
+    set_private_file_permissions(&config_path)?;
+    set_private_file_permissions(&nex_config_path)?;
+
+    println!("  {} SSH client config written", style("✓").green());
+    println!("    {}", style(nex_config_path.display()).dim());
+    Ok(())
+}
+
+fn ensure_ssh_include(config_path: &Path) -> Result<()> {
+    let existing = match std::fs::read_to_string(config_path) {
+        Ok(text) => text,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(err) => return Err(err).with_context(|| format!("reading {}", config_path.display())),
+    };
+
+    if existing.lines().any(|line| line.trim() == NEX_SSH_INCLUDE) {
+        return Ok(());
+    }
+
+    let mut next = existing;
+    if !next.is_empty() && !next.ends_with('\n') {
+        next.push('\n');
+    }
+    if !next.is_empty() {
+        next.push('\n');
+    }
+    next.push_str("# Nex-managed SSH profile include\n");
+    next.push_str(NEX_SSH_INCLUDE);
+    next.push('\n');
+
+    if let Some(parent) = config_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    crate::edit::atomic_write_bytes(config_path, next.as_bytes())?;
+    Ok(())
+}
+
+#[cfg(unix)]
+fn set_private_dir_permissions(path: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let mut permissions = std::fs::metadata(path)?.permissions();
+    permissions.set_mode(0o700);
+    std::fs::set_permissions(path, permissions)?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn set_private_dir_permissions(_path: &Path) -> Result<()> {
+    Ok(())
+}
+
+#[cfg(unix)]
+fn set_private_file_permissions(path: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    if path.exists() {
+        let mut permissions = std::fs::metadata(path)?.permissions();
+        permissions.set_mode(0o600);
+        std::fs::set_permissions(path, permissions)?;
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn set_private_file_permissions(_path: &Path) -> Result<()> {
+    Ok(())
+}
+
+fn render_ssh_config(ssh: &MergedSsh) -> String {
+    let mut lines = vec![
+        "# Generated by nex profile apply. Do not edit directly.".to_string(),
+        String::new(),
+    ];
+
+    if !ssh.canonical_domains.is_empty() {
+        lines.push(format!(
+            "CanonicalDomains {}",
+            ssh.canonical_domains.join(" ")
+        ));
+        lines.push(String::new());
+    }
+
+    for host in &ssh.hosts {
+        lines.push(format!("Host {}", host.pattern));
+        if let Some(value) = &host.hostname {
+            lines.push(format!("    HostName {value}"));
+        }
+        if let Some(value) = &host.user {
+            lines.push(format!("    User {value}"));
+        }
+        if let Some(value) = host.port {
+            lines.push(format!("    Port {value}"));
+        }
+        if let Some(files) = &host.identity_files {
+            for file in files {
+                lines.push(format!("    IdentityFile {file}"));
+            }
+        }
+        if let Some(label) = &host.identity_label {
+            let agent = host
+                .identity_agent
+                .as_deref()
+                .unwrap_or(DEFAULT_STYRENE_SSH_AGENT);
+            lines.push(format!("    IdentityAgent {agent}"));
+            lines.push(format!("    # StyreneIdentity label: {label}"));
+            lines.push(format!("    # Public key: run `nex identity ssh {label}`"));
+        } else if let Some(agent) = &host.identity_agent {
+            lines.push(format!("    IdentityAgent {agent}"));
+        }
+        if let Some(value) = host.identities_only {
+            lines.push(format!("    IdentitiesOnly {}", yes_no(value)));
+        }
+        if let Some(value) = host.forward_agent {
+            lines.push(format!("    ForwardAgent {}", yes_no(value)));
+        }
+        if let Some(value) = &host.proxy_jump {
+            lines.push(format!("    ProxyJump {value}"));
+        }
+        lines.push(String::new());
+    }
+
+    lines.join("\n")
+}
+
+fn yes_no(value: bool) -> &'static str {
+    if value {
+        "yes"
+    } else {
+        "no"
+    }
+}
+
+fn validate_ssh_config(ssh: &MergedSsh) -> Result<()> {
+    for domain in &ssh.canonical_domains {
+        validate_ssh_token("ssh.canonical_domains", domain)?;
+    }
+    for host in &ssh.hosts {
+        validate_ssh_token("ssh.hosts.pattern", &host.pattern)?;
+        validate_optional_ssh_token("ssh.hosts.user", host.user.as_deref())?;
+        validate_optional_ssh_token("ssh.hosts.hostname", host.hostname.as_deref())?;
+        validate_optional_ssh_token("ssh.hosts.identity_label", host.identity_label.as_deref())?;
+        validate_optional_ssh_token("ssh.hosts.identity_agent", host.identity_agent.as_deref())?;
+        validate_optional_ssh_token("ssh.hosts.proxy_jump", host.proxy_jump.as_deref())?;
+        if let Some(files) = &host.identity_files {
+            for file in files {
+                validate_ssh_token("ssh.hosts.identity_files", file)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_optional_ssh_token(field: &str, value: Option<&str>) -> Result<()> {
+    if let Some(value) = value {
+        validate_ssh_token(field, value)?;
+    }
+    Ok(())
+}
+
+fn validate_ssh_token(field: &str, value: &str) -> Result<()> {
+    if value.trim().is_empty() {
+        bail!("{field} must not be empty");
+    }
+    if value.chars().any(|c| c.is_control()) {
+        bail!("{field} contains control characters");
+    }
+    Ok(())
 }
 
 // ── Profile signing ─────────────────────────────────────────────────────────
