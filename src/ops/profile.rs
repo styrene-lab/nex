@@ -2452,6 +2452,44 @@ mod ssh_profile_tests {
         let err = validate_ssh_config(&ssh).expect_err("newline should be rejected");
         assert!(err.to_string().contains("control characters"));
     }
+
+    #[test]
+    fn ssh_validation_rejects_whitespace_in_single_token_fields() {
+        let mut ssh = MergedSsh::default();
+        ssh.canonical_domains.push("corp.local extra".to_string());
+        let mut h = host("github.com gitlab.com");
+        h.hostname = Some("github.com extra".to_string());
+        h.identity_agent = Some("~/.styrene/ssh-agent.sock #comment".to_string());
+        h.identity_files = Some(vec!["~/.ssh/id ed25519".to_string()]);
+        ssh.hosts.push(h);
+
+        let err = validate_ssh_config(&ssh).expect_err("single-token fields should reject spaces");
+        assert!(err.to_string().contains("without whitespace"));
+    }
+
+    #[test]
+    fn ssh_validation_allows_multiple_host_patterns() {
+        let mut ssh = MergedSsh::default();
+        let mut h = host("github.com gitlab.com");
+        h.user = Some("git".to_string());
+        ssh.hosts.push(h);
+
+        validate_ssh_config(&ssh).expect("host pattern lists are valid OpenSSH syntax");
+    }
+
+    #[test]
+    fn ensure_ssh_include_is_idempotent() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let config = tmp.path().join("config");
+        std::fs::write(&config, "Host github.com\n    User git").expect("seed config");
+
+        ensure_ssh_include(&config).expect("first include");
+        ensure_ssh_include(&config).expect("second include");
+
+        let written = std::fs::read_to_string(&config).expect("read config");
+        assert_eq!(written.matches(NEX_SSH_INCLUDE).count(), 1);
+        assert!(written.ends_with('\n'));
+    }
 }
 
 #[cfg(test)]
@@ -2659,32 +2697,54 @@ fn yes_no(value: bool) -> &'static str {
 
 fn validate_ssh_config(ssh: &MergedSsh) -> Result<()> {
     for domain in &ssh.canonical_domains {
-        validate_ssh_token("ssh.canonical_domains", domain)?;
+        validate_ssh_single_token("ssh.canonical_domains", domain)?;
     }
     for host in &ssh.hosts {
-        validate_ssh_token("ssh.hosts.pattern", &host.pattern)?;
-        validate_optional_ssh_token("ssh.hosts.user", host.user.as_deref())?;
-        validate_optional_ssh_token("ssh.hosts.hostname", host.hostname.as_deref())?;
-        validate_optional_ssh_token("ssh.hosts.identity_label", host.identity_label.as_deref())?;
-        validate_optional_ssh_token("ssh.hosts.identity_agent", host.identity_agent.as_deref())?;
-        validate_optional_ssh_token("ssh.hosts.proxy_jump", host.proxy_jump.as_deref())?;
+        validate_ssh_pattern("ssh.hosts.pattern", &host.pattern)?;
+        validate_optional_ssh_single_token("ssh.hosts.user", host.user.as_deref())?;
+        validate_optional_ssh_single_token("ssh.hosts.hostname", host.hostname.as_deref())?;
+        validate_optional_ssh_single_token(
+            "ssh.hosts.identity_label",
+            host.identity_label.as_deref(),
+        )?;
+        validate_optional_ssh_single_token(
+            "ssh.hosts.identity_agent",
+            host.identity_agent.as_deref(),
+        )?;
+        validate_optional_ssh_single_token("ssh.hosts.proxy_jump", host.proxy_jump.as_deref())?;
         if let Some(files) = &host.identity_files {
             for file in files {
-                validate_ssh_token("ssh.hosts.identity_files", file)?;
+                validate_ssh_single_token("ssh.hosts.identity_files", file)?;
             }
         }
     }
     Ok(())
 }
 
-fn validate_optional_ssh_token(field: &str, value: Option<&str>) -> Result<()> {
+fn validate_optional_ssh_single_token(field: &str, value: Option<&str>) -> Result<()> {
     if let Some(value) = value {
-        validate_ssh_token(field, value)?;
+        validate_ssh_single_token(field, value)?;
     }
     Ok(())
 }
 
-fn validate_ssh_token(field: &str, value: &str) -> Result<()> {
+fn validate_ssh_pattern(field: &str, value: &str) -> Result<()> {
+    validate_ssh_base_token(field, value)?;
+    for pattern in value.split_ascii_whitespace() {
+        validate_ssh_base_token(field, pattern)?;
+    }
+    Ok(())
+}
+
+fn validate_ssh_single_token(field: &str, value: &str) -> Result<()> {
+    validate_ssh_base_token(field, value)?;
+    if value.chars().any(char::is_whitespace) {
+        bail!("{field} must be a single SSH config token without whitespace");
+    }
+    Ok(())
+}
+
+fn validate_ssh_base_token(field: &str, value: &str) -> Result<()> {
     if value.trim().is_empty() {
         bail!("{field} must not be empty");
     }
