@@ -326,26 +326,41 @@ fn identity_backup_refuses_to_overwrite() {
 
 #[test]
 fn identity_restore_copies_backup_to_default_path() {
-    let sb = Sandbox::new();
-    let backup = sb.home.path().join("identity-backup.key");
-    fs::create_dir_all(backup.parent().expect("backup parent")).expect("backup dir");
-    fs::write(&backup, b"encrypted identity bytes").expect("write backup");
+    let source_sb = Sandbox::new().with_identity();
+    let restore_sb = Sandbox::new();
+    let backup = restore_sb.home.path().join("identity-backup.key");
+    fs::copy(source_sb.identity_path(), &backup).expect("write backup");
 
-    sb.nex()
+    restore_sb
+        .nex()
         .args(["identity", "restore", backup.to_str().expect("utf8 path")])
         .assert()
         .success()
         .stderr(predicate::str::contains("identity restored"));
 
-    let restored = fs::read(sb.home.path().join(".config/styrene/identity.key")).expect("restore");
-    assert_eq!(restored, b"encrypted identity bytes");
+    let source = fs::read(source_sb.identity_path()).expect("source");
+    let restored = fs::read(restore_sb.identity_path()).expect("restore");
+    assert_eq!(restored, source);
+}
+
+#[test]
+fn identity_restore_rejects_malformed_backup() {
+    let sb = Sandbox::new();
+    let backup = sb.home.path().join("identity-backup.key");
+    fs::write(&backup, b"not a valid identity backup").expect("write backup");
+
+    sb.nex()
+        .args(["identity", "restore", backup.to_str().expect("utf8 path")])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("unexpected size"));
 }
 
 #[test]
 fn identity_restore_refuses_to_overwrite_existing_identity() {
     let sb = Sandbox::new().with_identity();
     let backup = sb.home.path().join("identity-backup.key");
-    fs::write(&backup, b"different identity bytes").expect("write backup");
+    fs::copy(sb.identity_path(), &backup).expect("write backup");
 
     sb.nex()
         .args(["identity", "restore", backup.to_str().expect("utf8 path")])

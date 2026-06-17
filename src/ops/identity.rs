@@ -170,6 +170,18 @@ pub fn run_restore(input: &PathBuf) -> Result<()> {
     if !input.exists() {
         bail!("identity backup not found at {}", input.display());
     }
+    let meta = std::fs::metadata(input)
+        .with_context(|| format!("reading identity backup {}", input.display()))?;
+    if !meta.is_file() {
+        bail!("identity backup is not a file: {}", input.display());
+    }
+    if meta.len() != 97 {
+        bail!(
+            "identity backup at {} has unexpected size: {} bytes (expected 97)",
+            input.display(),
+            meta.len()
+        );
+    }
 
     let path = default_path();
     if path.exists() {
