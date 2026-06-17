@@ -127,6 +127,7 @@ pub fn run_backup(output: &PathBuf) -> Result<()> {
             path.display()
         );
     }
+    validate_identity_file_shape(&path, "identity file")?;
     if output.exists() {
         bail!("backup already exists at {}", output.display());
     }
@@ -166,22 +167,27 @@ fn set_identity_file_permissions(_path: &PathBuf) -> Result<()> {
     Ok(())
 }
 
+fn validate_identity_file_shape(path: &PathBuf, label: &str) -> Result<()> {
+    let meta =
+        std::fs::metadata(path).with_context(|| format!("reading {label} {}", path.display()))?;
+    if !meta.is_file() {
+        bail!("{label} is not a file: {}", path.display());
+    }
+    if meta.len() != 97 {
+        bail!(
+            "{label} at {} has unexpected size: {} bytes (expected 97)",
+            path.display(),
+            meta.len()
+        );
+    }
+    Ok(())
+}
+
 pub fn run_restore(input: &PathBuf) -> Result<()> {
     if !input.exists() {
         bail!("identity backup not found at {}", input.display());
     }
-    let meta = std::fs::metadata(input)
-        .with_context(|| format!("reading identity backup {}", input.display()))?;
-    if !meta.is_file() {
-        bail!("identity backup is not a file: {}", input.display());
-    }
-    if meta.len() != 97 {
-        bail!(
-            "identity backup at {} has unexpected size: {} bytes (expected 97)",
-            input.display(),
-            meta.len()
-        );
-    }
+    validate_identity_file_shape(input, "identity backup")?;
 
     let path = default_path();
     if path.exists() {

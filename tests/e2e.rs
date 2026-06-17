@@ -325,6 +325,21 @@ fn identity_backup_refuses_to_overwrite() {
 }
 
 #[test]
+fn identity_backup_rejects_malformed_source_identity() {
+    let sb = Sandbox::new();
+    let key_dir = sb.home.path().join(".config/styrene");
+    fs::create_dir_all(&key_dir).expect("create identity dir");
+    fs::write(key_dir.join("identity.key"), b"not a valid identity").expect("write identity");
+    let backup = sb.home.path().join("identity-backup.key");
+
+    sb.nex()
+        .args(["identity", "backup", backup.to_str().expect("utf8 path")])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("unexpected size"));
+}
+
+#[test]
 fn identity_restore_copies_backup_to_default_path() {
     let source_sb = Sandbox::new().with_identity();
     let restore_sb = Sandbox::new();
