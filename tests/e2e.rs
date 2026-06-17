@@ -206,7 +206,8 @@ fn identity_init_creates_key_file() {
         .args(["identity", "init"])
         .assert()
         .success()
-        .stderr(predicate::str::contains("identity created"));
+        .stderr(predicate::str::contains("identity created"))
+        .stderr(predicate::str::contains("nex identity backup <path>"));
 
     assert!(sb.identity_path().exists());
     // File should be 97 bytes (STID v1 format)

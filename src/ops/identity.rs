@@ -81,7 +81,10 @@ pub fn run_init(path: Option<PathBuf>) -> Result<()> {
     eprintln!();
     eprintln!(
         "  {}",
-        console::style("Back up this file — losing it means losing your identity.").dim()
+        console::style(
+            "Back up this file with `nex identity backup <path>` — losing it means losing your identity."
+        )
+        .dim()
     );
 
     Ok(())
