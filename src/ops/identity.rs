@@ -166,6 +166,40 @@ fn set_identity_file_permissions(_path: &PathBuf) -> Result<()> {
     Ok(())
 }
 
+pub fn run_restore(input: &PathBuf) -> Result<()> {
+    if !input.exists() {
+        bail!("identity backup not found at {}", input.display());
+    }
+
+    let path = default_path();
+    if path.exists() {
+        bail!(
+            "identity already exists at {}\nmove it aside before restoring",
+            path.display()
+        );
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("creating identity directory {}", parent.display()))?;
+    }
+
+    std::fs::copy(input, &path)
+        .with_context(|| format!("copying {} to {}", input.display(), path.display()))?;
+    set_identity_file_permissions(&path)?;
+
+    eprintln!();
+    output::status("identity restored");
+    eprintln!("  source  {}", input.display());
+    eprintln!("  path    {}", path.display());
+    eprintln!();
+    eprintln!(
+        "  {}",
+        console::style("Run `nex identity show` to verify the restored identity.").dim()
+    );
+
+    Ok(())
+}
+
 // ── list ────────────────────────────────────────────────────────────────────
 
 pub fn run_list() -> Result<()> {

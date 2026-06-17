@@ -325,6 +325,36 @@ fn identity_backup_refuses_to_overwrite() {
 }
 
 #[test]
+fn identity_restore_copies_backup_to_default_path() {
+    let sb = Sandbox::new();
+    let backup = sb.home.path().join("identity-backup.key");
+    fs::create_dir_all(backup.parent().expect("backup parent")).expect("backup dir");
+    fs::write(&backup, b"encrypted identity bytes").expect("write backup");
+
+    sb.nex()
+        .args(["identity", "restore", backup.to_str().expect("utf8 path")])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("identity restored"));
+
+    let restored = fs::read(sb.home.path().join(".config/styrene/identity.key")).expect("restore");
+    assert_eq!(restored, b"encrypted identity bytes");
+}
+
+#[test]
+fn identity_restore_refuses_to_overwrite_existing_identity() {
+    let sb = Sandbox::new().with_identity();
+    let backup = sb.home.path().join("identity-backup.key");
+    fs::write(&backup, b"different identity bytes").expect("write backup");
+
+    sb.nex()
+        .args(["identity", "restore", backup.to_str().expect("utf8 path")])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("identity already exists"));
+}
+
+#[test]
 fn identity_ssh_exports_pubkey() {
     let sb = Sandbox::new().with_identity();
 

@@ -403,6 +403,11 @@ pub enum IdentityAction {
         /// Output path for the encrypted identity backup
         output: PathBuf,
     },
+    /// Restore the encrypted identity file from a backup path
+    Restore {
+        /// Input path for the encrypted identity backup
+        input: PathBuf,
+    },
     /// Export or manage SSH public keys derived from identity
     Ssh {
         /// Label for the SSH key (e.g. "github", "work")
