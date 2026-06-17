@@ -100,6 +100,15 @@ impl Sandbox {
     }
 }
 
+#[cfg(unix)]
+fn assert_private_file_permissions(path: &Path) {
+    let mode = fs::metadata(path).expect("metadata").permissions().mode() & 0o777;
+    assert_eq!(mode, 0o600, "{} should be private", path.display());
+}
+
+#[cfg(not(unix))]
+fn assert_private_file_permissions(_path: &Path) {}
+
 fn scaffold_repo(home: &Path) -> PathBuf {
     let repo = home.join("nix-config");
     let home_dir = repo.join("nix/modules/home");
@@ -310,6 +319,7 @@ fn identity_backup_copies_encrypted_identity() {
     let source = fs::read(sb.home.path().join(".config/styrene/identity.key")).expect("source");
     let copied = fs::read(&backup).expect("backup");
     assert_eq!(copied, source);
+    assert_private_file_permissions(&backup);
 }
 
 #[test]
@@ -357,6 +367,7 @@ fn identity_restore_copies_backup_to_default_path() {
     let source = fs::read(source_sb.identity_path()).expect("source");
     let restored = fs::read(restore_sb.identity_path()).expect("restore");
     assert_eq!(restored, source);
+    assert_private_file_permissions(&restore_sb.identity_path());
 }
 
 #[test]
