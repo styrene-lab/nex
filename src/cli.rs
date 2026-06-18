@@ -408,6 +408,11 @@ pub enum IdentityAction {
         /// Input path for the encrypted identity backup
         input: PathBuf,
     },
+    /// Verify an encrypted identity or backup file can be decrypted
+    Verify {
+        /// Path to the encrypted identity or backup file
+        input: PathBuf,
+    },
     /// Export or manage SSH public keys derived from identity
     Ssh {
         /// Label for the SSH key (e.g. "github", "work")

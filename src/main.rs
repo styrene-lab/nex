@@ -164,6 +164,7 @@ fn main() -> Result<()> {
                 cli::IdentityAction::Status => ops::identity::run_status(),
                 cli::IdentityAction::Backup { output } => ops::identity::run_backup(output),
                 cli::IdentityAction::Restore { input } => ops::identity::run_restore(input),
+                cli::IdentityAction::Verify { input } => ops::identity::run_verify(input),
                 cli::IdentityAction::Ssh { label, list, add } => {
                     ops::identity::run_ssh(label.clone(), *list, add.clone())
                 }

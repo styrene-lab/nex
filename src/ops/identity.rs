@@ -215,8 +215,28 @@ pub fn run_restore(input: &PathBuf) -> Result<()> {
     eprintln!();
     eprintln!(
         "  {}",
-        console::style("Run `nex identity show` to verify the restored identity.").dim()
+        console::style("Run `nex identity verify <path>` to verify the restored identity.").dim()
     );
+
+    Ok(())
+}
+
+pub fn run_verify(input: &PathBuf) -> Result<()> {
+    if !input.exists() {
+        bail!("identity file not found at {}", input.display());
+    }
+    validate_identity_file_shape(input, "identity file")?;
+
+    let passphrase = read_passphrase("Passphrase")?;
+    let root = load_root(input, &passphrase)?;
+    let keys = AllPublicKeys::from_root(&root);
+
+    eprintln!();
+    output::status("identity file verified");
+    eprintln!("  path       {}", input.display());
+    eprintln!("  hash       {}", keys.identity_hash);
+    eprintln!("  pubkey     {}", keys.signing_pubkey_hex);
+    eprintln!();
 
     Ok(())
 }

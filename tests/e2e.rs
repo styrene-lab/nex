@@ -397,6 +397,35 @@ fn identity_restore_refuses_to_overwrite_existing_identity() {
 }
 
 #[test]
+fn identity_verify_accepts_valid_identity_file() {
+    let sb = Sandbox::new().with_identity();
+
+    sb.nex()
+        .args([
+            "identity",
+            "verify",
+            sb.identity_path().to_str().expect("utf8 path"),
+        ])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("identity file verified"))
+        .stderr(predicate::str::contains("hash"));
+}
+
+#[test]
+fn identity_verify_rejects_malformed_identity_file() {
+    let sb = Sandbox::new();
+    let backup = sb.home.path().join("identity-backup.key");
+    fs::write(&backup, b"not a valid identity backup").expect("write backup");
+
+    sb.nex()
+        .args(["identity", "verify", backup.to_str().expect("utf8 path")])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("unexpected size"));
+}
+
+#[test]
 fn identity_ssh_exports_pubkey() {
     let sb = Sandbox::new().with_identity();
 
