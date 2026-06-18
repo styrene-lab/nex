@@ -128,6 +128,7 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
         let has_brew = check_cmd("brew");
         if has_brew {
             ok("homebrew", &capture_version("brew", &["--version"]));
+            discover_adoptable_brew_packages()?;
         } else if dry_run {
             if from.is_some() {
                 output::dry_run("would install Homebrew (clone path)");
@@ -138,6 +139,7 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
             }
         } else if from.is_some() {
             install_homebrew()?;
+            discover_adoptable_brew_packages()?;
         } else {
             info(
                 "homebrew",
@@ -503,6 +505,44 @@ fn check_cmd(name: &str) -> bool {
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false)
+}
+
+fn discover_adoptable_brew_packages() -> Result<()> {
+    if !crate::exec::brew_available() {
+        return Ok(());
+    }
+    let formulae = crate::exec::brew_leaves().unwrap_or_default();
+    let casks = crate::exec::brew_list_casks().unwrap_or_default();
+    print_adopt_discovery(formulae.len(), casks.len());
+    Ok(())
+}
+
+fn print_adopt_discovery(formulae: usize, casks: usize) {
+    let mut stderr = std::io::stderr();
+    let _ = print_adopt_discovery_to(&mut stderr, formulae, casks);
+}
+
+fn print_adopt_discovery_to(
+    mut writer: impl std::io::Write,
+    formulae: usize,
+    casks: usize,
+) -> Result<()> {
+    let total = formulae + casks;
+    if total == 0 {
+        return Ok(());
+    }
+
+    writeln!(
+        writer,
+        "  {} found {total} existing Homebrew package(s): {formulae} formulae, {casks} casks",
+        style("!").yellow().bold()
+    )?;
+    writeln!(
+        writer,
+        "  {}",
+        style("nex init will run `nex adopt` before first activation so cleanup does not remove them.").dim()
+    )?;
+    Ok(())
 }
 
 fn capture_version(cmd: &str, args: &[&str]) -> String {
@@ -1377,6 +1417,26 @@ mod tests {
             .and_then(|name| name.to_str())
             .is_some_and(|name| name.starts_with("macos-nix.before-nex-")));
         Ok(())
+    }
+
+    #[test]
+    fn adopt_discovery_message_explains_pre_activation_capture() {
+        let mut buf = Vec::new();
+        print_adopt_discovery_to(&mut buf, 2, 1).expect("write discovery");
+        let message = String::from_utf8(buf).expect("utf8");
+
+        assert!(message.contains("found 3 existing Homebrew package(s)"));
+        assert!(message.contains("2 formulae, 1 casks"));
+        assert!(message.contains("nex adopt"));
+        assert!(message.contains("before first activation"));
+    }
+
+    #[test]
+    fn adopt_discovery_message_is_empty_without_packages() {
+        let mut buf = Vec::new();
+        print_adopt_discovery_to(&mut buf, 0, 0).expect("write discovery");
+
+        assert!(buf.is_empty());
     }
 
     #[test]
