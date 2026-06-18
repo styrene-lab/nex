@@ -4,6 +4,21 @@ All notable changes to nex are documented here. Format follows [Keep a Changelog
 
 ## [Unreleased]
 
+## [0.25.6] - 2026-06-16
+
+### Added
+- Added `nex identity status` to report Styrene Identity readiness for Nex workflows, including identity file health, git signing, SSH labels, SSH materialization, and Styrene SSH agent readiness.
+- Added `nex identity backup`, `nex identity restore`, and `nex identity verify` for encrypted identity backup/restore workflows.
+- Added SSH client profile materialization for profile `[ssh]` declarations, including managed `~/.ssh/config.d/nex.conf` generation.
+
+### Changed
+- Surface Homebrew adoption discovery during `nex init` so existing packages are visible before first activation.
+- Point `nex identity init` users directly to the backup command.
+
+### Fixed
+- Hardened SSH profile materialization validation to reject unsafe whitespace in single-token OpenSSH directives.
+- Validate identity file shape before backup and restore, and preserve private file permissions.
+
 ## [0.25.5] - 2026-06-01
 
 ### Fixed
