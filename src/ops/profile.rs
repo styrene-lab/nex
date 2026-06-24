@@ -25,6 +25,7 @@ struct Profile {
     linux: Option<ProfileLinux>,
     security: Option<ProfileSecurity>,
     ssh: Option<ProfileSsh>,
+    topology: Option<ProfileTopology>,
 }
 
 #[derive(Clone, serde::Deserialize)]
@@ -33,6 +34,12 @@ struct ProfileMeta {
     description: Option<String>,
     extends: Option<String>,
     compose: Option<Vec<String>>,
+}
+
+#[derive(Clone, serde::Deserialize)]
+struct ProfileTopology {
+    base: Option<String>,
+    configs: Option<Vec<String>>,
 }
 
 #[derive(Clone, serde::Deserialize)]
@@ -293,6 +300,7 @@ struct ProfileSecurity {
 /// A fetched profile plus its repo ref (needed for kitty file downloads).
 struct ProfileLayer {
     repo_ref: String,
+    file: String,
     profile: Profile,
 }
 
@@ -380,6 +388,13 @@ fn validate_repo_ref(repo_ref: &str) -> Result<()> {
     Ok(())
 }
 
+fn validate_topology_ref(repo_ref: &str) -> Result<()> {
+    if Path::new(repo_ref).exists() {
+        return Ok(());
+    }
+    validate_repo_ref(repo_ref)
+}
+
 /// Maximum recursion depth for extends/compose chains to prevent stack overflow
 /// from deeply nested or maliciously crafted profile hierarchies.
 const MAX_PROFILE_DEPTH: usize = 50;
@@ -409,6 +424,30 @@ fn collect_recursive(
 
     let profile = fetch_profile_file(repo_ref, file)?;
 
+    // Topology is the explicit human ownership model. It expands to the same
+    // base-first layer stream internally, but keeps base/config/machine separate
+    // from fragment provenance for display and future explain output.
+    if file == "profile.toml" {
+        if let Some(topology) = &profile.topology {
+            if let Some(base_ref) = &topology.base {
+                validate_topology_ref(base_ref)?;
+                collect_recursive(base_ref, "profile.toml", layers, visited, depth + 1)?;
+            }
+            if let Some(configs) = &topology.configs {
+                for config_ref in configs {
+                    validate_topology_ref(config_ref)?;
+                    collect_recursive(config_ref, "profile.toml", layers, visited, depth + 1)?;
+                }
+            }
+            layers.push(ProfileLayer {
+                repo_ref: repo_ref.to_string(),
+                file: file.to_string(),
+                profile,
+            });
+            return Ok(());
+        }
+    }
+
     // 1. If this profile extends another, resolve the parent first (base goes earliest)
     if let Some(parent_ref) = profile.meta.as_ref().and_then(|m| m.extends.clone()) {
         validate_repo_ref(&parent_ref)?;
@@ -427,10 +466,44 @@ fn collect_recursive(
     // 3. The profile itself is the final layer (its inline sections override fragments)
     layers.push(ProfileLayer {
         repo_ref: repo_ref.to_string(),
+        file: file.to_string(),
         profile,
     });
 
     Ok(())
+}
+
+fn profile_topology_line(layers: &[ProfileLayer]) -> Option<String> {
+    let leaf = layers.last()?;
+    leaf.profile.topology.as_ref()?;
+    let names: Vec<String> = layers
+        .iter()
+        .filter(|layer| layer.file == "profile.toml")
+        .filter_map(profile_layer_label)
+        .collect();
+    if names.len() > 1 {
+        Some(names.join(" → "))
+    } else {
+        None
+    }
+}
+
+fn profile_provenance_line(layers: &[ProfileLayer]) -> Option<String> {
+    let names: Vec<String> = layers.iter().filter_map(profile_layer_label).collect();
+    if names.len() > 1 {
+        Some(names.join(" → "))
+    } else {
+        None
+    }
+}
+
+fn profile_layer_label(layer: &ProfileLayer) -> Option<String> {
+    layer
+        .profile
+        .meta
+        .as_ref()
+        .and_then(|meta| meta.name.as_deref())
+        .map(str::to_string)
 }
 
 impl MergedProfile {
@@ -743,18 +816,30 @@ pub fn run(config: &Config, repo_ref: &str, verify: bool, dry_run: bool) -> Resu
     // Phase 1: Collect all profile layers
     let layers = collect_profiles(repo_ref)?;
 
-    // Print the chain
+    // Print human topology when available; otherwise fall back to the raw
+    // provenance chain used by legacy extends/compose profiles.
     if layers.len() > 1 {
-        let chain: Vec<&str> = layers
-            .iter()
-            .filter_map(|l| l.profile.meta.as_ref().and_then(|m| m.name.as_deref()))
-            .collect();
         println!();
-        println!(
-            "  {} profile chain: {}",
-            style("nex profile").bold(),
-            chain.join(" → ")
-        );
+        if let Some(topology) = profile_topology_line(&layers) {
+            println!("  {} topology: {}", style("nex profile").bold(), topology);
+            if let Some(provenance) = profile_provenance_line(&layers) {
+                println!(
+                    "  {} {}",
+                    style("provenance:").dim(),
+                    style(provenance).dim()
+                );
+            }
+        } else {
+            let chain: Vec<&str> = layers
+                .iter()
+                .filter_map(|l| l.profile.meta.as_ref().and_then(|m| m.name.as_deref()))
+                .collect();
+            println!(
+                "  {} profile chain: {}",
+                style("nex profile").bold(),
+                chain.join(" → ")
+            );
+        }
         println!();
     } else if let Some(meta) = layers.last().and_then(|l| l.profile.meta.as_ref()) {
         println!();
@@ -2489,6 +2574,57 @@ mod ssh_profile_tests {
         let written = std::fs::read_to_string(&config).expect("read config");
         assert_eq!(written.matches(NEX_SSH_INCLUDE).count(), 1);
         assert!(written.ends_with('\n'));
+    }
+}
+
+#[cfg(test)]
+mod profile_topology_tests {
+    use super::*;
+
+    fn layer(name: &str, file: &str, topology: bool) -> ProfileLayer {
+        ProfileLayer {
+            repo_ref: name.to_string(),
+            file: file.to_string(),
+            profile: Profile {
+                meta: Some(ProfileMeta {
+                    name: Some(name.to_string()),
+                    description: None,
+                    extends: None,
+                    compose: None,
+                }),
+                topology: topology.then_some(ProfileTopology {
+                    base: Some("base".to_string()),
+                    configs: Some(vec!["config".to_string()]),
+                }),
+                packages: None,
+                git: None,
+                shell: None,
+                kitty: None,
+                macos: None,
+                linux: None,
+                security: None,
+                ssh: None,
+            },
+        }
+    }
+
+    #[test]
+    fn topology_line_omits_fragment_provenance() {
+        let layers = vec![
+            layer("essentials", "core/essentials.toml", false),
+            layer("mac-dev", "profile.toml", false),
+            layer("personal", "profile.toml", false),
+            layer("m5-mbp", "profile.toml", true),
+        ];
+
+        assert_eq!(
+            profile_topology_line(&layers).as_deref(),
+            Some("mac-dev → personal → m5-mbp")
+        );
+        assert_eq!(
+            profile_provenance_line(&layers).as_deref(),
+            Some("essentials → mac-dev → personal → m5-mbp")
+        );
     }
 }
 
