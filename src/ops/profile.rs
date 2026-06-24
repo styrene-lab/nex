@@ -42,7 +42,7 @@ struct ProfileTopology {
     configs: Option<Vec<String>>,
 }
 
-#[derive(Clone, serde::Deserialize)]
+#[derive(Clone, Default, serde::Deserialize)]
 #[allow(dead_code)]
 struct ProfileKitty {
     font: Option<String>,
@@ -84,7 +84,7 @@ struct ProfileGit {
     push_auto_setup_remote: Option<bool>,
 }
 
-#[derive(Clone, serde::Deserialize)]
+#[derive(Clone, Default, serde::Deserialize)]
 #[allow(dead_code)]
 struct ProfileMacos {
     show_all_extensions: Option<bool>,
@@ -106,14 +106,14 @@ struct ProfileMacos {
     default_apps: Option<ProfileDefaultApps>,
 }
 
-#[derive(Clone, serde::Deserialize)]
+#[derive(Clone, Default, serde::Deserialize)]
 #[allow(dead_code)]
 struct ProfileFonts {
     nerd: Option<Vec<String>>,
     families: Option<Vec<String>>,
 }
 
-#[derive(Clone, serde::Deserialize)]
+#[derive(Clone, Default, serde::Deserialize)]
 #[allow(dead_code)]
 struct ProfileDock {
     persistent_apps: Option<Vec<String>>,
@@ -127,7 +127,7 @@ struct ProfileDock {
     show_process_indicators: Option<bool>,
 }
 
-#[derive(Clone, serde::Deserialize)]
+#[derive(Clone, Default, serde::Deserialize)]
 #[allow(dead_code)]
 struct ProfileAppearance {
     dark_mode: Option<bool>,
@@ -137,7 +137,7 @@ struct ProfileAppearance {
     sidebar_icon_size: Option<u32>, // 1=small, 2=medium, 3=large
 }
 
-#[derive(Clone, serde::Deserialize)]
+#[derive(Clone, Default, serde::Deserialize)]
 #[allow(dead_code)]
 struct ProfileInput {
     key_repeat: Option<u32>,         // lower = faster (1-15, default 6)
@@ -146,7 +146,7 @@ struct ProfileInput {
     press_and_hold: Option<bool>,    // false = enable key repeat instead of character picker
 }
 
-#[derive(Clone, serde::Deserialize)]
+#[derive(Clone, Default, serde::Deserialize)]
 #[allow(dead_code)]
 struct ProfileFinder {
     default_view: Option<String>, // "list", "icon", "column", "gallery"
@@ -159,7 +159,7 @@ struct ProfileFinder {
     warn_on_extension_change: Option<bool>,
 }
 
-#[derive(Clone, serde::Deserialize)]
+#[derive(Clone, Default, serde::Deserialize)]
 #[allow(dead_code)]
 struct ProfileScreenshots {
     location: Option<String>,
@@ -167,7 +167,7 @@ struct ProfileScreenshots {
     disable_shadow: Option<bool>,
 }
 
-#[derive(Clone, serde::Deserialize)]
+#[derive(Clone, Default, serde::Deserialize)]
 #[allow(dead_code)]
 struct ProfileDefaultApps {
     browser: Option<String>, // bundle id, e.g. "com.apple.Safari"
@@ -291,7 +291,7 @@ struct ProfileCosmic {
     dock_favorites: Option<Vec<String>>,
 }
 
-#[derive(Clone, serde::Deserialize)]
+#[derive(Clone, Default, serde::Deserialize)]
 #[allow(dead_code)]
 struct ProfileSecurity {
     touchid_sudo: Option<bool>,
@@ -614,12 +614,17 @@ impl MergedProfile {
             self.ssh.merge_from(ssh);
         }
 
-        // Kitty, macOS, Linux, Security: last-writer-wins (whole struct)
-        if profile.kitty.is_some() {
-            self.kitty = profile.kitty.clone();
+        // Kitty and macOS: merge fields so leaf profiles can override one
+        // preference without erasing lower-layer defaults from the same table.
+        if let Some(kitty) = &profile.kitty {
+            self.kitty
+                .get_or_insert_with(ProfileKitty::default)
+                .merge_from(kitty);
         }
-        if profile.macos.is_some() {
-            self.macos = profile.macos.clone();
+        if let Some(macos) = &profile.macos {
+            self.macos
+                .get_or_insert_with(ProfileMacos::default)
+                .merge_from(macos);
         }
         if profile.linux.is_some() {
             self.linux = profile.linux.clone();
@@ -637,6 +642,228 @@ fn union_dedup(target: &mut Vec<String>, source: Option<&[String]>) {
             if !existing.contains(item) {
                 target.push(item.clone());
             }
+        }
+    }
+}
+
+impl ProfileKitty {
+    fn merge_from(&mut self, overlay: &ProfileKitty) {
+        if overlay.font.is_some() {
+            self.font = overlay.font.clone();
+        }
+        if overlay.font_size.is_some() {
+            self.font_size = overlay.font_size;
+        }
+        if overlay.theme.is_some() {
+            self.theme = overlay.theme.clone();
+        }
+        if overlay.window_padding.is_some() {
+            self.window_padding = overlay.window_padding;
+        }
+        if overlay.scrollback_lines.is_some() {
+            self.scrollback_lines = overlay.scrollback_lines;
+        }
+        if overlay.macos_option_as_alt.is_some() {
+            self.macos_option_as_alt = overlay.macos_option_as_alt;
+        }
+        if overlay.macos_quit_when_last_window_closed.is_some() {
+            self.macos_quit_when_last_window_closed = overlay.macos_quit_when_last_window_closed;
+        }
+    }
+}
+
+impl ProfileMacos {
+    fn merge_from(&mut self, overlay: &ProfileMacos) {
+        if overlay.show_all_extensions.is_some() {
+            self.show_all_extensions = overlay.show_all_extensions;
+        }
+        if overlay.show_hidden_files.is_some() {
+            self.show_hidden_files = overlay.show_hidden_files;
+        }
+        if overlay.auto_capitalize.is_some() {
+            self.auto_capitalize = overlay.auto_capitalize;
+        }
+        if overlay.auto_correct.is_some() {
+            self.auto_correct = overlay.auto_correct;
+        }
+        if overlay.natural_scroll.is_some() {
+            self.natural_scroll = overlay.natural_scroll;
+        }
+        if overlay.tap_to_click.is_some() {
+            self.tap_to_click = overlay.tap_to_click;
+        }
+        if overlay.three_finger_drag.is_some() {
+            self.three_finger_drag = overlay.three_finger_drag;
+        }
+        if overlay.dock_autohide.is_some() {
+            self.dock_autohide = overlay.dock_autohide;
+        }
+        if overlay.dock_show_recents.is_some() {
+            self.dock_show_recents = overlay.dock_show_recents;
+        }
+        if let Some(fonts) = &overlay.fonts {
+            self.fonts
+                .get_or_insert_with(ProfileFonts::default)
+                .merge_from(fonts);
+        }
+        if let Some(dock) = &overlay.dock {
+            self.dock
+                .get_or_insert_with(ProfileDock::default)
+                .merge_from(dock);
+        }
+        if let Some(appearance) = &overlay.appearance {
+            self.appearance
+                .get_or_insert_with(ProfileAppearance::default)
+                .merge_from(appearance);
+        }
+        if let Some(input) = &overlay.input {
+            self.input
+                .get_or_insert_with(ProfileInput::default)
+                .merge_from(input);
+        }
+        if let Some(finder) = &overlay.finder {
+            self.finder
+                .get_or_insert_with(ProfileFinder::default)
+                .merge_from(finder);
+        }
+        if let Some(screenshots) = &overlay.screenshots {
+            self.screenshots
+                .get_or_insert_with(ProfileScreenshots::default)
+                .merge_from(screenshots);
+        }
+        if let Some(default_apps) = &overlay.default_apps {
+            self.default_apps
+                .get_or_insert_with(ProfileDefaultApps::default)
+                .merge_from(default_apps);
+        }
+    }
+}
+
+impl ProfileFonts {
+    fn merge_from(&mut self, overlay: &ProfileFonts) {
+        union_dedup(
+            &mut self.nerd.get_or_insert_with(Vec::new),
+            overlay.nerd.as_deref(),
+        );
+        union_dedup(
+            &mut self.families.get_or_insert_with(Vec::new),
+            overlay.families.as_deref(),
+        );
+    }
+}
+
+impl ProfileDock {
+    fn merge_from(&mut self, overlay: &ProfileDock) {
+        if overlay.persistent_apps.is_some() {
+            self.persistent_apps = overlay.persistent_apps.clone();
+        }
+        if overlay.tile_size.is_some() {
+            self.tile_size = overlay.tile_size;
+        }
+        if overlay.position.is_some() {
+            self.position = overlay.position.clone();
+        }
+        if overlay.minimize_effect.is_some() {
+            self.minimize_effect = overlay.minimize_effect.clone();
+        }
+        if overlay.magnification.is_some() {
+            self.magnification = overlay.magnification;
+        }
+        if overlay.magnification_size.is_some() {
+            self.magnification_size = overlay.magnification_size;
+        }
+        if overlay.launchanim.is_some() {
+            self.launchanim = overlay.launchanim;
+        }
+        if overlay.mineffect.is_some() {
+            self.mineffect = overlay.mineffect.clone();
+        }
+        if overlay.show_process_indicators.is_some() {
+            self.show_process_indicators = overlay.show_process_indicators;
+        }
+    }
+}
+
+impl ProfileAppearance {
+    fn merge_from(&mut self, overlay: &ProfileAppearance) {
+        if overlay.dark_mode.is_some() {
+            self.dark_mode = overlay.dark_mode;
+        }
+        if overlay.accent_color.is_some() {
+            self.accent_color = overlay.accent_color.clone();
+        }
+        if overlay.highlight_color.is_some() {
+            self.highlight_color = overlay.highlight_color.clone();
+        }
+        if overlay.reduce_transparency.is_some() {
+            self.reduce_transparency = overlay.reduce_transparency;
+        }
+        if overlay.sidebar_icon_size.is_some() {
+            self.sidebar_icon_size = overlay.sidebar_icon_size;
+        }
+    }
+}
+impl ProfileInput {
+    fn merge_from(&mut self, overlay: &ProfileInput) {
+        if overlay.key_repeat.is_some() {
+            self.key_repeat = overlay.key_repeat;
+        }
+        if overlay.initial_key_repeat.is_some() {
+            self.initial_key_repeat = overlay.initial_key_repeat;
+        }
+        if overlay.fn_as_standard.is_some() {
+            self.fn_as_standard = overlay.fn_as_standard;
+        }
+        if overlay.press_and_hold.is_some() {
+            self.press_and_hold = overlay.press_and_hold;
+        }
+    }
+}
+impl ProfileFinder {
+    fn merge_from(&mut self, overlay: &ProfileFinder) {
+        if overlay.default_view.is_some() {
+            self.default_view = overlay.default_view.clone();
+        }
+        if overlay.show_path_bar.is_some() {
+            self.show_path_bar = overlay.show_path_bar;
+        }
+        if overlay.show_status_bar.is_some() {
+            self.show_status_bar = overlay.show_status_bar;
+        }
+        if overlay.show_tab_bar.is_some() {
+            self.show_tab_bar = overlay.show_tab_bar;
+        }
+        if overlay.new_window_path.is_some() {
+            self.new_window_path = overlay.new_window_path.clone();
+        }
+        if overlay.search_scope.is_some() {
+            self.search_scope = overlay.search_scope.clone();
+        }
+        if overlay.show_extensions.is_some() {
+            self.show_extensions = overlay.show_extensions;
+        }
+        if overlay.warn_on_extension_change.is_some() {
+            self.warn_on_extension_change = overlay.warn_on_extension_change;
+        }
+    }
+}
+impl ProfileScreenshots {
+    fn merge_from(&mut self, overlay: &ProfileScreenshots) {
+        if overlay.location.is_some() {
+            self.location = overlay.location.clone();
+        }
+        if overlay.format.is_some() {
+            self.format = overlay.format.clone();
+        }
+        if overlay.disable_shadow.is_some() {
+            self.disable_shadow = overlay.disable_shadow;
+        }
+    }
+}
+impl ProfileDefaultApps {
+    fn merge_from(&mut self, overlay: &ProfileDefaultApps) {
+        if overlay.browser.is_some() {
+            self.browser = overlay.browser.clone();
         }
     }
 }
@@ -2727,6 +2954,123 @@ configs = ["{}"]
             .collect();
 
         assert_eq!(names, ["base", "personal", "machine"]);
+    }
+
+    #[test]
+    fn kitty_merge_preserves_lower_layer_fields() {
+        let mut merged = MergedProfile::new();
+        let mut base = layer("base", "profile.toml", false);
+        base.profile.kitty = Some(ProfileKitty {
+            font: Some("JetBrains Mono".to_string()),
+            font_size: Some(13.0),
+            theme: None,
+            window_padding: Some(8),
+            scrollback_lines: Some(10_000),
+            macos_option_as_alt: Some(true),
+            macos_quit_when_last_window_closed: Some(true),
+        });
+        let mut leaf = layer("leaf", "profile.toml", false);
+        leaf.profile.kitty = Some(ProfileKitty {
+            font: Some("Noto Sans JP".to_string()),
+            theme: Some("alpharius".to_string()),
+            font_size: None,
+            window_padding: None,
+            scrollback_lines: None,
+            macos_option_as_alt: None,
+            macos_quit_when_last_window_closed: None,
+        });
+
+        merged.merge_layer(&base);
+        merged.merge_layer(&leaf);
+
+        let kitty = merged.kitty.expect("merged kitty");
+        assert_eq!(kitty.font.as_deref(), Some("Noto Sans JP"));
+        assert_eq!(kitty.theme.as_deref(), Some("alpharius"));
+        assert_eq!(kitty.font_size, Some(13.0));
+        assert_eq!(kitty.window_padding, Some(8));
+        assert_eq!(kitty.scrollback_lines, Some(10_000));
+        assert_eq!(kitty.macos_option_as_alt, Some(true));
+    }
+
+    #[test]
+    fn macos_merge_preserves_lower_layer_fields_and_unions_fonts() {
+        let mut merged = MergedProfile::new();
+        let mut base = layer("base", "profile.toml", false);
+        base.profile.macos = Some(ProfileMacos {
+            show_all_extensions: Some(true),
+            show_hidden_files: Some(true),
+            auto_capitalize: Some(false),
+            auto_correct: Some(false),
+            natural_scroll: Some(true),
+            tap_to_click: Some(true),
+            three_finger_drag: Some(true),
+            dock_autohide: Some(true),
+            dock_show_recents: Some(false),
+            fonts: Some(ProfileFonts {
+                nerd: Some(vec!["jetbrains-mono".to_string()]),
+                families: Some(vec!["ibm-plex".to_string()]),
+            }),
+            dock: None,
+            appearance: None,
+            input: None,
+            finder: None,
+            screenshots: None,
+            default_apps: None,
+        });
+        let mut leaf = layer("leaf", "profile.toml", false);
+        leaf.profile.macos = Some(ProfileMacos {
+            natural_scroll: Some(false),
+            fonts: Some(ProfileFonts {
+                nerd: None,
+                families: Some(vec!["noto-sans-jp".to_string()]),
+            }),
+            dock: Some(ProfileDock {
+                persistent_apps: Some(vec!["kitty".to_string(), "Safari".to_string()]),
+                tile_size: Some(48),
+                position: None,
+                minimize_effect: None,
+                magnification: None,
+                magnification_size: None,
+                launchanim: None,
+                mineffect: None,
+                show_process_indicators: None,
+            }),
+            show_all_extensions: None,
+            show_hidden_files: None,
+            auto_capitalize: None,
+            auto_correct: None,
+            tap_to_click: None,
+            three_finger_drag: None,
+            dock_autohide: None,
+            dock_show_recents: None,
+            appearance: None,
+            input: None,
+            finder: None,
+            screenshots: None,
+            default_apps: None,
+        });
+
+        merged.merge_layer(&base);
+        merged.merge_layer(&leaf);
+
+        let macos = merged.macos.expect("merged macos");
+        assert_eq!(macos.show_all_extensions, Some(true));
+        assert_eq!(macos.show_hidden_files, Some(true));
+        assert_eq!(macos.natural_scroll, Some(false));
+        assert_eq!(macos.tap_to_click, Some(true));
+        assert_eq!(macos.dock_autohide, Some(true));
+        let fonts = macos.fonts.expect("merged fonts");
+        assert_eq!(fonts.nerd, Some(vec!["jetbrains-mono".to_string()]));
+        assert_eq!(
+            fonts.families,
+            Some(vec!["ibm-plex".to_string(), "noto-sans-jp".to_string()])
+        );
+        let dock = macos.dock.expect("merged dock");
+        assert_eq!(dock.tile_size, Some(48));
+        assert_eq!(
+            dock.persistent_apps,
+            Some(vec!["kitty".to_string(), "Safari".to_string()])
+        );
     }
 }
 
