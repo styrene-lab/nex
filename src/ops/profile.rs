@@ -402,7 +402,15 @@ const MAX_PROFILE_DEPTH: usize = 50;
 fn collect_profiles(repo_ref: &str) -> Result<Vec<ProfileLayer>> {
     let mut layers = Vec::new();
     let mut visited = HashSet::new();
-    collect_recursive(repo_ref, "profile.toml", &mut layers, &mut visited, 0)?;
+    let suppressed_extends = HashSet::new();
+    collect_recursive(
+        repo_ref,
+        "profile.toml",
+        &mut layers,
+        &mut visited,
+        &suppressed_extends,
+        0,
+    )?;
     Ok(layers)
 }
 
@@ -411,6 +419,7 @@ fn collect_recursive(
     file: &str,
     layers: &mut Vec<ProfileLayer>,
     visited: &mut HashSet<String>,
+    suppressed_extends: &HashSet<String>,
     depth: usize,
 ) -> Result<()> {
     if depth > MAX_PROFILE_DEPTH {
@@ -429,14 +438,32 @@ fn collect_recursive(
     // from fragment provenance for display and future explain output.
     if file == "profile.toml" {
         if let Some(topology) = &profile.topology {
+            let mut child_suppressed_extends = suppressed_extends.clone();
             if let Some(base_ref) = &topology.base {
                 validate_topology_ref(base_ref)?;
-                collect_recursive(base_ref, "profile.toml", layers, visited, depth + 1)?;
+                if !suppressed_extends.contains(base_ref) {
+                    collect_recursive(
+                        base_ref,
+                        "profile.toml",
+                        layers,
+                        visited,
+                        suppressed_extends,
+                        depth + 1,
+                    )?;
+                }
+                child_suppressed_extends.insert(base_ref.clone());
             }
             if let Some(configs) = &topology.configs {
                 for config_ref in configs {
                     validate_topology_ref(config_ref)?;
-                    collect_recursive(config_ref, "profile.toml", layers, visited, depth + 1)?;
+                    collect_recursive(
+                        config_ref,
+                        "profile.toml",
+                        layers,
+                        visited,
+                        &child_suppressed_extends,
+                        depth + 1,
+                    )?;
                 }
             }
             layers.push(ProfileLayer {
@@ -451,7 +478,16 @@ fn collect_recursive(
     // 1. If this profile extends another, resolve the parent first (base goes earliest)
     if let Some(parent_ref) = profile.meta.as_ref().and_then(|m| m.extends.clone()) {
         validate_repo_ref(&parent_ref)?;
-        collect_recursive(&parent_ref, "profile.toml", layers, visited, depth + 1)?;
+        if !suppressed_extends.contains(&parent_ref) {
+            collect_recursive(
+                &parent_ref,
+                "profile.toml",
+                layers,
+                visited,
+                suppressed_extends,
+                depth + 1,
+            )?;
+        }
     }
 
     // 2. If this profile composes fragments, resolve each one.
@@ -459,7 +495,14 @@ fn collect_recursive(
     if let Some(compose) = profile.meta.as_ref().and_then(|m| m.compose.clone()) {
         for fragment_path in &compose {
             let fragment_file = format!("{fragment_path}.toml");
-            collect_recursive(repo_ref, &fragment_file, layers, visited, depth + 1)?;
+            collect_recursive(
+                repo_ref,
+                &fragment_file,
+                layers,
+                visited,
+                suppressed_extends,
+                depth + 1,
+            )?;
         }
     }
 
@@ -2625,6 +2668,65 @@ mod profile_topology_tests {
             profile_provenance_line(&layers).as_deref(),
             Some("essentials → mac-dev → personal → m5-mbp")
         );
+    }
+
+    #[test]
+    fn topology_suppression_prevents_duplicate_legacy_base() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let base = tmp.path().join("base");
+        let personal = tmp.path().join("personal");
+        let machine = tmp.path().join("machine");
+        std::fs::create_dir_all(&base).expect("base dir");
+        std::fs::create_dir_all(&personal).expect("personal dir");
+        std::fs::create_dir_all(&machine).expect("machine dir");
+
+        std::fs::write(
+            base.join("profile.toml"),
+            r#"
+[meta]
+name = "base"
+"#,
+        )
+        .expect("write base");
+        std::fs::write(
+            personal.join("profile.toml"),
+            format!(
+                r#"
+[meta]
+name = "personal"
+extends = "{}"
+"#,
+                base.display()
+            ),
+        )
+        .expect("write personal");
+        std::fs::write(
+            machine.join("profile.toml"),
+            format!(
+                r#"
+[meta]
+name = "machine"
+extends = "{}"
+
+[topology]
+base = "{}"
+configs = ["{}"]
+"#,
+                personal.display(),
+                base.display(),
+                personal.display()
+            ),
+        )
+        .expect("write machine");
+
+        let layers =
+            collect_profiles(machine.to_str().expect("utf8 path")).expect("collect profiles");
+        let names: Vec<String> = layers
+            .into_iter()
+            .filter_map(|layer| profile_layer_label(&layer))
+            .collect();
+
+        assert_eq!(names, ["base", "personal", "machine"]);
     }
 }
 
