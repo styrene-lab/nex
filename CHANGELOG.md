@@ -4,6 +4,9 @@ All notable changes to nex are documented here. Format follows [Keep a Changelog
 
 ## [Unreleased]
 
+### Fixed
+- Stop writing unsupported `nix-homebrew.autoMigrate` during Homebrew bootstrap repair; unmanaged Homebrew now uses the inventory-and-quarantine reset path before nix-homebrew activation.
+
 ## [0.25.6] - 2026-06-16
 
 ### Added
@@ -101,8 +104,8 @@ All notable changes to nex are documented here. Format follows [Keep a Changelog
 ## [0.21.8] - 2026-05-28
 
 ### Added
-- First-time macOS Homebrew bootstrap preflight detects unmanaged Homebrew before activation and offers migrate, reset, or abort.
-- `nex doctor --fix homebrew-bootstrap` can enable `nix-homebrew.autoMigrate` or quarantine an unmanaged Homebrew after writing inventory backups.
+- First-time macOS Homebrew bootstrap preflight detects unmanaged Homebrew before activation and offers reset or abort.
+- `nex doctor --fix homebrew-bootstrap` can quarantine an unmanaged Homebrew after writing inventory backups.
 
 ### Fixed
 - `nex install` now prefers Homebrew casks when the nixpkgs candidate is a redirect/stub telling users to install the cask.
