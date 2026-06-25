@@ -12,17 +12,21 @@ pub struct ExistingHomebrew {
     pub prefix: PathBuf,
     pub repository: PathBuf,
     pub brew_binary: Option<PathBuf>,
+    pub auto_migrate_configured: bool,
     pub managed_by_nix_homebrew: bool,
 }
 
 impl ExistingHomebrew {
     pub fn is_conflict(&self) -> bool {
-        (self.repository.exists() || self.brew_binary.is_some()) && !self.managed_by_nix_homebrew
+        (self.repository.exists() || self.brew_binary.is_some())
+            && !self.auto_migrate_configured
+            && !self.managed_by_nix_homebrew
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HomebrewBootstrapChoice {
+    Migrate,
     Reset,
     Abort,
 }
@@ -40,7 +44,7 @@ pub(crate) fn detect_existing(config: &Config) -> Result<Option<ExistingHomebrew
     Ok(None)
 }
 
-fn detect_existing_at(_config: &Config, prefix: &Path) -> Result<Option<ExistingHomebrew>> {
+fn detect_existing_at(config: &Config, prefix: &Path) -> Result<Option<ExistingHomebrew>> {
     let repository = prefix.join("Homebrew/Library/Homebrew");
     let brew_binary = [prefix.join("bin/brew"), prefix.join("Homebrew/bin/brew")]
         .into_iter()
@@ -57,6 +61,7 @@ fn detect_existing_at(_config: &Config, prefix: &Path) -> Result<Option<Existing
         prefix: prefix.to_path_buf(),
         repository,
         brew_binary,
+        auto_migrate_configured: nix_homebrew_auto_migrate_configured(&config.homebrew_file)?,
         managed_by_nix_homebrew,
     }))
 }
@@ -109,6 +114,14 @@ pub(crate) fn preflight(config: &Config, dry_run: bool) -> Result<()> {
     }
 
     match prompt_choice()? {
+        HomebrewBootstrapChoice::Migrate => {
+            enable_auto_migrate(config)?;
+            eprintln!(
+                "  {} enabled nix-homebrew.autoMigrate; rerun switch/activation",
+                style("✓").green().bold()
+            );
+            bail!("Homebrew migration configured; rerun the activation command");
+        }
         HomebrewBootstrapChoice::Reset => {
             let inventory = inventory_existing(&existing)?;
             quarantine_existing(&existing)?;
@@ -133,7 +146,7 @@ pub(crate) fn print_existing_homebrew_warning(existing: &ExistingHomebrew) {
     );
     eprintln!(
         "    {}",
-        style("nix-homebrew will reject activation until this is reset.").dim()
+        style("nix-homebrew will reject activation until this is migrated or reset. Use migrate when the upstream nix-homebrew module is imported.").dim()
     );
     eprintln!(
         "    {}",
@@ -154,6 +167,9 @@ pub(crate) fn doctor(config: &Config, fix: bool) -> Result<()> {
     print_existing_homebrew_warning(&existing);
     if fix {
         match prompt_choice()? {
+            HomebrewBootstrapChoice::Migrate => {
+                enable_auto_migrate(config)?;
+            }
             HomebrewBootstrapChoice::Reset => {
                 let inventory = inventory_existing(&existing)?;
                 quarantine_existing(&existing)?;
@@ -171,12 +187,14 @@ pub(crate) fn doctor(config: &Config, fix: bool) -> Result<()> {
 
 fn prompt_choice() -> Result<HomebrewBootstrapChoice> {
     let items = vec![
+        "migrate: set nix-homebrew.autoMigrate = true and preserve installed packages".to_string(),
         "reset: inventory packages, move Homebrew aside, and let nix-homebrew install fresh"
             .to_string(),
         "abort: leave Homebrew unchanged".to_string(),
     ];
     match crate::input::input().select("Existing Homebrew detected", &items, 0)? {
-        0 => confirm_reset_choice(),
+        0 => Ok(HomebrewBootstrapChoice::Migrate),
+        1 => confirm_reset_choice(),
         _ => Ok(HomebrewBootstrapChoice::Abort),
     }
 }
@@ -198,6 +216,53 @@ fn reset_choice_from_confirmation(typed: &str) -> HomebrewBootstrapChoice {
     } else {
         HomebrewBootstrapChoice::Abort
     }
+}
+
+pub(crate) fn enable_auto_migrate(config: &Config) -> Result<bool> {
+    let path = &config.homebrew_file;
+    let content =
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    let patched = add_auto_migrate_to_nix_homebrew_module(&content)
+        .context("could not find nix-homebrew block to patch autoMigrate")?;
+    if patched == content {
+        return Ok(false);
+    }
+    crate::edit::atomic_write_bytes(path, patched.as_bytes())?;
+    crate::exec::git_commit(&config.repo, "nex doctor: enable nix-homebrew autoMigrate");
+    Ok(true)
+}
+
+fn add_auto_migrate_to_nix_homebrew_module(content: &str) -> Option<String> {
+    if nix_homebrew_auto_migrate_configured_in_content(content) {
+        return Some(content.to_string());
+    }
+
+    let start = content.find("nix-homebrew = {")?;
+    let relative_enable = content[start..].find("    enable = true;\n")?;
+    let idx = start + relative_enable + "    enable = true;\n".len();
+    let mut patched = String::with_capacity(content.len() + 32);
+    patched.push_str(&content[..idx]);
+    patched.push_str("    autoMigrate = true;\n");
+    patched.push_str(&content[idx..]);
+    Some(patched)
+}
+
+fn nix_homebrew_auto_migrate_configured(path: &Path) -> Result<bool> {
+    if !path.exists() {
+        return Ok(false);
+    }
+    let content =
+        std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    Ok(nix_homebrew_auto_migrate_configured_in_content(&content))
+}
+
+fn nix_homebrew_auto_migrate_configured_in_content(content: &str) -> bool {
+    let Some(start) = content.find("nix-homebrew = {") else {
+        return false;
+    };
+    let rest = &content[start..];
+    let end = rest.find("\n};").unwrap_or(rest.len());
+    rest[..end].contains("autoMigrate = true;")
 }
 
 fn inventory_existing(existing: &ExistingHomebrew) -> Result<PathBuf> {
@@ -379,8 +444,45 @@ fn current_timestamp() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{managed_by_nix_homebrew, next_quarantine_path, ExistingHomebrew};
+    use super::{
+        add_auto_migrate_to_nix_homebrew_module, managed_by_nix_homebrew, next_quarantine_path,
+        nix_homebrew_auto_migrate_configured_in_content, ExistingHomebrew,
+    };
     use std::path::{Path, PathBuf};
+
+    #[test]
+    fn inserts_auto_migrate_only_in_nix_homebrew_block() {
+        let input = "homebrew = {\n    enable = true;\n};\n\nnix-homebrew = {\n    enable = true;\n    user = username;\n};\n";
+        let output = add_auto_migrate_to_nix_homebrew_module(input).expect("patchable");
+
+        assert!(output.contains("nix-homebrew = {\n    enable = true;\n    autoMigrate = true;\n"));
+        let homebrew_block = output
+            .split("nix-homebrew = {")
+            .next()
+            .expect("homebrew block");
+        assert!(homebrew_block.contains("homebrew = {\n    enable = true;\n};"));
+        assert!(!homebrew_block.contains("autoMigrate = true;"));
+    }
+
+    #[test]
+    fn auto_migrate_patch_is_idempotent() {
+        let input = "nix-homebrew = {\n    enable = true;\n    autoMigrate = true;\n};\n";
+        assert_eq!(
+            add_auto_migrate_to_nix_homebrew_module(input).as_deref(),
+            Some(input)
+        );
+    }
+
+    #[test]
+    fn auto_migrate_detection_is_scoped_to_nix_homebrew() {
+        let wrong_block = "homebrew = {\n    enable = true;\n    autoMigrate = true;\n};\n\nnix-homebrew = {\n    enable = true;\n};\n";
+        assert!(!nix_homebrew_auto_migrate_configured_in_content(
+            wrong_block
+        ));
+
+        let right_block = "homebrew = {\n    enable = true;\n};\n\nnix-homebrew = {\n    enable = true;\n    autoMigrate = true;\n};\n";
+        assert!(nix_homebrew_auto_migrate_configured_in_content(right_block));
+    }
 
     #[test]
     fn quarantine_path_moves_aside_instead_of_deleting() {
@@ -416,6 +518,7 @@ mod tests {
             prefix: PathBuf::from("/usr/local"),
             repository: PathBuf::from("/usr/local/Homebrew/Library/Homebrew"),
             brew_binary: Some(PathBuf::from("/usr/local/bin/brew")),
+            auto_migrate_configured: false,
             managed_by_nix_homebrew: true,
         };
 
@@ -431,6 +534,7 @@ mod tests {
             prefix: dir.path().to_path_buf(),
             repository: repo,
             brew_binary: None,
+            auto_migrate_configured: false,
             managed_by_nix_homebrew: false,
         };
 
