@@ -4,8 +4,11 @@ All notable changes to nex are documented here. Format follows [Keep a Changelog
 
 ## [Unreleased]
 
+## [0.25.7] - 2026-06-25
+
 ### Fixed
 - Offer Homebrew bootstrap migration only when the active nix-homebrew module exposes upstream `nix-homebrew.autoMigrate`, preserving the reset fallback for older/stale inputs.
+- Apply local kitty profile directory trees during real profile application, matching dry-run/local profile resolution.
 
 ## [0.25.6] - 2026-06-16
 
