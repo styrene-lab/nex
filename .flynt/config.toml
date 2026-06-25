@@ -1,0 +1,29 @@
+project_name = "nex"
+
+[sync]
+backend = "none"
+
+[appearance]
+theme = "alpharius"
+font_size = "medium"
+
+[local_runtime]
+omegon_channel = "stable"
+
+[publication]
+default_visibility = "private"
+
+[security]
+mode = "open"
+algorithm = "cha_cha20_poly1305"
+auto_lock_minutes = 15
+
+[indexing]
+write_frontmatter = false
+track_index_snapshot = false
+
+[visualization]
+excalidraw_auto_export = true
+d2_auto_render = true
+d2_theme = 200
+d2_layout = "elk"

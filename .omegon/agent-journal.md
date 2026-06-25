@@ -175,7 +175,7 @@ What landed:
     - `BootstrapScope`
     - `BootstrapFinding`
     - `BootstrapRepair`
- 
+
 
 **Model:** openai-codex:gpt-5.5 — 21043016 in / 32015 out tokens across 238 turns
 
@@ -233,7 +233,7 @@ Implemented refinements:
 - Replaced repair execution via `command_preview` with typed repair actions:
   - `BootstrapRepairKind::MoveShellRc`
   - `BootstrapRepairKind::EnsureSyntheticConf`
-- `command_preview()` 
+- `command_preview()`
 
 **Model:** openai-codex:gpt-5.5 — 25291982 in / 47025 out tokens across 262 turns
 
@@ -341,7 +341,7 @@ recommended: same version in both — nix
 
 **Outcome:** Priority plan:
 
-1. **#17 — GUI app source recommendation**  
+1. **#17 — GUI app source recommendation**
    Highest priority because it’s a narrow install sharp edge with low blast radius. It prevents `nex install kitty`-style cases from choosing a Nix package that is effectively a Homebrew-cask redirect/stub.
 
    Status: implemented and comm
@@ -462,7 +462,7 @@ Release commit included:
 
 ```text
 c04f2fa chore(release): bump version to 0.21.8
-c6bd0d3 fix(homebrew): quarantine 
+c6bd0d3 fix(homebrew): quarantine
 
 **Model:** openai-codex:gpt-5.5 — 47876216 in / 69657 out tokens across 409 turns
 
@@ -866,7 +866,7 @@ What changed:
   - added `0.22.0` release section:
     - Armory search/info
     - Armory dependency locks
-    - 
+    -
 
 **Model:** openai-codex:gpt-5.5 — 92648132 in / 112412 out tokens across 648 turns
 
@@ -940,4 +940,862 @@ Confirmed deployed successfully for `v0.22.0`:
   45c2328 ci: align local validation with all-target clippy
   3dfbf9c docs(memory): update release audit log
   fd3e769 docs(memory): record armory release notes
+## 2026-06-01 — main (8t 647tc 1m29s)
+
+**Task:** get it merged and released
+
+**Outcome:** I fixed the actual version metadata issue and started the corrected release.
+
+What happened:
+- `v0.25.4` was tagged/released, but `Cargo.toml` still said:
+
+```text
+version = "0.25.3"
+```
+
+- So crates.io correctly rejected it as already existing:
+
+```text
+crate nex-pkg@0.25.3 already exists
+```
+
+Fixe
+
+**Model:** openai-codex:gpt-5.5 — 110796798 in / 178733 out tokens across 691 turns
+
+**Active:**
+- armory-package-manager (27/32)
+
+**Commits:**
+  206b56f chore(release): bump version to 0.25.5
+  2fe1559 chore(release): bump version to 0.25.4
+  17a1ff2 fix(init): replace only canonical default config
+## 2026-06-01 — main (2t 648tc 19s)
+
+**Task:** get it merged and released
+
+**Outcome:** v0.25.5 is fully green and published.
+
+Release:
+- [v0.25.5](https://github.com/styrene-lab/nex/releases/tag/v0.25.5)
+
+CI:
+- Passed: [run 26783186152](https://github.com/styrene-lab/nex/actions/runs/26783186152)
+- Rust job passed:
+  - format
+  - clippy
+  - tests
+  - version consistency
+- lipstyk pass
+
+**Model:** openai-codex:gpt-5.5 — 111216265 in / 179132 out tokens across 693 turns
+
+**Active:**
+- armory-package-manager (27/32)
+
+**Commits:**
+  206b56f chore(release): bump version to 0.25.5
+  2fe1559 chore(release): bump version to 0.25.4
+  17a1ff2 fix(init): replace only canonical default config
+## 2026-06-01 — main (4t 651tc 45s)
+
+**Task:** get it merged and released
+
+**Outcome:** Implemented the guardrails so we don’t repeat the `v0.25.4` crates.io mistake.
+
+Commit:
+- `34bf293 ci(release): verify tag matches crate version`
+
+What changed:
+
+## Release workflow now hard-stops before publish
+
+`.github/workflows/release.yml` now verifies:
+
+```text
+GITHUB_REF_NAME == Cargo.toml pa
+
+**Model:** openai-codex:gpt-5.5 — 112074032 in / 180408 out tokens across 697 turns
+
+**Active:**
+- armory-package-manager (27/32)
+
+**Commits:**
+  206b56f chore(release): bump version to 0.25.5
+  2fe1559 chore(release): bump version to 0.25.4
+  17a1ff2 fix(init): replace only canonical default config
+## 2026-06-16 — main (9t 12tc 1m9s)
+
+**Task:** need you to assess the recent additions surrounding SSH materialization that have landed here
+
+**Outcome:** Assessment of `3d1099d feat(profile): materialize ssh client config`:
+
+## What landed
+
+The new profile SSH support is entirely in `src/ops/profile.rs`.
+
+It adds:
+
+- Profile schema:
+  - `Profile.ssh`
+  - `ProfileSsh`
+  - `ProfileSshHost`
+  - merged state via `MergedSsh`
+- Merge behavior:
+  - `canonic
+
+**Model:** openai-codex:gpt-5.5 — 364300 in / 2212 out tokens across 9 turns
+
+**Active:**
+- armory-package-manager (27/32)
+
+**Commits:**
+  3d1099d feat(profile): materialize ssh client config
+  206b56f chore(release): bump version to 0.25.5
+  2fe1559 chore(release): bump version to 0.25.4
+## 2026-06-16 — main (17t 30tc 2m51s)
+
+**Task:** need you to assess the recent additions surrounding SSH materialization that have landed here
+
+**Outcome:** Implemented the SSH materialization hardening in `src/ops/profile.rs`.
+
+Changes made:
+- Split SSH validation into field-aware validators:
+  - `validate_ssh_single_token` rejects whitespace for single-token OpenSSH directives.
+  - `validate_ssh_pattern` still allows multiple `Host` patterns, which is
+
+**Model:** openai-codex:gpt-5.5 — 1257283 in / 4741 out tokens across 26 turns
+
+**Active:**
+- armory-package-manager (27/32)
+
+**Commits:**
+  3d1099d feat(profile): materialize ssh client config
+  206b56f chore(release): bump version to 0.25.5
+  2fe1559 chore(release): bump version to 0.25.4
+## 2026-06-16 — main (3t 33tc 17s)
+
+**Task:** need you to assess the recent additions surrounding SSH materialization that have landed here
+
+**Outcome:** Committed the SSH materialization hardening.
+
+Commit:
+```text
+289c430 fix(profile): harden ssh materialization validation
+```
+
+What’s included:
+- Field-specific SSH config validation.
+- Whitespace rejection for single-token OpenSSH directives.
+- Host pattern lists remain supported.
+- Idempotence tes
+
+**Model:** openai-codex:gpt-5.5 — 1435007 in / 5112 out tokens across 29 turns
+
+**Active:**
+- armory-package-manager (27/32)
+
+**Commits:**
+  289c430 fix(profile): harden ssh materialization validation
+  3d1099d feat(profile): materialize ssh client config
+  206b56f chore(release): bump version to 0.25.5
+## 2026-06-16 — main (4t 42tc 1m17s)
+
+**Task:** need you to assess the recent additions surrounding SSH materialization that have landed here
+
+**Outcome:** Here’s the current Styrene Identity story in Nex, grounded in what’s implemented now.
+
+## Mental model
+
+Styrene Identity in Nex is a **local root identity file** that derives purpose-specific keys:
+
+```text
+one encrypted root identity
+        │
+        ├─ signing key       → profile signing, git SSH
+
+**Model:** openai-codex:gpt-5.5 — 1693581 in / 8844 out tokens across 33 turns
+
+**Active:**
+- armory-package-manager (27/32)
+
+**Commits:**
+  289c430 fix(profile): harden ssh materialization validation
+  3d1099d feat(profile): materialize ssh client config
+  206b56f chore(release): bump version to 0.25.5
+## 2026-06-16 — main (13t 57tc 2m38s)
+
+**Task:** need you to assess the recent additions surrounding SSH materialization that have landed here
+
+**Outcome:** Started the next concrete UX step: added a first-class identity readiness surface.
+
+Implemented:
+
+```bash
+nex identity status
+```
+
+Files changed:
+- `src/cli.rs`
+- `src/main.rs`
+- `src/ops/identity.rs`
+- `tests/e2e.rs`
+
+What `nex identity status` now reports:
+- identity file presence/shape
+- Unix per
+
+**Model:** openai-codex:gpt-5.5 — 2700435 in / 11621 out tokens across 46 turns
+
+**Active:**
+- armory-package-manager (27/32)
+
+**Commits:**
+  289c430 fix(profile): harden ssh materialization validation
+  3d1099d feat(profile): materialize ssh client config
+  206b56f chore(release): bump version to 0.25.5
+## 2026-06-16 — main (7t 64tc 4h52m)
+
+**Task:** need you to assess the recent additions surrounding SSH materialization that have landed here
+
+**Outcome:** Committed the identity UX increment.
+
+Commit:
+```text
+b2f36f3 feat(identity): report Nex readiness status
+```
+
+What landed:
+- Added `nex identity status`.
+- Reports:
+  - identity file presence and expected size
+  - Unix permissions
+  - Git SSH signing readiness
+  - registered SSH labels
+  - Nex SSH
+
+**Model:** openai-codex:gpt-5.5 — 3308909 in / 12214 out tokens across 53 turns
+
+**Active:**
+- armory-package-manager (27/32)
+
+**Commits:**
+  b2f36f3 feat(identity): report Nex readiness status
+  289c430 fix(profile): harden ssh materialization validation
+  3d1099d feat(profile): materialize ssh client config
+## 2026-06-16 — main (23t 88tc 4m47s)
+
+**Task:** need you to assess the recent additions surrounding SSH materialization that have landed here
+
+**Outcome:** Implemented and committed the next identity UX step.
+
+Commit:
+```text
+054e0c9 feat(identity): add encrypted identity backup command
+```
+
+New command:
+```bash
+nex identity backup <output-path>
+```
+
+Behavior:
+- Copies the encrypted Styrene identity file from the default identity path.
+- Creates parent
+
+**Model:** openai-codex:gpt-5.5 — 5217461 in / 17775 out tokens across 75 turns
+
+**Active:**
+- armory-package-manager (27/32)
+
+**Commits:**
+  054e0c9 feat(identity): add encrypted identity backup command
+  5c006f7 feat(identity): surface Styrene SSH agent readiness
+  b2f36f3 feat(identity): report Nex readiness status
+## 2026-06-17 — main (12t 99tc 2m46s)
+
+**Task:** need you to assess the recent additions surrounding SSH materialization that have landed here
+
+**Outcome:** Implemented and committed the restore side of the identity backup UX.
+
+Commit:
+```text
+9b2aa7e feat(identity): restore encrypted identity backups
+```
+
+New command:
+```bash
+nex identity restore <input-path>
+```
+
+Behavior:
+- Restores an encrypted identity backup to the default Styrene identity path.
+-
+
+**Model:** openai-codex:gpt-5.5 — 6434367 in / 19717 out tokens across 87 turns
+
+**Active:**
+- armory-package-manager (27/32)
+
+**Commits:**
+  9b2aa7e feat(identity): restore encrypted identity backups
+  054e0c9 feat(identity): add encrypted identity backup command
+  5c006f7 feat(identity): surface Styrene SSH agent readiness
+## 2026-06-17 — main (11t 109tc 1m28s)
+
+**Task:** need you to assess the recent additions surrounding SSH materialization that have landed here
+
+**Outcome:** Hardened and committed the restore path.
+
+Commit:
+```text
+2590898 fix(identity): validate backup shape before restore
+```
+
+What changed:
+- `nex identity restore <input>` now validates the backup before copying:
+  - input must exist
+  - input must be a file
+  - input must be exactly 97 bytes, matchin
+
+**Model:** openai-codex:gpt-5.5 — 7580893 in / 21247 out tokens across 98 turns
+
+**Active:**
+- armory-package-manager (27/32)
+
+**Commits:**
+  2590898 fix(identity): validate backup shape before restore
+  9b2aa7e feat(identity): restore encrypted identity backups
+  054e0c9 feat(identity): add encrypted identity backup command
+## 2026-06-17 — main (12t 120tc 2m33s)
+
+**Task:** need you to assess the recent additions surrounding SSH materialization that have landed here
+
+**Outcome:** Implemented and committed the next backup hardening slice.
+
+Commit:
+```text
+2a27c9b fix(identity): validate identity shape before backup
+```
+
+What changed:
+- `nex identity backup <output>` now validates the source identity before copying:
+  - source must be a file
+  - source must be exactly 97 bytes
+
+**Model:** openai-codex:gpt-5.5 — 8852643 in / 22914 out tokens across 110 turns
+
+**Active:**
+- armory-package-manager (27/32)
+
+**Commits:**
+  2a27c9b fix(identity): validate identity shape before backup
+  2590898 fix(identity): validate backup shape before restore
+  9b2aa7e feat(identity): restore encrypted identity backups
+## 2026-06-17 — main (8t 127tc 56s)
+
+**Task:** need you to assess the recent additions surrounding SSH materialization that have landed here
+
+**Outcome:** Committed the next identity UX polish.
+
+Commit:
+```text
+391cdc6 docs(identity): point init users to backup command
+```
+
+What changed:
+- `nex identity init` now gives an actionable backup instruction:
+
+```text
+Back up this file with `nex identity backup <path>` — losing it means losing your identity.
+
+**Model:** openai-codex:gpt-5.5 — 9722161 in / 23633 out tokens across 118 turns
+
+**Active:**
+- armory-package-manager (27/32)
+
+**Commits:**
+  391cdc6 docs(identity): point init users to backup command
+  2a27c9b fix(identity): validate identity shape before backup
+  2590898 fix(identity): validate backup shape before restore
+## 2026-06-17 — main (12t 138tc 2m8s)
+
+**Task:** agreed, get to work on shoring up this work area
+
+**Outcome:** Committed the permission coverage slice.
+
+Commit:
+```text
+7de6f01 test(identity): cover backup restore permissions
+```
+
+What changed:
+- Added e2e assertions that:
+  - `nex identity backup` writes backup files as private files (`0600` on Unix).
+  - `nex identity restore` restores the identity as a pr
+
+**Model:** openai-codex:gpt-5.5 — 11044792 in / 25583 out tokens across 130 turns
+
+**Active:**
+- armory-package-manager (27/32)
+
+**Commits:**
+  7de6f01 test(identity): cover backup restore permissions
+  391cdc6 docs(identity): point init users to backup command
+  2a27c9b fix(identity): validate identity shape before backup
+## 2026-06-18 — main (2t 140tc 21s)
+
+**Task:** agreed, get to work on shoring up this work area
+
+**Outcome:** The identity UX/security slice is now complete as a coherent stack.
+
+Landed commits, newest first:
+
+```text
+7de6f01 test(identity): cover backup restore permissions
+391cdc6 docs(identity): point init users to backup command
+2a27c9b fix(identity): validate identity shape before backup
+2590898 fix(ide
+
+**Model:** openai-codex:gpt-5.5 — 11272553 in / 26181 out tokens across 132 turns
+
+**Active:**
+- armory-package-manager (27/32)
+
+**Commits:**
+  7de6f01 test(identity): cover backup restore permissions
+  391cdc6 docs(identity): point init users to backup command
+  2a27c9b fix(identity): validate identity shape before backup
+## 2026-06-18 — main (1t 140tc 1m1s)
+
+**Task:** agreed, get to work on shoring up this work area
+
+**Outcome:** Adversarial assessment of the end-to-end Styrene Identity work in Nex:
+
+## Executive verdict
+
+The slice is directionally strong: it turns Styrene Identity from a loose set of crypto/export primitives into an operational Nex subsystem with readiness reporting, backup, restore, SSH materialization awa
+
+**Model:** openai-codex:gpt-5.5 — 11389076 in / 29287 out tokens across 133 turns
+
+**Active:**
+- armory-package-manager (27/32)
+
+**Commits:**
+  7de6f01 test(identity): cover backup restore permissions
+  391cdc6 docs(identity): point init users to backup command
+  2a27c9b fix(identity): validate identity shape before backup
+## 2026-06-18 — main (11t 150tc 2m6s)
+
+**Task:** agreed, get to work on shoring up this work area
+
+**Outcome:** Implemented and committed the next identity backup/restore UX step.
+
+Commit:
+```text
+1e67381 feat(identity): verify encrypted identity files
+```
+
+New command:
+```bash
+nex identity verify <input-path>
+```
+
+Behavior:
+- Validates that the input exists and has the expected identity file shape.
+- Prompts
+
+**Model:** openai-codex:gpt-5.5 — 12564125 in / 31871 out tokens across 144 turns
+
+**Active:**
+- armory-package-manager (27/32)
+
+**Commits:**
+  1e67381 feat(identity): verify encrypted identity files
+  7de6f01 test(identity): cover backup restore permissions
+  391cdc6 docs(identity): point init users to backup command
+## 2026-06-18 — main (20t 172tc 3m29s)
+
+**Task:** agreed, get to work on shoring up this work area
+
+**Outcome:** Implemented and committed the init/adopt discovery improvement.
+
+Commit:
+```text
+c5c9ac5 feat(init): surface adopt discovery during setup
+```
+
+What changed:
+- During `nex init` on Darwin, when Homebrew is present, init now discovers existing Homebrew packages early.
+- If existing formulae/casks are
+
+**Model:** openai-codex:gpt-5.5 — 14512876 in / 35978 out tokens across 164 turns
+
+**Active:**
+- armory-package-manager (27/32)
+
+**Commits:**
+  c5c9ac5 feat(init): surface adopt discovery during setup
+  1e67381 feat(identity): verify encrypted identity files
+  7de6f01 test(identity): cover backup restore permissions
+## 2026-06-18 — main (11t 182tc 2m1s)
+
+**Task:** agreed, get to work on shoring up this work area
+
+**Outcome:** Adversarial assessment completed and patch release prepared locally.
+
+## Assessment
+
+Evidence from validation:
+- `cargo test --quiet`: passed
+  - 112 lib tests
+  - 208 binary/unit tests
+  - 67 e2e tests
+- `cargo clippy --all-targets -- -D warnings`: passed
+- Scoped `git diff --check` across release-
+
+**Model:** openai-codex:gpt-5.5 — 15670669 in / 37693 out tokens across 175 turns
+
+**Active:**
+- armory-package-manager (27/32)
+
+**Commits:**
+  94db472 chore(release): bump version to 0.25.6
+  c5c9ac5 feat(init): surface adopt discovery during setup
+  1e67381 feat(identity): verify encrypted identity files
+## 2026-06-18 — main (4t 185tc 29s)
+
+**Task:** agreed, get to work on shoring up this work area
+
+**Outcome:** Release started.
+
+Pushed:
+```text
+main     94db472 chore(release): bump version to 0.25.6
+v0.25.6  94db472
+```
+
+GitHub Actions:
+- CI queued: [run 27795247347](https://github.com/styrene-lab/nex/actions/runs/27795247347)
+- Release queued: [run 27795247378](https://github.com/styrene-lab/nex/actions/r
+
+**Model:** openai-codex:gpt-5.5 — 16102507 in / 38057 out tokens across 179 turns
+
+**Active:**
+- armory-package-manager (27/32)
+
+**Commits:**
+  94db472 chore(release): bump version to 0.25.6
+  c5c9ac5 feat(init): surface adopt discovery during setup
+  1e67381 feat(identity): verify encrypted identity files
+## 2026-06-22 — main (3t 190tc 36s)
+
+**Task:** agreed, get to work on shoring up this work area
+
+**Outcome:** Yes — Nex does currently have a distinct **Machine Profile** affordance, and it is explicitly modeled as a machine-target profile rather than the older “configuration profile fragment” concept.
+
+Evidence:
+
+## Current CLI surface
+
+There is a dedicated command group:
+
+```bash
+nex machine-profile valid
+
+**Model:** openai-codex:gpt-5.5 — 16434889 in / 39338 out tokens across 182 turns
+
+**Active:**
+- armory-package-manager (27/32)
+
+**Commits:**
+  94db472 chore(release): bump version to 0.25.6
+  c5c9ac5 feat(init): surface adopt discovery during setup
+  1e67381 feat(identity): verify encrypted identity files
+## 2026-06-25 — main (8t 10tc 1m18s)
+
+**Task:** 11:12:56 wilson@Chriss-MacBook-Pro nex-m5-mbp ±|main ✗|→ nex apply .
+error: unrecognized subcommand 'apply'
+
+Usage: nex [OPTIONS] <COMMAND>
+
+For more information, try '--help'.
+11:13:01 wilson@Chriss-
+
+**Outcome:** This is a Nex bug in the Homebrew migration path.
+
+What happened:
+
+- `nex apply .` is invalid for this version. The apply command is currently under:
+  ```bash
+  nex profile apply <source>
+  ```
+  For system activation, `nex switch` is the right command.
+
+- `nex switch` correctly detected unmanaged
+
+**Model:** openai-codex:gpt-5.5 — 265599 in / 1044 out tokens across 8 turns
+
+**Active:**
+- armory-package-manager (27/32)
+
+**Commits:**
+  7db5eb0 fix(profile): harden generated shell activation
+  1670dbc fix(profile): show base composition instead of flat provenance
+  f2113b2 fix(profile): merge nested preference tables
+## 2026-06-25 — main (31t 42tc 5m36s)
+
+**Task:** 11:12:56 wilson@Chriss-MacBook-Pro nex-m5-mbp ±|main ✗|→ nex apply .
+error: unrecognized subcommand 'apply'
+
+Usage: nex [OPTIONS] <COMMAND>
+
+For more information, try '--help'.
+11:13:01 wilson@Chriss-
+
+**Outcome:** Fixed and committed.
+
+Commit:
+
+```text
+80a7b90 fix(homebrew): remove unsupported autoMigrate repair
+```
+
+What changed:
+
+- Removed the broken `nix-homebrew.autoMigrate = true` mutation path.
+- Removed the “migrate” prompt option entirely.
+- Existing unmanaged Homebrew now offers only:
+  - reset: inve
+
+**Model:** openai-codex:gpt-5.5 — 1496755 in / 4884 out tokens across 39 turns
+
+**Active:**
+- armory-package-manager (27/32)
+
+**Commits:**
+  80a7b90 fix(homebrew): remove unsupported autoMigrate repair
+  7db5eb0 fix(profile): harden generated shell activation
+  1670dbc fix(profile): show base composition instead of flat provenance
+## 2026-06-25 — main (7t 48tc 2m43s)
+
+**Task:** 11:12:56 wilson@Chriss-MacBook-Pro nex-m5-mbp ±|main ✗|→ nex apply .
+error: unrecognized subcommand 'apply'
+
+Usage: nex [OPTIONS] <COMMAND>
+
+For more information, try '--help'.
+11:13:01 wilson@Chriss-
+
+**Outcome:** No — `autoMigrate` is **not hallucinated**. It exists upstream in `zhaofengli/nix-homebrew`.
+
+I verified against the current upstream repo. Evidence:
+
+- `nix-homebrew/modules/default.nix` defines:
+  ```nix
+  autoMigrate = lib.mkOption {
+  ```
+- Its activation script tells users:
+  ```text
+  Set nix-
+
+**Model:** openai-codex:gpt-5.5 — 1922907 in / 6393 out tokens across 46 turns
+
+**Active:**
+- armory-package-manager (27/32)
+
+**Commits:**
+  80a7b90 fix(homebrew): remove unsupported autoMigrate repair
+  7db5eb0 fix(profile): harden generated shell activation
+  1670dbc fix(profile): show base composition instead of flat provenance
+## 2026-06-25 — main (27t 74tc 5m13s)
+
+**Task:** 11:12:56 wilson@Chriss-MacBook-Pro nex-m5-mbp ±|main ✗|→ nex apply .
+error: unrecognized subcommand 'apply'
+
+Usage: nex [OPTIONS] <COMMAND>
+
+For more information, try '--help'.
+11:13:01 wilson@Chriss-
+
+**Outcome:** Integrated properly and committed.
+
+Commit:
+
+```text
+c0c1c37 fix(homebrew): scope autoMigrate to nix-homebrew
+```
+
+What changed:
+
+- Restored the desired migrate behavior.
+- `migrate` now writes only inside the upstream module block:
+  ```nix
+  nix-homebrew = {
+    enable = true;
+    autoMigrate = tr
+
+**Model:** openai-codex:gpt-5.5 — 3707197 in / 11915 out tokens across 73 turns
+
+**Active:**
+- armory-package-manager (27/32)
+
+**Commits:**
+  c0c1c37 fix(homebrew): scope autoMigrate to nix-homebrew
+  80a7b90 fix(homebrew): remove unsupported autoMigrate repair
+  7db5eb0 fix(profile): harden generated shell activation
+## 2026-06-25 — main (14t 87tc 2m23s)
+
+**Task:** 11:12:56 wilson@Chriss-MacBook-Pro nex-m5-mbp ±|main ✗|→ nex apply .
+error: unrecognized subcommand 'apply'
+
+Usage: nex [OPTIONS] <COMMAND>
+
+For more information, try '--help'.
+11:13:01 wilson@Chriss-
+
+**Outcome:** Adversarial assessment done. I found one real second-order bug and fixed it.
+
+New commit:
+
+```text
+7e7152a test(homebrew): harden autoMigrate block detection
+```
+
+Assessment findings:
+
+1. **`autoMigrate` is upstream-real**
+   - Verified against `zhaofengli/nix-homebrew`.
+   - Desired behavior is leg
+
+**Model:** openai-codex:gpt-5.5 — 4991079 in / 14206 out tokens across 87 turns
+
+**Active:**
+- armory-package-manager (27/32)
+
+**Commits:**
+  7e7152a test(homebrew): harden autoMigrate block detection
+  c0c1c37 fix(homebrew): scope autoMigrate to nix-homebrew
+  80a7b90 fix(homebrew): remove unsupported autoMigrate repair
+## 2026-06-25 — main (32t 118tc 6m17s)
+
+**Task:** 11:12:56 wilson@Chriss-MacBook-Pro nex-m5-mbp ±|main ✗|→ nex apply .
+error: unrecognized subcommand 'apply'
+
+Usage: nex [OPTIONS] <COMMAND>
+
+For more information, try '--help'.
+11:13:01 wilson@Chriss-
+
+**Outcome:** Implemented and committed.
+
+New commit:
+
+```text
+d0b3b59 fix(homebrew): gate migration on autoMigrate support
+```
+
+What changed:
+
+- `nex switch`, `nex doctor --fix homebrew-bootstrap`, and `nex adopt` now check whether the active config supports upstream:
+  ```nix
+  nix-homebrew.autoMigrate
+  ```
+-
+
+**Model:** openai-codex:gpt-5.5 — 7655464 in / 20534 out tokens across 119 turns
+
+**Active:**
+- armory-package-manager (27/32)
+
+**Commits:**
+  d0b3b59 fix(homebrew): gate migration on autoMigrate support
+  7e7152a test(homebrew): harden autoMigrate block detection
+  c0c1c37 fix(homebrew): scope autoMigrate to nix-homebrew
+## 2026-06-25 — main (5t 124tc 1m22s)
+
+**Task:** 11:12:56 wilson@Chriss-MacBook-Pro nex-m5-mbp ±|main ✗|→ nex apply .
+error: unrecognized subcommand 'apply'
+
+Usage: nex [OPTIONS] <COMMAND>
+
+For more information, try '--help'.
+11:13:01 wilson@Chriss-
+
+**Outcome:** Patch release is warranted.
+
+Evidence:
+
+- Last released tag:
+  ```text
+  v0.25.6
+  ```
+- Current crate version:
+  ```text
+  0.25.6
+  ```
+- Commits since `v0.25.6` include user-impacting fixes:
+  ```text
+  d0b3b59 fix(homebrew): gate migration on autoMigrate support
+  7e7152a test(homebrew): harden a
+
+**Model:** openai-codex:gpt-5.5 — 8248511 in / 21960 out tokens across 124 turns
+
+**Active:**
+- armory-package-manager (27/32)
+
+**Commits:**
+  d0b3b59 fix(homebrew): gate migration on autoMigrate support
+  7e7152a test(homebrew): harden autoMigrate block detection
+  c0c1c37 fix(homebrew): scope autoMigrate to nix-homebrew
+## 2026-06-25 — main (13t 140tc 3m46s)
+
+**Task:** get it unfucked immediately.
+
+**Outcome:** Patch release is warranted.
+
+I found and included one additional release-blocking cleanup before calling it: `src/ops/profile.rs` had an uncommitted fix for local kitty profile tree application. I added regression coverage and committed it.
+
+New commit:
+
+```text
+ad38db5 fix(profile): apply local kit
+
+**Model:** openai-codex:gpt-5.5 — 9749384 in / 23942 out tokens across 137 turns
+
+**Active:**
+- armory-package-manager (27/32)
+
+**Commits:**
+  ad38db5 fix(profile): apply local kitty profile trees
+  d0b3b59 fix(homebrew): gate migration on autoMigrate support
+  7e7152a test(homebrew): harden autoMigrate block detection
+## 2026-06-25 — main (7t 146tc 1m16s)
+
+**Task:** get it unfucked immediately.
+
+**Outcome:** Patch release prepared locally.
+
+Created:
+
+```text
+6b856ae (HEAD -> main, tag: v0.25.7) chore(release): bump version to 0.25.7
+```
+
+Included release commits:
+
+```text
+6b856ae chore(release): bump version to 0.25.7
+ad38db5 fix(profile): apply local kitty profile trees
+d0b3b59 fix(homebrew): gate migr
+
+**Model:** openai-codex:gpt-5.5 — 10270642 in / 24838 out tokens across 144 turns
+
+**Active:**
+- armory-package-manager (27/32)
+
+**Commits:**
+  6b856ae chore(release): bump version to 0.25.7
+  ad38db5 fix(profile): apply local kitty profile trees
+  d0b3b59 fix(homebrew): gate migration on autoMigrate support
 

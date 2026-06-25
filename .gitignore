@@ -7,3 +7,14 @@ result-*
 site/node_modules/
 site/dist/
 site/.astro/
+
+# Local agent/runtime state
+.omegon/*.db
+.omegon/*.db-shm
+.omegon/*.db-wal
+.omegon/*.lock
+.omegon/runtime/
+.omegon/ipc.sock
+ai/memory/*.db
+ai/memory/*.db-shm
+ai/memory/*.db-wal
