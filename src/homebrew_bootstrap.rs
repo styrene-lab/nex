@@ -97,6 +97,10 @@ fn path_resolves_into_nix_store(path: &Path) -> bool {
 }
 
 pub(crate) fn preflight(config: &Config, dry_run: bool) -> Result<()> {
+    if std::env::var_os("NEX_SKIP_HOMEBREW_PREFLIGHT").is_some() {
+        return Ok(());
+    }
+
     let Some(existing) = detect_existing(config)? else {
         return Ok(());
     };
