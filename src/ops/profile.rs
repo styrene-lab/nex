@@ -531,12 +531,21 @@ fn profile_topology_line(layers: &[ProfileLayer]) -> Option<String> {
     }
 }
 
-fn profile_provenance_line(layers: &[ProfileLayer]) -> Option<String> {
-    let names: Vec<String> = layers.iter().filter_map(profile_layer_label).collect();
-    if names.len() > 1 {
-        Some(names.join(" → "))
-    } else {
+fn profile_base_composition_line(layers: &[ProfileLayer]) -> Option<String> {
+    let base_index = layers
+        .iter()
+        .position(|layer| layer.file == "profile.toml")?;
+    let base_name = profile_layer_label(layers.get(base_index)?)?;
+    let fragments: Vec<String> = layers
+        .iter()
+        .take(base_index)
+        .filter(|layer| layer.file != "profile.toml")
+        .filter_map(profile_layer_label)
+        .collect();
+    if fragments.is_empty() {
         None
+    } else {
+        Some(format!("{base_name} = {}", fragments.join(" + ")))
     }
 }
 
@@ -1092,11 +1101,11 @@ pub fn run(config: &Config, repo_ref: &str, verify: bool, dry_run: bool) -> Resu
         println!();
         if let Some(topology) = profile_topology_line(&layers) {
             println!("  {} topology: {}", style("nex profile").bold(), topology);
-            if let Some(provenance) = profile_provenance_line(&layers) {
+            if let Some(composition) = profile_base_composition_line(&layers) {
                 println!(
                     "  {} {}",
-                    style("provenance:").dim(),
-                    style(provenance).dim()
+                    style("base composition:").dim(),
+                    style(composition).dim()
                 );
             }
         } else {
@@ -2892,8 +2901,8 @@ mod profile_topology_tests {
             Some("mac-dev → personal → m5-mbp")
         );
         assert_eq!(
-            profile_provenance_line(&layers).as_deref(),
-            Some("essentials → mac-dev → personal → m5-mbp")
+            profile_base_composition_line(&layers).as_deref(),
+            Some("mac-dev = essentials")
         );
     }
 
