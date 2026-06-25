@@ -1519,13 +1519,19 @@ fn apply_kitty(
             .join("bin/bash")
     });
 
-    let repo = repo_ref
+    let local_kitty_dir = local_profile_file(repo_ref, "kitty").filter(|path| path.is_dir());
+    let remote_repo = repo_ref
         .trim_start_matches("github.com/")
         .trim_start_matches("https://github.com/");
 
-    // Download kitty directory tree
-    let json_str = fetch_dir_listing(repo, "kitty").unwrap_or_default();
-    let entries: Vec<serde_json::Value> = serde_json::from_str(&json_str).unwrap_or_default();
+    // Discover kitty directory tree. Local profile paths must stay local for
+    // real apply just like they do for dry-run/profile.toml resolution.
+    let entries: Vec<serde_json::Value> = if let Some(ref local_dir) = local_kitty_dir {
+        local_dir_entries(local_dir)?
+    } else {
+        let json_str = fetch_dir_listing(remote_repo, "kitty").unwrap_or_default();
+        serde_json::from_str(&json_str).unwrap_or_default()
+    };
     if entries.is_empty() {
         return Ok(());
     }
@@ -1533,7 +1539,13 @@ fn apply_kitty(
     // Place into the nix-darwin repo so home-manager uses them on switch
     let repo_kitty_dir = config.repo.join("nix/modules/home/kitty-files");
     std::fs::create_dir_all(&repo_kitty_dir)?;
-    download_tree(repo, "kitty", &entries, &repo_kitty_dir)?;
+    copy_or_download_tree(
+        local_kitty_dir.as_deref(),
+        remote_repo,
+        "kitty",
+        &entries,
+        &repo_kitty_dir,
+    )?;
     if let Some(ref bash) = nix_bash {
         rewrite_kitty_bare_bash(&repo_kitty_dir, bash)?;
     }
@@ -1543,7 +1555,13 @@ fn apply_kitty(
         .context("no home directory")?
         .join(".config/kitty");
     std::fs::create_dir_all(&user_kitty_dir)?;
-    download_tree(repo, "kitty", &entries, &user_kitty_dir)?;
+    copy_or_download_tree(
+        local_kitty_dir.as_deref(),
+        remote_repo,
+        "kitty",
+        &entries,
+        &user_kitty_dir,
+    )?;
     if let Some(ref bash) = nix_bash {
         rewrite_kitty_bare_bash(&user_kitty_dir, bash)?;
     }
@@ -1576,6 +1594,79 @@ fn rewrite_kitty_bare_bash(dir: &Path, bash: &Path) -> Result<()> {
         let rewritten = content.replace("shell bash", &replacement);
         if rewritten != content {
             crate::edit::atomic_write_bytes(&path, rewritten.as_bytes())?;
+        }
+    }
+
+    Ok(())
+}
+
+fn local_dir_entries(dir: &Path) -> Result<Vec<serde_json::Value>> {
+    let mut entries = Vec::new();
+    for entry in std::fs::read_dir(dir).with_context(|| format!("reading {}", dir.display()))? {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        let name = entry.file_name().to_string_lossy().to_string();
+        let entry_type = if file_type.is_dir() { "dir" } else { "file" };
+        entries.push(serde_json::json!({ "name": name, "type": entry_type }));
+    }
+    entries.sort_by(|a, b| {
+        a.get("name")
+            .and_then(|v| v.as_str())
+            .cmp(&b.get("name").and_then(|v| v.as_str()))
+    });
+    Ok(entries)
+}
+
+fn copy_or_download_tree(
+    local_root: Option<&Path>,
+    repo: &str,
+    path: &str,
+    entries: &[serde_json::Value],
+    local_dir: &std::path::Path,
+) -> Result<()> {
+    if let Some(root) = local_root {
+        copy_local_tree(root, path, entries, local_dir)
+    } else {
+        download_tree(repo, path, entries, local_dir)
+    }
+}
+
+fn copy_local_tree(
+    root: &Path,
+    path: &str,
+    entries: &[serde_json::Value],
+    local_dir: &std::path::Path,
+) -> Result<()> {
+    for entry in entries {
+        let name = entry.get("name").and_then(|v| v.as_str()).unwrap_or("");
+        let entry_type = entry.get("type").and_then(|v| v.as_str()).unwrap_or("");
+
+        if name.contains("..") || name.contains('/') || name.contains('\\') {
+            bail!("unsafe filename in {path} directory: {name}");
+        }
+
+        let source = root.join(name);
+        let dest = local_dir.join(name);
+
+        match entry_type {
+            "file" => {
+                if let Some(parent) = dest.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::copy(&source, &dest).with_context(|| {
+                    format!(
+                        "copying kitty file {} to {}",
+                        source.display(),
+                        dest.display()
+                    )
+                })?;
+            }
+            "dir" => {
+                std::fs::create_dir_all(&dest)?;
+                let child_entries = local_dir_entries(&source)?;
+                copy_local_tree(&source, &format!("{path}/{name}"), &child_entries, &dest)?;
+            }
+            _ => {}
         }
     }
 
@@ -3008,6 +3099,41 @@ configs = ["{}"]
             .collect();
 
         assert_eq!(names, ["base", "personal", "machine"]);
+    }
+
+    #[test]
+    fn local_kitty_tree_copy_preserves_nested_files() {
+        let source = tempfile::tempdir().expect("source tempdir");
+        let dest = tempfile::tempdir().expect("dest tempdir");
+        let kitty = source.path().join("kitty");
+        std::fs::create_dir_all(kitty.join("themes")).expect("theme dir");
+        std::fs::write(kitty.join("kitty.conf"), "shell bash\n").expect("kitty conf");
+        std::fs::write(kitty.join("themes/alpharius.conf"), "background #000\n")
+            .expect("theme conf");
+
+        let entries = local_dir_entries(&kitty).expect("local entries");
+        copy_local_tree(&kitty, "kitty", &entries, dest.path()).expect("copy tree");
+
+        assert_eq!(
+            std::fs::read_to_string(dest.path().join("kitty.conf")).expect("read kitty conf"),
+            "shell bash\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dest.path().join("themes/alpharius.conf"))
+                .expect("read theme conf"),
+            "background #000\n"
+        );
+    }
+
+    #[test]
+    fn local_kitty_tree_copy_rejects_traversal_entries() {
+        let source = tempfile::tempdir().expect("source tempdir");
+        let dest = tempfile::tempdir().expect("dest tempdir");
+        let entries = vec![serde_json::json!({ "name": "../escape.conf", "type": "file" })];
+
+        let err = copy_local_tree(source.path(), "kitty", &entries, dest.path())
+            .expect_err("traversal entry should fail");
+        assert!(err.to_string().contains("unsafe filename"));
     }
 
     #[test]
