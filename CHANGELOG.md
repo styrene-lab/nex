@@ -5,7 +5,7 @@ All notable changes to nex are documented here. Format follows [Keep a Changelog
 ## [Unreleased]
 
 ### Fixed
-- Scope Homebrew bootstrap migration repair to upstream `nix-homebrew.autoMigrate` so Nex preserves installed packages without writing invalid `homebrew.autoMigrate`.
+- Offer Homebrew bootstrap migration only when the active nix-homebrew module exposes upstream `nix-homebrew.autoMigrate`, preserving the reset fallback for older/stale inputs.
 
 ## [0.25.6] - 2026-06-16
 

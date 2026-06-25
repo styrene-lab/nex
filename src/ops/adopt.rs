@@ -220,7 +220,12 @@ pub fn run(config: &Config, dry_run: bool) -> Result<()> {
     }
     if let Some(existing) = crate::homebrew_bootstrap::detect_existing(config)? {
         if existing.is_conflict() {
-            crate::homebrew_bootstrap::print_existing_homebrew_warning(&existing);
+            let supports_auto_migrate =
+                crate::homebrew_bootstrap::nix_homebrew_auto_migrate_supported(config);
+            crate::homebrew_bootstrap::print_existing_homebrew_warning(
+                &existing,
+                supports_auto_migrate,
+            );
         }
     }
 

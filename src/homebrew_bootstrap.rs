@@ -108,12 +108,13 @@ pub(crate) fn preflight(config: &Config, dry_run: bool) -> Result<()> {
         return Ok(());
     }
 
-    print_existing_homebrew_warning(&existing);
+    let supports_auto_migrate = nix_homebrew_auto_migrate_supported(config);
+    print_existing_homebrew_warning(&existing, supports_auto_migrate);
     if dry_run {
         return Ok(());
     }
 
-    match prompt_choice()? {
+    match prompt_choice(supports_auto_migrate)? {
         HomebrewBootstrapChoice::Migrate => {
             enable_auto_migrate(config)?;
             eprintln!(
@@ -137,17 +138,22 @@ pub(crate) fn preflight(config: &Config, dry_run: bool) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn print_existing_homebrew_warning(existing: &ExistingHomebrew) {
+pub(crate) fn print_existing_homebrew_warning(
+    existing: &ExistingHomebrew,
+    supports_auto_migrate: bool,
+) {
     eprintln!();
     eprintln!(
         "  {} existing unmanaged Homebrew detected at {}",
         style("!").yellow().bold(),
         existing.prefix.display()
     );
-    eprintln!(
-        "    {}",
-        style("nix-homebrew will reject activation until this is migrated or reset. Use migrate when the upstream nix-homebrew module is imported.").dim()
-    );
+    let repair = if supports_auto_migrate {
+        "nix-homebrew will reject activation until this is migrated or reset."
+    } else {
+        "nix-homebrew will reject activation until this is reset; this config does not expose nix-homebrew.autoMigrate."
+    };
+    eprintln!("    {}", style(repair).dim());
     eprintln!(
         "    {}",
         style("Run `nex doctor --fix homebrew-bootstrap` to repair before switching.").dim()
@@ -164,9 +170,10 @@ pub(crate) fn doctor(config: &Config, fix: bool) -> Result<()> {
         return Ok(());
     }
 
-    print_existing_homebrew_warning(&existing);
+    let supports_auto_migrate = nix_homebrew_auto_migrate_supported(config);
+    print_existing_homebrew_warning(&existing, supports_auto_migrate);
     if fix {
-        match prompt_choice()? {
+        match prompt_choice(supports_auto_migrate)? {
             HomebrewBootstrapChoice::Migrate => {
                 enable_auto_migrate(config)?;
             }
@@ -185,17 +192,32 @@ pub(crate) fn doctor(config: &Config, fix: bool) -> Result<()> {
     Ok(())
 }
 
-fn prompt_choice() -> Result<HomebrewBootstrapChoice> {
-    let items = vec![
-        "migrate: set nix-homebrew.autoMigrate = true and preserve installed packages".to_string(),
+fn prompt_choice(supports_auto_migrate: bool) -> Result<HomebrewBootstrapChoice> {
+    let mut items = Vec::new();
+    if supports_auto_migrate {
+        items.push(
+            "migrate: set nix-homebrew.autoMigrate = true and preserve installed packages"
+                .to_string(),
+        );
+    }
+    items.push(
         "reset: inventory packages, move Homebrew aside, and let nix-homebrew install fresh"
             .to_string(),
-        "abort: leave Homebrew unchanged".to_string(),
-    ];
-    match crate::input::input().select("Existing Homebrew detected", &items, 0)? {
-        0 => Ok(HomebrewBootstrapChoice::Migrate),
-        1 => confirm_reset_choice(),
-        _ => Ok(HomebrewBootstrapChoice::Abort),
+    );
+    items.push("abort: leave Homebrew unchanged".to_string());
+
+    let choice = crate::input::input().select("Existing Homebrew detected", &items, 0)?;
+    if supports_auto_migrate {
+        match choice {
+            0 => Ok(HomebrewBootstrapChoice::Migrate),
+            1 => confirm_reset_choice(),
+            _ => Ok(HomebrewBootstrapChoice::Abort),
+        }
+    } else {
+        match choice {
+            0 => confirm_reset_choice(),
+            _ => Ok(HomebrewBootstrapChoice::Abort),
+        }
     }
 }
 
@@ -230,6 +252,42 @@ pub(crate) fn enable_auto_migrate(config: &Config) -> Result<bool> {
     crate::edit::atomic_write_bytes(path, patched.as_bytes())?;
     crate::exec::git_commit(&config.repo, "nex doctor: enable nix-homebrew autoMigrate");
     Ok(true)
+}
+
+pub(crate) fn nix_homebrew_auto_migrate_supported(config: &Config) -> bool {
+    if config.repo.join("flake.nix").exists() {
+        return nix_homebrew_auto_migrate_supported_by_flake(&config.repo).unwrap_or(false);
+    }
+    config
+        .homebrew_file
+        .exists()
+        .then(|| std::fs::read_to_string(&config.homebrew_file).ok())
+        .flatten()
+        .is_some_and(|content| content.contains("nix-homebrew = {"))
+}
+
+fn nix_homebrew_auto_migrate_supported_by_flake(repo: &Path) -> Result<bool> {
+    if !repo.join("flake.nix").exists() {
+        return Ok(false);
+    }
+    let expr = r#"let
+  flake = builtins.getFlake (toString ./.);
+  module = flake.inputs.nix-homebrew.darwinModules.nix-homebrew;
+  eval = flake.inputs.nix-darwin.lib.darwinSystem {
+    system = builtins.currentSystem;
+    modules = [ module { nix-homebrew.enable = false; } ];
+  };
+in eval.options ? "nix-homebrew" && eval.options."nix-homebrew" ? autoMigrate"#;
+    let output = crate::exec::nix_command()
+        .args(["eval", "--impure", "--expr", expr, "--raw"])
+        .current_dir(repo)
+        .stderr(std::process::Stdio::null())
+        .output()
+        .context("failed to evaluate nix-homebrew.autoMigrate support")?;
+    if !output.status.success() {
+        return Ok(false);
+    }
+    Ok(crate::exec::captured_text(&output.stdout).trim() == "true")
 }
 
 fn add_auto_migrate_to_nix_homebrew_module(content: &str) -> Option<String> {
@@ -503,6 +561,16 @@ mod tests {
 
         let right_block = "homebrew = {\n    enable = true;\n};\n\nnix-homebrew = {\n    enable = true;\n    autoMigrate = true;\n};\n";
         assert!(nix_homebrew_auto_migrate_configured_in_content(right_block));
+    }
+
+    #[test]
+    fn auto_migrate_support_eval_returns_false_without_flake() {
+        let dir = tempfile::tempdir().expect("temp dir");
+
+        assert!(
+            !super::nix_homebrew_auto_migrate_supported_by_flake(dir.path())
+                .expect("support check")
+        );
     }
 
     #[test]
