@@ -1798,4 +1798,34 @@ d0b3b59 fix(homebrew): gate migr
   6b856ae chore(release): bump version to 0.25.7
   ad38db5 fix(profile): apply local kitty profile trees
   d0b3b59 fix(homebrew): gate migration on autoMigrate support
+## 2026-06-25 — main (14t 168tc 4m38s)
+
+**Task:** get it unfucked immediately.
+
+**Outcome:** Cleaned up and committed the repo hygiene change.
+
+Commit:
+
+```text
+499f570 chore(repo): ignore local agent runtime databases
+```
+
+What I classified and did:
+
+- **Ignored / removed from index**
+  - `.omegon/*.db`
+  - `.omegon/*.db-shm`
+  - `.omegon/*.db-wal`
+  - `.omegon/*.lock`
+  - `.omegon/runtime
+
+**Model:** openai-codex:gpt-5.5 — 11467695 in / 29019 out tokens across 158 turns
+
+**Active:**
+- armory-package-manager (27/32)
+
+**Commits:**
+  499f570 chore(repo): ignore local agent runtime databases
+  6b856ae chore(release): bump version to 0.25.7
+  ad38db5 fix(profile): apply local kitty profile trees
 
