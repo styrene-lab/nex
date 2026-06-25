@@ -257,12 +257,33 @@ fn nix_homebrew_auto_migrate_configured(path: &Path) -> Result<bool> {
 }
 
 fn nix_homebrew_auto_migrate_configured_in_content(content: &str) -> bool {
-    let Some(start) = content.find("nix-homebrew = {") else {
+    let Some(block) = nix_homebrew_block(content) else {
         return false;
     };
-    let rest = &content[start..];
-    let end = rest.find("\n};").unwrap_or(rest.len());
-    rest[..end].contains("autoMigrate = true;")
+    block.contains("autoMigrate = true;")
+}
+
+fn nix_homebrew_block(content: &str) -> Option<&str> {
+    let start = content.find("nix-homebrew = {")?;
+    let bytes = content.as_bytes();
+    let mut depth = 0usize;
+    let mut entered = false;
+    for idx in start..bytes.len() {
+        match bytes[idx] {
+            b'{' => {
+                depth += 1;
+                entered = true;
+            }
+            b'}' if entered => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    return content.get(start..=idx);
+                }
+            }
+            _ => {}
+        }
+    }
+    content.get(start..)
 }
 
 fn inventory_existing(existing: &ExistingHomebrew) -> Result<PathBuf> {
@@ -482,6 +503,24 @@ mod tests {
 
         let right_block = "homebrew = {\n    enable = true;\n};\n\nnix-homebrew = {\n    enable = true;\n    autoMigrate = true;\n};\n";
         assert!(nix_homebrew_auto_migrate_configured_in_content(right_block));
+    }
+
+    #[test]
+    fn auto_migrate_detection_stops_at_nested_nix_homebrew_block_end() {
+        let content = r#"nix-homebrew = {
+    enable = true;
+    taps = {
+      "homebrew/homebrew-core" = homebrew-core;
+    };
+};
+
+homebrew = {
+    enable = true;
+    autoMigrate = true;
+};
+"#;
+
+        assert!(!nix_homebrew_auto_migrate_configured_in_content(content));
     }
 
     #[test]
