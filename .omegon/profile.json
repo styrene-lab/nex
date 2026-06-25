@@ -5,5 +5,10 @@
   },
   "thinkingLevel": "minimal",
   "maxTurns": 50,
-  "defaultPosture": "fabricator"
+  "defaultPosture": "fabricator",
+  "permissions": {
+    "trustedDirectories": [
+      "/Users/wilson/workspace/pig/nex-m5-mbp"
+    ]
+  }
 }

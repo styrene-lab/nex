@@ -1828,4 +1828,34 @@ What I classified and did:
   499f570 chore(repo): ignore local agent runtime databases
   6b856ae chore(release): bump version to 0.25.7
   ad38db5 fix(profile): apply local kitty profile trees
+## 2026-06-25 — main (5t 172tc 35s)
+
+**Task:** get it unfucked immediately.
+
+**Outcome:** Committed and pushed.
+
+New commit:
+
+```text
+b83fb9f docs(memory): record latest release audit
+```
+
+Pushed:
+
+```text
+main     94db472..b83fb9f
+v0.25.7  6b856ae
+```
+
+Note: `main` includes the post-tag repo hygiene and latest audit commits after `v0.25.7`. The `v0.25.7` tag itself remains on the releas
+
+**Model:** openai-codex:gpt-5.5 — 11933787 in / 29394 out tokens across 163 turns
+
+**Active:**
+- armory-package-manager (27/32)
+
+**Commits:**
+  b83fb9f docs(memory): record latest release audit
+  499f570 chore(repo): ignore local agent runtime databases
+  6b856ae chore(release): bump version to 0.25.7
 
