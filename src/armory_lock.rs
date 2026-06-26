@@ -74,12 +74,22 @@ pub struct ActivationPackage {
     pub id: String,
     pub version: Option<String>,
     pub status: String,
+    pub activation: ActivationSettings,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub digest: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
     #[serde(default)]
     pub verified: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ActivationSettings {
+    pub runtime: String,
+    pub mode: String,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub defaults: BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone)]
@@ -332,39 +342,7 @@ fn package_lock_for_graph(graph: &ResolvedGraph) -> PackageLock {
 }
 
 fn activation_lock_for_graph(graph: &ResolvedGraph) -> Result<OmegonActivationLock> {
-    let root_package = graph
-        .packages
-        .iter()
-        .find(|package| package.package_ref == graph.root.to_string())
-        .context("resolved graph missing root package")?;
-    Ok(OmegonActivationLock {
-        schema: ACTIVATION_LOCK_SCHEMA.to_string(),
-        root: ActivationRoot {
-            kind: graph.root.kind.clone(),
-            id: graph.root.id.clone(),
-            version: root_package.version.clone(),
-        },
-        packages: graph
-            .packages
-            .iter()
-            .map(|package| {
-                let package_ref = PackageRef::parse(&package.package_ref)?;
-                Ok(ActivationPackage {
-                    kind: package_ref.kind,
-                    id: package_ref.id,
-                    version: package.version.clone(),
-                    status: if package.verified && package.path.is_some() {
-                        "installed".to_string()
-                    } else {
-                        "pending".to_string()
-                    },
-                    digest: package.digest.clone(),
-                    path: package.path.clone(),
-                    verified: package.verified,
-                })
-            })
-            .collect::<Result<Vec<_>>>()?,
-    })
+    activation_lock_from_packages(&graph.root.to_string(), &graph.packages)
 }
 
 pub(crate) fn activation_lock_for_package_lock(
@@ -377,39 +355,86 @@ pub(crate) fn activation_lock_for_package_lock(
     if !is_omegon_runtime_root(&root_ref.kind) {
         return Ok(None);
     }
-    let root_package = lock
-        .packages
+    Ok(Some(activation_lock_from_packages(
+        &root.package_ref,
+        &lock.packages,
+    )?))
+}
+
+fn activation_lock_from_packages(
+    root_package_ref: &str,
+    packages: &[LockedPackage],
+) -> Result<OmegonActivationLock> {
+    let root_ref = PackageRef::parse(root_package_ref)?;
+    let root_package = packages
         .iter()
-        .find(|package| package.package_ref == root.package_ref)
+        .find(|package| package.package_ref == root_package_ref)
         .context("package lock missing root package")?;
-    Ok(Some(OmegonActivationLock {
+    Ok(OmegonActivationLock {
         schema: ACTIVATION_LOCK_SCHEMA.to_string(),
         root: ActivationRoot {
             kind: root_ref.kind,
             id: root_ref.id,
             version: root_package.version.clone(),
         },
-        packages: lock
-            .packages
+        packages: packages
             .iter()
-            .map(|package| {
-                let package_ref = PackageRef::parse(&package.package_ref)?;
-                Ok(ActivationPackage {
-                    kind: package_ref.kind,
-                    id: package_ref.id,
-                    version: package.version.clone(),
-                    status: if package.verified && package.path.is_some() {
-                        "installed".to_string()
-                    } else {
-                        "pending".to_string()
-                    },
-                    digest: package.digest.clone(),
-                    path: package.path.clone(),
-                    verified: package.verified,
-                })
-            })
+            .map(activation_package_for_locked_package)
             .collect::<Result<Vec<_>>>()?,
-    }))
+    })
+}
+
+fn activation_package_for_locked_package(package: &LockedPackage) -> Result<ActivationPackage> {
+    let package_ref = PackageRef::parse(&package.package_ref)?;
+    let status = if package.verified && package.path.is_some() {
+        "installed"
+    } else {
+        "pending"
+    };
+    Ok(ActivationPackage {
+        activation: activation_settings_for_kind(&package_ref.kind),
+        kind: package_ref.kind,
+        id: package_ref.id,
+        version: package.version.clone(),
+        status: status.to_string(),
+        digest: package.digest.clone(),
+        path: package.path.clone(),
+        verified: package.verified,
+    })
+}
+
+fn activation_settings_for_kind(kind: &str) -> ActivationSettings {
+    let (runtime, mode, defaults) = match kind {
+        "skill" => ("skill", "load", BTreeMap::new()),
+        "persona" => ("persona", "load", BTreeMap::new()),
+        "tone" => ("tone", "load", BTreeMap::new()),
+        "profile" => (
+            "omegon-agent-profile",
+            "defaults",
+            BTreeMap::from([("profileRole".to_string(), "agent-defaults".to_string())]),
+        ),
+        "agent" => (
+            "omegon-agent",
+            "instantiate",
+            BTreeMap::from([("enabled".to_string(), "true".to_string())]),
+        ),
+        "extension" => (
+            "omegon-extension",
+            "register",
+            BTreeMap::from([("enabled".to_string(), "true".to_string())]),
+        ),
+        "workstation" => (
+            "omegon-workstation",
+            "composite",
+            BTreeMap::from([("materialization".to_string(), "nex".to_string())]),
+        ),
+        _ => ("artifact", "load", BTreeMap::new()),
+    };
+    ActivationSettings {
+        runtime: runtime.to_string(),
+        mode: mode.to_string(),
+        defaults,
+    }
 }
 
 fn is_omegon_runtime_root(kind: &str) -> bool {
@@ -471,7 +496,10 @@ fn state_dir() -> Result<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{activation_lock_for_graph, reachable_packages, resolve_graph};
+    use super::{
+        activation_lock_for_graph, activation_lock_for_package_lock, reachable_packages,
+        resolve_graph,
+    };
     use crate::armory::parse_index;
     use crate::armory::PackageRef;
     use crate::config::RegistryConfig;
@@ -548,6 +576,89 @@ mod tests {
         .expect("graph");
         let lock = activation_lock_for_graph(&graph).expect("activation lock");
         assert_eq!(lock.packages[0].status, "pending");
+    }
+
+    #[test]
+    fn activation_lock_from_package_lock_uses_local_paths_without_registry() {
+        let lock = super::PackageLock {
+            schema: super::PACKAGE_LOCK_SCHEMA.to_string(),
+            registries: vec![super::LockedRegistry {
+                name: "offline".to_string(),
+                url: "https://offline.invalid/index.json".to_string(),
+                trust: None,
+            }],
+            roots: vec![super::LockedRoot {
+                package_ref: "profile/root".to_string(),
+            }],
+            packages: vec![super::LockedPackage {
+                package_ref: "profile/root".to_string(),
+                version: Some("1.0.0".to_string()),
+                registry: "offline".to_string(),
+                oci_ref: Some("oci://offline/root".to_string()),
+                digest: Some("sha256:abc".to_string()),
+                dependencies: Vec::new(),
+                path: Some("/nex/store/root".to_string()),
+                verified: true,
+                installed_at: Some("1".to_string()),
+            }],
+        };
+
+        let activation = activation_lock_for_package_lock(&lock)
+            .expect("activation lock result")
+            .expect("runtime root activation lock");
+
+        assert_eq!(activation.packages[0].status, "installed");
+        assert_eq!(
+            activation.packages[0].path.as_deref(),
+            Some("/nex/store/root")
+        );
+        assert!(activation.packages[0].verified);
+    }
+
+    #[test]
+    fn activation_lock_encodes_runtime_defaults_for_root_kinds() {
+        for (kind, runtime, mode, default_key) in [
+            ("profile", "omegon-agent-profile", "defaults", "profileRole"),
+            ("agent", "omegon-agent", "instantiate", "enabled"),
+            ("extension", "omegon-extension", "register", "enabled"),
+            (
+                "workstation",
+                "omegon-workstation",
+                "composite",
+                "materialization",
+            ),
+        ] {
+            let package_ref = format!("{kind}/root");
+            let lock = super::PackageLock {
+                schema: super::PACKAGE_LOCK_SCHEMA.to_string(),
+                registries: Vec::new(),
+                roots: vec![super::LockedRoot {
+                    package_ref: package_ref.clone(),
+                }],
+                packages: vec![super::LockedPackage {
+                    package_ref,
+                    version: None,
+                    registry: "test".to_string(),
+                    oci_ref: None,
+                    digest: None,
+                    dependencies: Vec::new(),
+                    path: None,
+                    verified: false,
+                    installed_at: None,
+                }],
+            };
+
+            let activation = activation_lock_for_package_lock(&lock)
+                .expect("activation lock result")
+                .expect("runtime root activation lock");
+
+            assert_eq!(activation.packages[0].activation.runtime, runtime);
+            assert_eq!(activation.packages[0].activation.mode, mode);
+            assert!(activation.packages[0]
+                .activation
+                .defaults
+                .contains_key(default_key));
+        }
     }
 
     #[test]

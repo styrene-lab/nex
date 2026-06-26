@@ -38,10 +38,10 @@
 ## 4. Omegon activation handoff
 <!-- specs: armory/activation -->
 
-- [ ] Finalize activation lock schema.
-- [ ] Populate activation lock entries with local package paths after store materialization.
-- [ ] Encode runtime defaults for `profile`, `agent`, `extension`, and `workstation` roots.
-- [ ] Add `nex lock refresh` to re-resolve roots and update locks.
+- [x] Finalize activation lock schema.
+- [x] Populate activation lock entries with local package paths after store materialization.
+- [x] Encode runtime defaults for `profile`, `agent`, `extension`, and `workstation` roots.
+- [x] Add `nex lock refresh` to re-resolve roots and update locks.
 - [x] Add `nex lock status` to inspect roots, package state, digests, and local paths.
 - [x] Add remove/list UX for installed Armory package roots.
-- [ ] Add tests proving Omegon-runtime activation locks do not require registry access.
+- [x] Add tests proving Omegon-runtime activation locks do not require registry access.
