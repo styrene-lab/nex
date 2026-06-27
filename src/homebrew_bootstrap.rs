@@ -326,8 +326,8 @@ fn nix_homebrew_block(content: &str) -> Option<&str> {
     let bytes = content.as_bytes();
     let mut depth = 0usize;
     let mut entered = false;
-    for idx in start..bytes.len() {
-        match bytes[idx] {
+    for (idx, byte) in bytes.iter().enumerate().skip(start) {
+        match *byte {
             b'{' => {
                 depth += 1;
                 entered = true;

@@ -751,11 +751,11 @@ impl ProfileMacos {
 impl ProfileFonts {
     fn merge_from(&mut self, overlay: &ProfileFonts) {
         union_dedup(
-            &mut self.nerd.get_or_insert_with(Vec::new),
+            self.nerd.get_or_insert_with(Vec::new),
             overlay.nerd.as_deref(),
         );
         union_dedup(
-            &mut self.families.get_or_insert_with(Vec::new),
+            self.families.get_or_insert_with(Vec::new),
             overlay.families.as_deref(),
         );
     }
