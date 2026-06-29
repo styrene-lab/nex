@@ -170,13 +170,7 @@ struct ProfileScreenshots {
 #[derive(Clone, Default, serde::Deserialize)]
 #[allow(dead_code)]
 struct ProfileDefaultApps {
-    browser: Option<String>,
-    mail: Option<String>,
-    calendar: Option<String>,
-    terminal: Option<String>,
-    editor: Option<String>,
-    url_schemes: Option<BTreeMap<String, String>>,
-    file_types: Option<BTreeMap<String, String>>,
+    browser: Option<String>, // bundle id, e.g. "com.apple.Safari"
 }
 
 // ── SSH client profile structs ───────────────────────────────────────────
@@ -880,33 +874,6 @@ impl ProfileDefaultApps {
         if overlay.browser.is_some() {
             self.browser = overlay.browser.clone();
         }
-        if overlay.mail.is_some() {
-            self.mail = overlay.mail.clone();
-        }
-        if overlay.calendar.is_some() {
-            self.calendar = overlay.calendar.clone();
-        }
-        if overlay.terminal.is_some() {
-            self.terminal = overlay.terminal.clone();
-        }
-        if overlay.editor.is_some() {
-            self.editor = overlay.editor.clone();
-        }
-        merge_string_map(&mut self.url_schemes, &overlay.url_schemes);
-        merge_string_map(&mut self.file_types, &overlay.file_types);
-    }
-}
-
-fn merge_string_map(
-    target: &mut Option<BTreeMap<String, String>>,
-    overlay: &Option<BTreeMap<String, String>>,
-) {
-    if let Some(values) = overlay {
-        target.get_or_insert_with(BTreeMap::new).extend(
-            values
-                .iter()
-                .map(|(key, value)| (key.clone(), value.clone())),
-        );
     }
 }
 
@@ -2177,7 +2144,23 @@ fn apply_macos(config: &Config, macos: &ProfileMacos, dry_run: bool) -> Result<(
 
     // ── Default apps ─────────────────────────────────────────────────────
     if let Some(apps) = &macos.default_apps {
-        apply_default_app_associations(apps, false)?;
+        if let Some(ref browser) = apps.browser {
+            // Resolve app name to bundle ID if needed
+            let bundle_id = resolve_bundle_id(browser);
+            let bid = bundle_id.as_deref().unwrap_or(browser);
+
+            // Set default browser via open -a (works with app names)
+            let _ = Command::new("open")
+                .args(["-a", browser, "--args", "--make-default-browser"])
+                .output();
+
+            // Write the LSHandler with the proper bundle ID
+            defaults_write_string(
+                "com.apple.LaunchServices/com.apple.launchservices.secure",
+                "LSHandlerURLSchemeHTTP",
+                bid,
+            );
+        }
     }
 
     // ── Restart affected services ────────────────────────────────────────
@@ -2200,108 +2183,6 @@ fn apply_macos(config: &Config, macos: &ProfileMacos, dry_run: bool) -> Result<(
 
     println!("  {} macOS preferences applied", style("✓").green());
 
-    Ok(())
-}
-
-fn default_app_associations(apps: &ProfileDefaultApps) -> Vec<DefaultAssociation> {
-    let mut associations = Vec::new();
-    if let Some(browser) = &apps.browser {
-        associations.push(DefaultAssociation::url_scheme("http", browser));
-        associations.push(DefaultAssociation::url_scheme("https", browser));
-    }
-    if let Some(mail) = &apps.mail {
-        associations.push(DefaultAssociation::url_scheme("mailto", mail));
-    }
-    if let Some(calendar) = &apps.calendar {
-        associations.push(DefaultAssociation::url_scheme("webcal", calendar));
-        associations.push(DefaultAssociation::url_scheme("webcals", calendar));
-    }
-    if let Some(terminal) = &apps.terminal {
-        associations.push(DefaultAssociation::url_scheme("ssh", terminal));
-    }
-    if let Some(editor) = &apps.editor {
-        associations.push(DefaultAssociation::content_type(
-            "public.plain-text",
-            editor,
-        ));
-        associations.push(DefaultAssociation::content_type(
-            "net.daringfireball.markdown",
-            editor,
-        ));
-    }
-    if let Some(schemes) = &apps.url_schemes {
-        for (scheme, app) in schemes {
-            associations.push(DefaultAssociation::url_scheme(scheme, app));
-        }
-    }
-    if let Some(file_types) = &apps.file_types {
-        for (uti, app) in file_types {
-            associations.push(DefaultAssociation::content_type(uti, app));
-        }
-    }
-    associations
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct DefaultAssociation {
-    key: DefaultAssociationKey,
-    app: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum DefaultAssociationKey {
-    UrlScheme(String),
-    ContentType(String),
-}
-
-impl DefaultAssociation {
-    fn url_scheme(scheme: &str, app: &str) -> Self {
-        Self {
-            key: DefaultAssociationKey::UrlScheme(scheme.to_string()),
-            app: app.to_string(),
-        }
-    }
-
-    fn content_type(uti: &str, app: &str) -> Self {
-        Self {
-            key: DefaultAssociationKey::ContentType(uti.to_string()),
-            app: app.to_string(),
-        }
-    }
-}
-
-fn apply_default_app_associations(apps: &ProfileDefaultApps, dry_run: bool) -> Result<()> {
-    let associations = default_app_associations(apps);
-    if associations.is_empty() {
-        return Ok(());
-    }
-    for association in associations {
-        let bundle_id =
-            resolve_bundle_id(&association.app).unwrap_or_else(|| association.app.clone());
-        if dry_run {
-            output::dry_run(&format!(
-                "would set default app {:?} -> {}",
-                association.key, bundle_id
-            ));
-            continue;
-        }
-        set_default_handler(&association.key, &bundle_id)?;
-    }
-    Ok(())
-}
-
-fn set_default_handler(key: &DefaultAssociationKey, bundle_id: &str) -> Result<()> {
-    let (target, role) = match key {
-        DefaultAssociationKey::UrlScheme(scheme) => (scheme.as_str(), "URL"),
-        DefaultAssociationKey::ContentType(uti) => (uti.as_str(), "all"),
-    };
-    let status = Command::new("duti")
-        .args(["-s", bundle_id, target, role])
-        .status()
-        .context("duti is required to manage macOS default app associations; install it with `brew install duti`")?;
-    if !status.success() {
-        bail!("failed to update default handler {target} -> {bundle_id}");
-    }
     Ok(())
 }
 
@@ -3289,39 +3170,6 @@ configs = ["{}"]
         assert_eq!(kitty.window_padding, Some(8));
         assert_eq!(kitty.scrollback_lines, Some(10_000));
         assert_eq!(kitty.macos_option_as_alt, Some(true));
-    }
-
-    #[test]
-    fn default_app_associations_expand_named_defaults() {
-        let apps = ProfileDefaultApps {
-            browser: Some("Safari".to_string()),
-            mail: Some("Proton Mail".to_string()),
-            calendar: Some("Calendar".to_string()),
-            terminal: Some("kitty".to_string()),
-            editor: Some("Zed".to_string()),
-            url_schemes: Some(BTreeMap::from([(
-                "x-flynt".to_string(),
-                "Flynt".to_string(),
-            )])),
-            file_types: Some(BTreeMap::from([(
-                "public.json".to_string(),
-                "Zed".to_string(),
-            )])),
-        };
-
-        let associations = default_app_associations(&apps);
-
-        assert!(associations.contains(&DefaultAssociation::url_scheme("http", "Safari")));
-        assert!(associations.contains(&DefaultAssociation::url_scheme("https", "Safari")));
-        assert!(associations.contains(&DefaultAssociation::url_scheme("mailto", "Proton Mail")));
-        assert!(associations.contains(&DefaultAssociation::url_scheme("webcal", "Calendar")));
-        assert!(associations.contains(&DefaultAssociation::url_scheme("ssh", "kitty")));
-        assert!(associations.contains(&DefaultAssociation::content_type(
-            "public.plain-text",
-            "Zed"
-        )));
-        assert!(associations.contains(&DefaultAssociation::url_scheme("x-flynt", "Flynt")));
-        assert!(associations.contains(&DefaultAssociation::content_type("public.json", "Zed")));
     }
 
     #[test]
