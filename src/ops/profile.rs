@@ -1959,6 +1959,9 @@ fn apply_git_merged(_config: &Config, git: &MergedGit, dry_run: bool) -> Result<
 fn apply_macos(config: &Config, macos: &ProfileMacos, dry_run: bool) -> Result<()> {
     if dry_run {
         output::dry_run("would apply macOS preferences");
+        if let Some(apps) = &macos.default_apps {
+            apply_default_app_associations(apps, true)?;
+        }
         return Ok(());
     }
 
@@ -2204,42 +2207,74 @@ fn apply_macos(config: &Config, macos: &ProfileMacos, dry_run: bool) -> Result<(
 }
 
 fn default_app_associations(apps: &ProfileDefaultApps) -> Vec<DefaultAssociation> {
-    let mut associations = Vec::new();
+    let mut associations = BTreeMap::new();
     if let Some(browser) = &apps.browser {
-        associations.push(DefaultAssociation::url_scheme("http", browser));
-        associations.push(DefaultAssociation::url_scheme("https", browser));
+        insert_association(
+            &mut associations,
+            DefaultAssociation::url_scheme("http", browser),
+        );
+        insert_association(
+            &mut associations,
+            DefaultAssociation::url_scheme("https", browser),
+        );
     }
     if let Some(mail) = &apps.mail {
-        associations.push(DefaultAssociation::url_scheme("mailto", mail));
+        insert_association(
+            &mut associations,
+            DefaultAssociation::url_scheme("mailto", mail),
+        );
     }
     if let Some(calendar) = &apps.calendar {
-        associations.push(DefaultAssociation::url_scheme("webcal", calendar));
-        associations.push(DefaultAssociation::url_scheme("webcals", calendar));
+        insert_association(
+            &mut associations,
+            DefaultAssociation::url_scheme("webcal", calendar),
+        );
+        insert_association(
+            &mut associations,
+            DefaultAssociation::url_scheme("webcals", calendar),
+        );
     }
     if let Some(terminal) = &apps.terminal {
-        associations.push(DefaultAssociation::url_scheme("ssh", terminal));
+        insert_association(
+            &mut associations,
+            DefaultAssociation::url_scheme("ssh", terminal),
+        );
     }
     if let Some(editor) = &apps.editor {
-        associations.push(DefaultAssociation::content_type(
-            "public.plain-text",
-            editor,
-        ));
-        associations.push(DefaultAssociation::content_type(
-            "net.daringfireball.markdown",
-            editor,
-        ));
+        insert_association(
+            &mut associations,
+            DefaultAssociation::content_type("public.plain-text", editor),
+        );
+        insert_association(
+            &mut associations,
+            DefaultAssociation::content_type("net.daringfireball.markdown", editor),
+        );
     }
     if let Some(schemes) = &apps.url_schemes {
         for (scheme, app) in schemes {
-            associations.push(DefaultAssociation::url_scheme(scheme, app));
+            insert_association(
+                &mut associations,
+                DefaultAssociation::url_scheme(scheme, app),
+            );
         }
     }
     if let Some(file_types) = &apps.file_types {
         for (uti, app) in file_types {
-            associations.push(DefaultAssociation::content_type(uti, app));
+            insert_association(
+                &mut associations,
+                DefaultAssociation::content_type(uti, app),
+            );
         }
     }
-    associations
+    associations.into_values().collect()
+}
+
+fn insert_association(
+    associations: &mut BTreeMap<(String, String), DefaultAssociation>,
+    association: DefaultAssociation,
+) {
+    let (kind, value) = association.key.sort_key();
+    associations.insert((kind.to_string(), value.to_string()), association);
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2252,6 +2287,15 @@ struct DefaultAssociation {
 enum DefaultAssociationKey {
     UrlScheme(String),
     ContentType(String),
+}
+
+impl DefaultAssociationKey {
+    fn sort_key(&self) -> (&'static str, &str) {
+        match self {
+            DefaultAssociationKey::UrlScheme(scheme) => ("scheme", scheme.as_str()),
+            DefaultAssociationKey::ContentType(uti) => ("uti", uti.as_str()),
+        }
+    }
 }
 
 impl DefaultAssociation {
@@ -3322,6 +3366,39 @@ configs = ["{}"]
         )));
         assert!(associations.contains(&DefaultAssociation::url_scheme("x-flynt", "Flynt")));
         assert!(associations.contains(&DefaultAssociation::content_type("public.json", "Zed")));
+    }
+
+    #[test]
+    fn explicit_default_app_associations_override_named_defaults() {
+        let apps = ProfileDefaultApps {
+            browser: Some("Safari".to_string()),
+            mail: None,
+            calendar: None,
+            terminal: None,
+            editor: Some("Zed".to_string()),
+            url_schemes: Some(BTreeMap::from([(
+                "https".to_string(),
+                "Firefox".to_string(),
+            )])),
+            file_types: Some(BTreeMap::from([(
+                "public.plain-text".to_string(),
+                "Visual Studio Code".to_string(),
+            )])),
+        };
+
+        let associations = default_app_associations(&apps);
+
+        assert!(associations.contains(&DefaultAssociation::url_scheme("http", "Safari")));
+        assert!(associations.contains(&DefaultAssociation::url_scheme("https", "Firefox")));
+        assert!(!associations.contains(&DefaultAssociation::url_scheme("https", "Safari")));
+        assert!(associations.contains(&DefaultAssociation::content_type(
+            "public.plain-text",
+            "Visual Studio Code"
+        )));
+        assert!(!associations.contains(&DefaultAssociation::content_type(
+            "public.plain-text",
+            "Zed"
+        )));
     }
 
     #[test]
