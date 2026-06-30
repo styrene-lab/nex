@@ -108,7 +108,7 @@ pub(crate) fn preflight(config: &Config, dry_run: bool) -> Result<()> {
         return Ok(());
     }
 
-    let supports_auto_migrate = nix_homebrew_auto_migrate_supported(config);
+    let supports_auto_migrate = false;
     print_existing_homebrew_warning(&existing, supports_auto_migrate);
     if dry_run {
         return Ok(());
@@ -170,7 +170,7 @@ pub(crate) fn doctor(config: &Config, fix: bool) -> Result<()> {
         return Ok(());
     }
 
-    let supports_auto_migrate = nix_homebrew_auto_migrate_supported(config);
+    let supports_auto_migrate = false;
     print_existing_homebrew_warning(&existing, supports_auto_migrate);
     if fix {
         match prompt_choice(supports_auto_migrate)? {
@@ -192,32 +192,17 @@ pub(crate) fn doctor(config: &Config, fix: bool) -> Result<()> {
     Ok(())
 }
 
-fn prompt_choice(supports_auto_migrate: bool) -> Result<HomebrewBootstrapChoice> {
-    let mut items = Vec::new();
-    if supports_auto_migrate {
-        items.push(
-            "migrate: set nix-homebrew.autoMigrate = true and preserve installed packages"
-                .to_string(),
-        );
-    }
-    items.push(
+fn prompt_choice(_supports_auto_migrate: bool) -> Result<HomebrewBootstrapChoice> {
+    let items = vec![
         "reset: inventory packages, move Homebrew aside, and let nix-homebrew install fresh"
             .to_string(),
-    );
-    items.push("abort: leave Homebrew unchanged".to_string());
+        "abort: leave Homebrew unchanged".to_string(),
+    ];
 
     let choice = crate::input::input().select("Existing Homebrew detected", &items, 0)?;
-    if supports_auto_migrate {
-        match choice {
-            0 => Ok(HomebrewBootstrapChoice::Migrate),
-            1 => confirm_reset_choice(),
-            _ => Ok(HomebrewBootstrapChoice::Abort),
-        }
-    } else {
-        match choice {
-            0 => confirm_reset_choice(),
-            _ => Ok(HomebrewBootstrapChoice::Abort),
-        }
+    match choice {
+        0 => confirm_reset_choice(),
+        _ => Ok(HomebrewBootstrapChoice::Abort),
     }
 }
 
