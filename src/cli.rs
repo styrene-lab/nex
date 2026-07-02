@@ -617,6 +617,12 @@ pub enum ProfileAction {
         #[arg(long)]
         verify: bool,
     },
+    /// Explain the capability effects a machine profile would apply
+    Explain {
+        /// GitHub repo (user/repo), URL, or local path
+        #[arg(value_name = "SOURCE")]
+        source: String,
+    },
     /// Sign a machine profile with your Styrene identity
     Sign {
         /// GitHub repo (user/repo) or local path to machine-profile.pkl; TOML is compatibility/interchange

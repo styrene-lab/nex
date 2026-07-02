@@ -240,7 +240,7 @@ fn main() -> Result<()> {
                 return ops::profile::run_sign(source, *detached)
             }
             cli::ProfileAction::Verify { source } => return ops::profile::run_verify(source),
-            cli::ProfileAction::Apply { .. } => {} // handled below (needs config)
+            cli::ProfileAction::Apply { .. } | cli::ProfileAction::Explain { .. } => {} // handled below (needs config)
         },
         _ => {}
     }
@@ -296,6 +296,7 @@ fn main() -> Result<()> {
             cli::ProfileAction::Apply { source, verify } => {
                 ops::profile::run(&config, source, *verify, cli.dry_run)
             }
+            cli::ProfileAction::Explain { source } => ops::profile::run_explain(&config, source),
             // Sign and Verify are handled in the pre-config block above
             _ => unreachable!(),
         },

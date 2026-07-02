@@ -19,6 +19,8 @@ struct Profile {
     meta: Option<ProfileMeta>,
     packages: Option<ProfilePackages>,
     shell: Option<ProfileShell>,
+    cli: Option<ProfileCli>,
+    services: Option<ProfileServices>,
     git: Option<ProfileGit>,
     kitty: Option<ProfileKitty>,
     macos: Option<ProfileMacos>,
@@ -73,6 +75,22 @@ struct ProfileShell {
     profile_extra: Option<String>,
     #[serde(rename = "initExtra")]
     init_extra: Option<String>,
+}
+
+#[derive(Clone, Default, serde::Deserialize)]
+struct ProfileCli {
+    editor: Option<String>,
+    multiplexer: Option<String>,
+}
+
+#[derive(Clone, Default, serde::Deserialize)]
+struct ProfileServices {
+    ssh: Option<ProfileSshService>,
+}
+
+#[derive(Clone, Default, serde::Deserialize)]
+struct ProfileSshService {
+    enable: Option<bool>,
 }
 
 #[derive(Clone, serde::Deserialize)]
@@ -335,6 +353,8 @@ struct MergedProfile {
     packages_casks: Vec<String>,
     packages_taps: Vec<String>,
     shell: MergedShell,
+    cli: ProfileCli,
+    services: ProfileServices,
     git: MergedGit,
     kitty: Option<ProfileKitty>,
     macos: Option<ProfileMacos>,
@@ -567,6 +587,8 @@ impl MergedProfile {
             packages_casks: Vec::new(),
             packages_taps: Vec::new(),
             shell: MergedShell::default(),
+            cli: ProfileCli::default(),
+            services: ProfileServices::default(),
             git: MergedGit::default(),
             kitty: None,
             macos: None,
@@ -597,6 +619,13 @@ impl MergedProfile {
         // Shell
         if let Some(shell) = &profile.shell {
             self.shell.merge_from(shell);
+        }
+
+        if let Some(cli) = &profile.cli {
+            self.cli.merge_from(cli);
+        }
+        if let Some(services) = &profile.services {
+            self.services.merge_from(services);
         }
 
         // Git: last-writer-wins per field
@@ -651,6 +680,35 @@ fn union_dedup(target: &mut Vec<String>, source: Option<&[String]>) {
             if !existing.contains(item) {
                 target.push(item.clone());
             }
+        }
+    }
+}
+
+impl ProfileCli {
+    fn merge_from(&mut self, overlay: &ProfileCli) {
+        if overlay.editor.is_some() {
+            self.editor = overlay.editor.clone();
+        }
+        if overlay.multiplexer.is_some() {
+            self.multiplexer = overlay.multiplexer.clone();
+        }
+    }
+}
+
+impl ProfileServices {
+    fn merge_from(&mut self, overlay: &ProfileServices) {
+        if let Some(ssh) = &overlay.ssh {
+            self.ssh
+                .get_or_insert_with(ProfileSshService::default)
+                .merge_from(ssh);
+        }
+    }
+}
+
+impl ProfileSshService {
+    fn merge_from(&mut self, overlay: &ProfileSshService) {
+        if overlay.enable.is_some() {
+            self.enable = overlay.enable;
         }
     }
 }
@@ -1082,6 +1140,93 @@ fn render_multiline_attr(lines: &mut Vec<String>, attr: &str, value: &Option<Str
     }
 }
 
+#[derive(Debug, Default)]
+struct CapabilityPlan {
+    packages: Vec<String>,
+    shell_env: Vec<(String, String)>,
+    services: Vec<String>,
+    validation: Vec<String>,
+}
+
+pub fn run_explain(_config: &Config, source: &str) -> Result<()> {
+    let layers = collect_profiles(source)?;
+    let merged = merge_profile_layers(&layers);
+    let plan = capability_plan(&merged);
+    print_capability_plan(&merged.name, &plan);
+    Ok(())
+}
+
+fn merge_profile_layers(layers: &[ProfileLayer]) -> MergedProfile {
+    let mut merged = MergedProfile::new();
+    for layer in layers {
+        merged.merge_layer(layer);
+    }
+    merged
+}
+
+fn capability_plan(profile: &MergedProfile) -> CapabilityPlan {
+    let mut plan = CapabilityPlan::default();
+    if let Some(editor) = &profile.cli.editor {
+        plan.packages.push(cli_tool_package(editor).to_string());
+        plan.shell_env.push(("EDITOR".to_string(), editor.clone()));
+        plan.shell_env.push(("VISUAL".to_string(), editor.clone()));
+    }
+    if let Some(mux) = &profile.cli.multiplexer {
+        plan.packages.push(cli_tool_package(mux).to_string());
+    }
+    if profile
+        .services
+        .ssh
+        .as_ref()
+        .and_then(|ssh| ssh.enable)
+        .unwrap_or(false)
+    {
+        plan.packages.push("openssh".to_string());
+        plan.services.push("ssh enabled".to_string());
+        plan.validation.push("ssh service available".to_string());
+    }
+    plan.packages.sort();
+    plan.packages.dedup();
+    plan
+}
+
+fn cli_tool_package(tool: &str) -> &str {
+    match tool {
+        "nvim" | "neovim" => "neovim",
+        "vim" => "vim",
+        "tmux" => "tmux",
+        other => other,
+    }
+}
+
+fn print_capability_plan(profile_name: &str, plan: &CapabilityPlan) {
+    println!("Profile capability plan: {profile_name}");
+    if !plan.packages.is_empty() {
+        println!("packages:");
+        for package in &plan.packages {
+            println!("  - {package}");
+        }
+    }
+    if !plan.shell_env.is_empty() {
+        println!("shell env:");
+        for (key, value) in &plan.shell_env {
+            println!("  - {key}={value}");
+        }
+    }
+    if !plan.services.is_empty() {
+        println!("services:");
+        for service in &plan.services {
+            println!("  - {service}");
+        }
+    }
+    if !plan.validation.is_empty() {
+        println!("validation:");
+        for check in &plan.validation {
+            println!("  - {check}");
+        }
+    }
+}
+
 pub fn run(config: &Config, repo_ref: &str, verify: bool, dry_run: bool) -> Result<()> {
     // Phase 0: Verify signature if requested
     if verify {
@@ -1135,10 +1280,7 @@ pub fn run(config: &Config, repo_ref: &str, verify: bool, dry_run: bool) -> Resu
     }
 
     // Phase 2: Merge all layers
-    let mut merged = MergedProfile::new();
-    for layer in &layers {
-        merged.merge_layer(layer);
-    }
+    let merged = merge_profile_layers(&layers);
 
     // Phase 3: Apply
     let mut session = EditSession::new();
@@ -3012,8 +3154,10 @@ mod profile_topology_tests {
                     configs: Some(vec!["config".to_string()]),
                 }),
                 packages: None,
-                git: None,
                 shell: None,
+                cli: None,
+                services: None,
+                git: None,
                 kitty: None,
                 macos: None,
                 linux: None,
