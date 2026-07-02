@@ -1140,7 +1140,7 @@ fn render_multiline_attr(lines: &mut Vec<String>, attr: &str, value: &Option<Str
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq, Eq)]
 struct CapabilityPlan {
     packages: Vec<String>,
     shell_env: Vec<(String, String)>,
@@ -1188,6 +1188,14 @@ fn capability_plan(profile: &MergedProfile) -> CapabilityPlan {
     plan.packages.sort();
     plan.packages.dedup();
     plan
+}
+
+fn apply_capability_plan_to_merged_profile(profile: &mut MergedProfile) {
+    let plan = capability_plan(profile);
+    union_dedup(&mut profile.packages_nix, Some(&plan.packages));
+    for (key, value) in plan.shell_env {
+        profile.shell.env.insert(key, value);
+    }
 }
 
 fn cli_tool_package(tool: &str) -> &str {
@@ -1280,7 +1288,8 @@ pub fn run(config: &Config, repo_ref: &str, verify: bool, dry_run: bool) -> Resu
     }
 
     // Phase 2: Merge all layers
-    let merged = merge_profile_layers(&layers);
+    let mut merged = merge_profile_layers(&layers);
+    apply_capability_plan_to_merged_profile(&mut merged);
 
     // Phase 3: Apply
     let mut session = EditSession::new();
@@ -3314,6 +3323,47 @@ configs = ["{}"]
         assert_eq!(kitty.window_padding, Some(8));
         assert_eq!(kitty.scrollback_lines, Some(10_000));
         assert_eq!(kitty.macos_option_as_alt, Some(true));
+    }
+
+    #[test]
+    fn capability_plan_expands_cli_and_ssh_service_effects() {
+        let mut profile = MergedProfile::new();
+        profile.name = "test".to_string();
+        profile.cli.editor = Some("nvim".to_string());
+        profile.cli.multiplexer = Some("tmux".to_string());
+        profile.services.ssh = Some(ProfileSshService { enable: Some(true) });
+
+        let plan = capability_plan(&profile);
+
+        assert_eq!(plan.packages, vec!["neovim", "openssh", "tmux"]);
+        assert!(plan
+            .shell_env
+            .contains(&("EDITOR".to_string(), "nvim".to_string())));
+        assert!(plan
+            .shell_env
+            .contains(&("VISUAL".to_string(), "nvim".to_string())));
+        assert_eq!(plan.services, vec!["ssh enabled"]);
+        assert_eq!(plan.validation, vec!["ssh service available"]);
+    }
+
+    #[test]
+    fn capability_plan_is_applied_to_legacy_profile_effects() {
+        let mut profile = MergedProfile::new();
+        profile.packages_nix.push("git".to_string());
+        profile.cli.editor = Some("nvim".to_string());
+        profile.cli.multiplexer = Some("tmux".to_string());
+
+        apply_capability_plan_to_merged_profile(&mut profile);
+
+        assert_eq!(profile.packages_nix, vec!["git", "neovim", "tmux"]);
+        assert_eq!(
+            profile.shell.env.get("EDITOR").map(String::as_str),
+            Some("nvim")
+        );
+        assert_eq!(
+            profile.shell.env.get("VISUAL").map(String::as_str),
+            Some("nvim")
+        );
     }
 
     #[test]
