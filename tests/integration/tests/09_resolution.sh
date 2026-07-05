@@ -2,9 +2,10 @@
 # Test: auto-resolution and brew availability warnings.
 source "$HARNESS"
 
-# ── Nix-only package (no cask/formula) installs silently ──────────────────
+# ── Darwin nix-only package (no cask/formula) installs silently ─────────────
 
 setup_clean_home
+use_platform darwin
 repo=$(mktemp -d)
 setup_repo "$repo"
 setup_nex_config "$repo"
@@ -19,15 +20,16 @@ assert_file_contains "htop added to nix packages" \
 assert_file_not_contains "htop not in casks" \
   "$repo/nix/modules/darwin/homebrew.nix" "htop"
 
-# ── Brew unavailable → warning on nix-only resolve ────────────────────────
+# ── Darwin Homebrew unavailable → warning on nix-only resolve ──────────────
 
 setup_clean_home
+use_platform darwin
 repo=$(mktemp -d)
 setup_repo "$repo"
 setup_nex_config "$repo"
 
 export MOCK_BREW_UNAVAILABLE=1
-assert_output_contains "warns when brew unavailable" \
+assert_output_contains "warns when enabled brew unavailable" \
   "brew not available" \
   nex install btop
 unset MOCK_BREW_UNAVAILABLE
@@ -35,6 +37,32 @@ unset MOCK_BREW_UNAVAILABLE
 # btop should still be installed (falls through to nix)
 assert_file_contains "btop added despite brew warning" \
   "$repo/nix/modules/home/base.nix" "btop"
+
+# ── Linux default provider policy does not expect Homebrew ──────────────────
+
+setup_clean_home
+use_platform linux
+repo=$(mktemp -d)
+setup_repo "$repo"
+setup_nex_config "$repo"
+
+export MOCK_BREW_UNAVAILABLE=1
+assert_output_not_contains "linux does not warn when brew unavailable" \
+  "brew not available" \
+  nex install btop
+unset MOCK_BREW_UNAVAILABLE
+
+assert_file_contains "linux btop added to nix packages" \
+  "$repo/nix/modules/home/base.nix" "btop"
+
+assert_fail "linux --brew fails without provider target" \
+  nex install --brew wget
+
+assert_fail "linux --cask fails without provider target" \
+  nex install --cask firefox
+
+assert_file_not_contains "linux --brew did not edit nixos package target as brew list" \
+  "$repo/nix/modules/nixos/packages.nix" '"wget"'
 
 # ── Package not found anywhere → error ────────────────────────────────────
 
@@ -44,6 +72,7 @@ assert_fail "unknown package fails" \
 # ── --nix flag skips resolution entirely ──────────────────────────────────
 
 setup_clean_home
+use_platform darwin
 repo=$(mktemp -d)
 setup_repo "$repo"
 setup_nex_config "$repo"

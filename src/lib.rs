@@ -1,3 +1,4 @@
+pub mod aliases;
 pub mod ansi;
 pub mod armory;
 pub mod armory_lock;
@@ -21,4 +22,4 @@ pub mod materialization;
 pub mod menu;
 pub mod nixfile;
 pub mod pkl;
-pub mod profile_fragment;
+pub mod resolve;

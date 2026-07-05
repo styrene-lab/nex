@@ -198,6 +198,39 @@ impl Config {
         }
         files
     }
+
+    /// Configured Homebrew formula target, if this profile enables one.
+    pub fn homebrew_formula_target(&self) -> Option<&Path> {
+        match self.platform {
+            Platform::Darwin => Some(&self.homebrew_file),
+            Platform::Linux => None,
+        }
+    }
+
+    /// Configured Homebrew cask target, if this profile enables one.
+    pub fn homebrew_cask_target(&self) -> Option<&Path> {
+        match self.platform {
+            Platform::Darwin => Some(&self.homebrew_file),
+            Platform::Linux => None,
+        }
+    }
+
+    /// True when any Homebrew provider target is enabled for this profile.
+    pub fn has_homebrew_provider(&self) -> bool {
+        self.homebrew_formula_target().is_some() || self.homebrew_cask_target().is_some()
+    }
+
+    /// Sources that auto-resolution may consider for this profile.
+    pub fn auto_install_sources(&self) -> Vec<crate::resolve::Source> {
+        let mut sources = vec![crate::resolve::Source::Nix];
+        if self.homebrew_cask_target().is_some() {
+            sources.push(crate::resolve::Source::BrewCask);
+        }
+        if self.homebrew_formula_target().is_some() {
+            sources.push(crate::resolve::Source::BrewFormula);
+        }
+        sources
+    }
 }
 
 /// Persist a key=value into the config file, preserving existing content.

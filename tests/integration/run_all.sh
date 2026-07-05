@@ -27,6 +27,7 @@ for test_file in "$TEST_DIR"/*.sh; do
   if TEST_NAME="$test_name" \
      RESULT_FILE="$result_file" \
      HARNESS="$HARNESS" \
+     NEX_TESTING=1 \
      bash "$test_file"; then
     :
   else

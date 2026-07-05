@@ -41,26 +41,38 @@ pub fn run(config: &Config, mode: RemoveMode, packages: &[String], dry_run: bool
             RemoveMode::Nix => {
                 try_remove_nix(config, &mut session, pkg, dry_run, &mut any_removed)?
             }
-            RemoveMode::Cask => try_remove_list(
-                config,
-                &mut session,
-                &config.homebrew_file,
-                &nixfile::HOMEBREW_CASKS,
-                "cask",
-                pkg,
-                dry_run,
-                &mut any_removed,
-            )?,
-            RemoveMode::Brew => try_remove_list(
-                config,
-                &mut session,
-                &config.homebrew_file,
-                &nixfile::HOMEBREW_BREWS,
-                "brew",
-                pkg,
-                dry_run,
-                &mut any_removed,
-            )?,
+            RemoveMode::Cask => {
+                let target = config.homebrew_cask_target().ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Homebrew cask provider is not enabled for this profile; configure a cask target before using --cask"
+                    )
+                })?;
+                try_remove_list(
+                    &mut session,
+                    target,
+                    &nixfile::HOMEBREW_CASKS,
+                    "cask",
+                    pkg,
+                    dry_run,
+                    &mut any_removed,
+                )?
+            }
+            RemoveMode::Brew => {
+                let target = config.homebrew_formula_target().ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Homebrew formula provider is not enabled for this profile; configure a formula target before using --brew"
+                    )
+                })?;
+                try_remove_list(
+                    &mut session,
+                    target,
+                    &nixfile::HOMEBREW_BREWS,
+                    "brew",
+                    pkg,
+                    dry_run,
+                    &mut any_removed,
+                )?
+            }
         };
 
         if !removed {
@@ -141,36 +153,40 @@ fn try_remove_from_all(
         }
     }
 
-    // Check homebrew casks
-    for name in &names {
-        if edit::contains(&config.homebrew_file, &nixfile::HOMEBREW_CASKS, name)? {
-            if dry_run {
-                output::dry_run(&format!("would remove cask {name}"));
-                return Ok(true);
-            }
-            session.backup(&config.homebrew_file)?;
-            if edit::remove(&config.homebrew_file, &nixfile::HOMEBREW_CASKS, name)? {
-                let label = display_name(pkg, name);
-                output::removed(&label);
-                *any_removed = true;
-                return Ok(true);
+    // Check homebrew casks when enabled for this profile.
+    if let Some(target) = config.homebrew_cask_target() {
+        for name in &names {
+            if edit::contains(target, &nixfile::HOMEBREW_CASKS, name)? {
+                if dry_run {
+                    output::dry_run(&format!("would remove cask {name}"));
+                    return Ok(true);
+                }
+                session.backup(target)?;
+                if edit::remove(target, &nixfile::HOMEBREW_CASKS, name)? {
+                    let label = display_name(pkg, name);
+                    output::removed(&label);
+                    *any_removed = true;
+                    return Ok(true);
+                }
             }
         }
     }
 
-    // Check homebrew brews
-    for name in &names {
-        if edit::contains(&config.homebrew_file, &nixfile::HOMEBREW_BREWS, name)? {
-            if dry_run {
-                output::dry_run(&format!("would remove brew {name}"));
-                return Ok(true);
-            }
-            session.backup(&config.homebrew_file)?;
-            if edit::remove(&config.homebrew_file, &nixfile::HOMEBREW_BREWS, name)? {
-                let label = display_name(pkg, name);
-                output::removed(&label);
-                *any_removed = true;
-                return Ok(true);
+    // Check homebrew brews when enabled for this profile.
+    if let Some(target) = config.homebrew_formula_target() {
+        for name in &names {
+            if edit::contains(target, &nixfile::HOMEBREW_BREWS, name)? {
+                if dry_run {
+                    output::dry_run(&format!("would remove brew {name}"));
+                    return Ok(true);
+                }
+                session.backup(target)?;
+                if edit::remove(target, &nixfile::HOMEBREW_BREWS, name)? {
+                    let label = display_name(pkg, name);
+                    output::removed(&label);
+                    *any_removed = true;
+                    return Ok(true);
+                }
             }
         }
     }
@@ -210,7 +226,6 @@ fn try_remove_nix(
 /// Remove from a specific homebrew list (casks or brews).
 #[allow(clippy::too_many_arguments)]
 fn try_remove_list(
-    _config: &Config,
     session: &mut EditSession,
     file: &std::path::Path,
     list: &crate::nixfile::NixList,

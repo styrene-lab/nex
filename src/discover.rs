@@ -44,6 +44,16 @@ impl std::fmt::Display for DesktopEnvironment {
 
 /// Detect the current platform at runtime (not compile-time).
 pub fn detect_platform() -> Platform {
+    if let Ok(platform) = std::env::var("NEX_TEST_PLATFORM") {
+        if std::env::var_os("NEX_TESTING").is_some() {
+            return match platform.as_str() {
+                "darwin" | "macos" => Platform::Darwin,
+                "linux" | "nixos" => Platform::Linux,
+                _ => Platform::Linux,
+            };
+        }
+    }
+
     if runtime_os() == "darwin" {
         Platform::Darwin
     } else {

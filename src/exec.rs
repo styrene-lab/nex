@@ -273,9 +273,17 @@ pub fn nix_search(query: &str) -> Result<()> {
     run(nix_command().args(["search", "nixpkgs", query]))
 }
 
+fn test_mode() -> bool {
+    std::env::var_os("NEX_TESTING").is_some()
+}
+
 /// Resolve the absolute path to darwin-rebuild so sudo can find it.
 /// Checks well-known locations first to prevent PATH-based binary injection.
 fn find_darwin_rebuild() -> Result<String> {
+    if test_mode() {
+        return Ok("darwin-rebuild".to_string());
+    }
+
     // Known locations after nix-darwin activation
     let candidates = [
         "/run/current-system/sw/bin/darwin-rebuild",
@@ -303,6 +311,10 @@ fn find_darwin_rebuild() -> Result<String> {
 /// Resolve the absolute path to nixos-rebuild.
 /// Checks well-known locations first to prevent PATH-based binary injection.
 fn find_nixos_rebuild() -> Result<String> {
+    if test_mode() {
+        return Ok("nixos-rebuild".to_string());
+    }
+
     let candidates = [
         "/run/current-system/sw/bin/nixos-rebuild",
         "/nix/var/nix/profiles/system/sw/bin/nixos-rebuild",

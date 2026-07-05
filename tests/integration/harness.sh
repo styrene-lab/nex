@@ -109,6 +109,11 @@ hostname = "${hostname}"
 EOF
 }
 
+use_platform() {
+  export NEX_TESTING=1
+  export NEX_TEST_PLATFORM="$1"
+}
+
 # Create a minimal nix-darwin repo nex can operate on.
 setup_repo() {
   local repo="$1"

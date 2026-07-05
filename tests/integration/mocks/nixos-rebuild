@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Mock darwin-rebuild for integration tests.
+# Mock nixos-rebuild for integration tests.
 # Set MOCK_SWITCH_FAIL=1 to simulate a failed switch.
 set -euo pipefail
 
@@ -7,7 +7,7 @@ cmd="${1:-}"
 
 case "$cmd" in
   --help)
-    echo "mock darwin-rebuild"
+    echo "mock nixos-rebuild"
     exit 0
     ;;
   switch)
@@ -15,15 +15,15 @@ case "$cmd" in
       echo "error: build failed (mock)" >&2
       exit 1
     fi
-    echo "mock: darwin-rebuild switch succeeded"
+    echo "mock: nixos-rebuild switch succeeded"
     exit 0
     ;;
   build)
-    echo "mock: darwin-rebuild build succeeded"
+    echo "mock: nixos-rebuild build succeeded"
     exit 0
     ;;
   *)
-    echo "mock darwin-rebuild: unknown command '$cmd'" >&2
+    echo "mock nixos-rebuild: unknown command '$cmd'" >&2
     exit 1
     ;;
 esac

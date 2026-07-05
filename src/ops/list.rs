@@ -27,22 +27,26 @@ pub fn run(config: &Config) -> Result<()> {
     }
 
     // Homebrew brews
-    println!();
-    println!("{}", style("Homebrew brews").yellow().bold());
-    let brews = edit::list_packages(&config.homebrew_file, &nixfile::HOMEBREW_BREWS)?;
-    for b in &brews {
-        println!("  {b}");
+    if let Some(target) = config.homebrew_formula_target() {
+        println!();
+        println!("{}", style("Homebrew brews").yellow().bold());
+        let brews = edit::list_packages(target, &nixfile::HOMEBREW_BREWS)?;
+        for b in &brews {
+            println!("  {b}");
+        }
+        println!("  {} total", style(brews.len()).dim());
     }
-    println!("  {} total", style(brews.len()).dim());
 
     // Homebrew casks
-    println!();
-    println!("{}", style("Homebrew casks").yellow().bold());
-    let casks = edit::list_packages(&config.homebrew_file, &nixfile::HOMEBREW_CASKS)?;
-    for c in &casks {
-        println!("  {c}");
+    if let Some(target) = config.homebrew_cask_target() {
+        println!();
+        println!("{}", style("Homebrew casks").yellow().bold());
+        let casks = edit::list_packages(target, &nixfile::HOMEBREW_CASKS)?;
+        for c in &casks {
+            println!("  {c}");
+        }
+        println!("  {} total", style(casks.len()).dim());
     }
-    println!("  {} total", style(casks.len()).dim());
 
     Ok(())
 }

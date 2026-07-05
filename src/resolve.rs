@@ -51,44 +51,52 @@ pub struct ResolveResult {
     pub brew_checked: bool,
 }
 
-/// Resolve a package across nixpkgs, brew casks, and brew formulae.
-pub fn resolve(pkg: &str) -> Result<ResolveResult> {
-    tracing::debug!(%pkg, "resolving package");
+/// Resolve a package using only the enabled sources for the active provider policy.
+pub fn resolve_with_sources(pkg: &str, sources: &[Source]) -> Result<ResolveResult> {
+    tracing::debug!(%pkg, ?sources, "resolving package");
     let mut candidates = Vec::new();
-    let brew_checked = exec::brew_available();
+    let wants_nix = sources.contains(&Source::Nix);
+    let wants_brew_cask = sources.contains(&Source::BrewCask);
+    let wants_brew_formula = sources.contains(&Source::BrewFormula);
+    let wants_brew = wants_brew_cask || wants_brew_formula;
+    let brew_checked = wants_brew && exec::brew_available();
 
-    // Check nixpkgs — try the canonical alias first, then the raw name
-    let nix_attr = crate::aliases::nixpkgs_attr(pkg);
-    let nix_version = exec::nix_eval_version(nix_attr)?.or(if nix_attr != pkg {
-        exec::nix_eval_version(pkg)?
-    } else {
-        None
-    });
-    if let Some(version) = nix_version {
-        tracing::debug!(%pkg, version = %version, "found in nixpkgs");
-        candidates.push(Candidate {
-            source: Source::Nix,
-            version,
+    if wants_nix {
+        // Check nixpkgs — try the canonical alias first, then the raw name
+        let nix_attr = crate::aliases::nixpkgs_attr(pkg);
+        let nix_version = exec::nix_eval_version(nix_attr)?.or(if nix_attr != pkg {
+            exec::nix_eval_version(pkg)?
+        } else {
+            None
         });
+        if let Some(version) = nix_version {
+            tracing::debug!(%pkg, version = %version, "found in nixpkgs");
+            candidates.push(Candidate {
+                source: Source::Nix,
+                version,
+            });
+        }
     }
 
     if brew_checked {
         // Check brew cask — try the raw name, then known cask aliases
-        let cask_version =
-            exec::brew_cask_info(pkg)?.or(match crate::aliases::brew_cask_name(pkg) {
-                Some(cask_name) if cask_name != pkg => exec::brew_cask_info(cask_name)?,
-                _ => None,
-            });
-        if let Some(version) = cask_version {
-            tracing::debug!(%pkg, version = %version, "found as brew cask");
-            candidates.push(Candidate {
-                source: Source::BrewCask,
-                version,
-            });
+        if wants_brew_cask {
+            let cask_version =
+                exec::brew_cask_info(pkg)?.or(match crate::aliases::brew_cask_name(pkg) {
+                    Some(cask_name) if cask_name != pkg => exec::brew_cask_info(cask_name)?,
+                    _ => None,
+                });
+            if let Some(version) = cask_version {
+                tracing::debug!(%pkg, version = %version, "found as brew cask");
+                candidates.push(Candidate {
+                    source: Source::BrewCask,
+                    version,
+                });
+            }
         }
 
         // Check brew formula (only if not found as cask — formulae and casks rarely overlap)
-        if !candidates.iter().any(|c| c.source == Source::BrewCask) {
+        if wants_brew_formula && !candidates.iter().any(|c| c.source == Source::BrewCask) {
             if let Some(version) = exec::brew_formula_info(pkg)? {
                 tracing::debug!(%pkg, version = %version, "found as brew formula");
                 candidates.push(Candidate {

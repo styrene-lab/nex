@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 use crate::armory_lock;
 use crate::config::Config;
@@ -50,8 +50,22 @@ pub fn run(
         // Determine the install source
         let source = match &mode {
             InstallMode::Nix => Source::Nix,
-            InstallMode::Cask => Source::BrewCask,
-            InstallMode::Brew => Source::BrewFormula,
+            InstallMode::Cask => {
+                if config.homebrew_cask_target().is_none() {
+                    anyhow::bail!(
+                        "Homebrew cask provider is not enabled for this profile; configure a cask target before using --cask"
+                    );
+                }
+                Source::BrewCask
+            }
+            InstallMode::Brew => {
+                if config.homebrew_formula_target().is_none() {
+                    anyhow::bail!(
+                        "Homebrew formula provider is not enabled for this profile; configure a formula target before using --brew"
+                    );
+                }
+                Source::BrewFormula
+            }
             InstallMode::Auto => resolve_source(pkg, dry_run, config)?,
         };
 
@@ -67,7 +81,12 @@ pub fn run(
         if matches!(mode, InstallMode::Nix) {
             let attr = crate::aliases::nixpkgs_attr(pkg);
             if !exec::nix_eval_exists(attr)? && (attr == pkg || !exec::nix_eval_exists(pkg)?) {
-                output::not_found(pkg, "not in nixpkgs — try: nex install --cask");
+                let hint = if config.homebrew_cask_target().is_some() {
+                    "not in nixpkgs — try: nex install --cask"
+                } else {
+                    "not in nixpkgs — check the attribute with `nix search nixpkgs`"
+                };
+                output::not_found(pkg, hint);
                 continue;
             }
         }
@@ -120,23 +139,27 @@ fn is_already_declared(config: &Config, pkg: &str) -> Result<bool> {
             return Ok(true);
         }
     }
-    // Check homebrew lists (one read per list type)
-    if edit::contains_any(&config.homebrew_file, &nixfile::HOMEBREW_CASKS, &all_names)?.is_some() {
-        return Ok(true);
+    // Check homebrew lists only when this profile has configured Homebrew targets.
+    if let Some(target) = config.homebrew_cask_target() {
+        if edit::contains_any(target, &nixfile::HOMEBREW_CASKS, &all_names)?.is_some() {
+            return Ok(true);
+        }
     }
-    if edit::contains_any(&config.homebrew_file, &nixfile::HOMEBREW_BREWS, &all_names)?.is_some() {
-        return Ok(true);
+    if let Some(target) = config.homebrew_formula_target() {
+        if edit::contains_any(target, &nixfile::HOMEBREW_BREWS, &all_names)?.is_some() {
+            return Ok(true);
+        }
     }
     Ok(false)
 }
 
 /// Resolve which source to use for a package (auto mode).
 fn resolve_source(pkg: &str, dry_run: bool, config: &Config) -> Result<Source> {
-    let result = resolve::resolve(pkg)?;
+    let result = resolve::resolve_with_sources(pkg, &config.auto_install_sources())?;
 
-    // Warn if brew wasn't available — the user might be getting nix-only
-    // results for packages that should be casks.
-    if !result.brew_checked {
+    // Warn if an enabled brew provider wasn't available — the user might be getting nix-only
+    // results for packages that should be casks/formulae in a Homebrew-enabled profile.
+    if config.has_homebrew_provider() && !result.brew_checked {
         if let Resolution::Single(ref c) = result.resolution {
             if c.source == Source::Nix {
                 output::warn(
@@ -226,12 +249,18 @@ fn install_as(
         Source::BrewCask => {
             // Use the canonical cask name (e.g. "vscode" -> "visual-studio-code")
             let cask = crate::aliases::brew_cask_name(pkg).unwrap_or(pkg);
-            session.backup(&config.homebrew_file)?;
-            edit::insert(&config.homebrew_file, &nixfile::HOMEBREW_CASKS, cask)
+            let target = config
+                .homebrew_cask_target()
+                .context("Homebrew cask provider is not enabled for this profile")?;
+            session.backup(target)?;
+            edit::insert(target, &nixfile::HOMEBREW_CASKS, cask)
         }
         Source::BrewFormula => {
-            session.backup(&config.homebrew_file)?;
-            edit::insert(&config.homebrew_file, &nixfile::HOMEBREW_BREWS, pkg)
+            let target = config
+                .homebrew_formula_target()
+                .context("Homebrew formula provider is not enabled for this profile")?;
+            session.backup(target)?;
+            edit::insert(target, &nixfile::HOMEBREW_BREWS, pkg)
         }
     }
 }
@@ -240,6 +269,13 @@ fn install_as(
 fn target_description(source: &Source, config: &Config) -> String {
     match source {
         Source::Nix => config.nix_packages_file.display().to_string(),
-        Source::BrewCask | Source::BrewFormula => config.homebrew_file.display().to_string(),
+        Source::BrewCask => config
+            .homebrew_cask_target()
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "disabled Homebrew cask provider".to_string()),
+        Source::BrewFormula => config
+            .homebrew_formula_target()
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "disabled Homebrew formula provider".to_string()),
     }
 }
