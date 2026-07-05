@@ -1742,7 +1742,23 @@ fn rewrite_kitty_bare_bash(dir: &Path, bash: &Path) -> Result<()> {
         let content = std::fs::read_to_string(&path)
             .with_context(|| format!("reading kitty config {}", path.display()))?;
         let replacement = format!("shell {} --login", bash.display());
-        let rewritten = content.replace("shell bash", &replacement);
+        let rewritten = content
+            .lines()
+            .map(|line| {
+                if line.trim() == "shell bash" {
+                    let indent_len = line.len() - line.trim_start().len();
+                    format!("{}{}", &line[..indent_len], replacement)
+                } else {
+                    line.to_string()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let rewritten = if content.ends_with('\n') {
+            format!("{rewritten}\n")
+        } else {
+            rewritten
+        };
         if rewritten != content {
             crate::edit::atomic_write_bytes(&path, rewritten.as_bytes())?;
         }
@@ -3260,7 +3276,11 @@ configs = ["{}"]
         let dest = tempfile::tempdir().expect("dest tempdir");
         let kitty = source.path().join("kitty");
         std::fs::create_dir_all(kitty.join("themes")).expect("theme dir");
-        std::fs::write(kitty.join("kitty.conf"), "shell bash\n").expect("kitty conf");
+        std::fs::write(
+            kitty.join("kitty.conf"),
+            "# shell bash should stay in comments\n  shell bash\n",
+        )
+        .expect("kitty conf");
         std::fs::write(kitty.join("themes/alpharius.conf"), "background #000\n")
             .expect("theme conf");
 
@@ -3269,7 +3289,7 @@ configs = ["{}"]
 
         assert_eq!(
             std::fs::read_to_string(dest.path().join("kitty.conf")).expect("read kitty conf"),
-            "shell bash\n"
+            "# shell bash should stay in comments\n  shell bash\n"
         );
         assert_eq!(
             std::fs::read_to_string(dest.path().join("themes/alpharius.conf"))
