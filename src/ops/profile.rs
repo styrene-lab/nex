@@ -2316,12 +2316,9 @@ fn apply_macos(config: &Config, macos: &ProfileMacos, dry_run: bool) -> Result<(
             let bundle_id = resolve_bundle_id(browser);
             let bid = bundle_id.as_deref().unwrap_or(browser);
 
-            // Set default browser via open -a (works with app names)
-            let _ = Command::new("open")
-                .args(["-a", browser, "--args", "--make-default-browser"])
-                .output();
-
-            // Write the LSHandler with the proper bundle ID
+            // Write the LSHandler with the proper bundle ID. Do not launch the
+            // browser here: `open -a Safari --args --make-default-browser`
+            // steals focus during profile apply and creates poor automation UX.
             defaults_write_string(
                 "com.apple.LaunchServices/com.apple.launchservices.secure",
                 "LSHandlerURLSchemeHTTP",
