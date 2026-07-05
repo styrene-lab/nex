@@ -36,6 +36,8 @@ pub fn run(
         anyhow::bail!("no packages specified");
     }
 
+    ensure_mode_enabled(config, &mode)?;
+
     let mut session = EditSession::new();
     let mut any_added = false;
 
@@ -50,22 +52,8 @@ pub fn run(
         // Determine the install source
         let source = match &mode {
             InstallMode::Nix => Source::Nix,
-            InstallMode::Cask => {
-                if config.homebrew_cask_target().is_none() {
-                    anyhow::bail!(
-                        "Homebrew cask provider is not enabled for this profile; configure a cask target before using --cask"
-                    );
-                }
-                Source::BrewCask
-            }
-            InstallMode::Brew => {
-                if config.homebrew_formula_target().is_none() {
-                    anyhow::bail!(
-                        "Homebrew formula provider is not enabled for this profile; configure a formula target before using --brew"
-                    );
-                }
-                Source::BrewFormula
-            }
+            InstallMode::Cask => Source::BrewCask,
+            InstallMode::Brew => Source::BrewFormula,
             InstallMode::Auto => resolve_source(pkg, dry_run, config)?,
         };
 
@@ -117,6 +105,18 @@ pub fn run(
             session.revert_all()?;
             Err(e)
         }
+    }
+}
+
+fn ensure_mode_enabled(config: &Config, mode: &InstallMode) -> Result<()> {
+    match mode {
+        InstallMode::Brew if config.homebrew_formula_target().is_none() => anyhow::bail!(
+            "Homebrew formula provider is not enabled for this profile; configure a formula target before using --brew"
+        ),
+        InstallMode::Cask if config.homebrew_cask_target().is_none() => anyhow::bail!(
+            "Homebrew cask provider is not enabled for this profile; configure a cask target before using --cask"
+        ),
+        _ => Ok(()),
     }
 }
 
