@@ -7,6 +7,11 @@ open_questions:
   - "[assumption] Nex should use ordinary flakes as the applied config substrate rather than requiring flake-parts, Snowfall Lib, Blueprint, deploy-rs, or Colmena."
   - "[assumption] A machine capsule should be one checkout per concrete machine containing both profile.toml and a config/ flake tree."
   - "[assumption] Backend execution should remain an internal enum/command registry initially, not a dynamic plugin ABI."
+  - "[assumption] Capsule metadata paths are relative to the capsule root, not the config flake root."
+  - "[assumption] Forge apply creates local capsule files only; remote mutation is exclusively handled by nex deploy/switch."
+  - "[assumption] Forge adopt-existing may copy hardware facts/reference files but must not import /etc/nixos/configuration.nix as active config without explicit approval."
+  - "[assumption] The first NixOS deployment backend assumes SSH access and a known sudo strategy; Nex will not infer remote privilege escalation silently."
+  - "[assumption] Existing init/materialization renderers should be reused or factored rather than duplicated by Forge."
 dependencies: []
 related: []
 ---
@@ -121,6 +126,84 @@ enum PackageProvider {
 
 Future variants may add `NixosAnywhere`, `DeployRs`, `Colmena`, `Disko`, `SopsNix`, or `Agenix`, but only after the capsule/adoption path proves itself.
 
+### Decision: capsule metadata paths are relative to the capsule root
+
+Paths stored in `.nex/machine.toml` are relative to the capsule root unless explicitly absolute. Backend commands may run with `cwd = capsule/config`, but metadata path resolution should not silently switch roots.
+
+Example:
+
+```toml
+[capsule]
+profile = "profile.toml"
+config = "config"
+
+[providers.nix]
+home_packages_target = "config/modules/home/packages.nix"
+system_packages_target = "config/modules/nixos/packages.nix"
+```
+
+Runtime code should resolve both:
+
+- an absolute path for file mutation;
+- a display-relative path for plan output and diagnostics.
+
+This avoids ambiguity between capsule root and flake root.
+
+### Decision: capsule discovery has deterministic precedence
+
+Commands such as `nex install`, `nex switch`, and `nex deploy` need deterministic capsule/config selection.
+
+Initial precedence should be:
+
+```text
+1. --capsule <path>
+2. NEX_CAPSULE
+3. nearest ancestor containing .nex/machine.toml
+4. legacy ~/.config/nex/config.pkl
+5. error with suggested nex forge/capsule init
+```
+
+`.nex/machine.toml` is capsule-local authority. Existing `config.pkl` remains a legacy/global fallback until the old config path is retired.
+
+### Decision: Forge adopt-existing does not import active remote config by default
+
+For an existing NixOS host, Forge may collect reference material but should not automatically make arbitrary `/etc/nixos/configuration.nix` content active in the new capsule.
+
+Allowed by default:
+
+- copy or record `hardware-configuration.nix` if present;
+- record remote facts such as hostname, arch, NixOS marker, and current flake/config presence;
+- copy original `/etc/nixos/configuration.nix` to a reference path such as `references/original-configuration.nix`.
+
+Not allowed without explicit approval:
+
+- importing the original configuration as an active module;
+- overwriting `/etc/nixos`;
+- repartitioning disks;
+- running remote activation during `forge apply`.
+
+### Decision: remote deployment privilege strategy is explicit
+
+The first remote backend is `nixos-rebuild --target-host`. Nex must not infer remote privilege escalation silently.
+
+Capsule metadata should name the target and sudo strategy:
+
+```toml
+[deployment]
+backend = "nixos-rebuild-target-host"
+target_host = "wilson@192.168.0.100"
+use_remote_sudo = true
+build_host = "local"
+```
+
+Doctor/plan checks should report:
+
+- SSH reachability;
+- remote NixOS marker;
+- remote `nix` availability;
+- whether `use_remote_sudo` is configured;
+- whether activation will be local, remote, or not run.
+
 ## Backend redundancy assessment
 
 The backend plan should stay deliberately small. Many candidate tools overlap at the Nex abstraction level even though they remain useful in the broader Nix ecosystem.
@@ -176,6 +259,7 @@ nex-nucleus/
     hosts/nucleus/hardware-configuration.nix
     modules/home/packages.nix
     modules/nixos/packages.nix
+    references/original-configuration.nix  # optional reference only
 ```
 
 Possible `.nex/machine.toml` shape:
@@ -183,13 +267,14 @@ Possible `.nex/machine.toml` shape:
 ```toml
 [machine]
 hostname = "nucleus"
+flake_output = "nucleus"
 platform = "nixos"
 arch = "x86_64-linux"
 mode = "adopt-existing"
 
 [capsule]
-profile = "../profile.toml"
-config = "../config"
+profile = "profile.toml"
+config = "config"
 
 [providers.nix]
 home_packages_target = "config/modules/home/packages.nix"
@@ -205,6 +290,7 @@ backend = "nixos-rebuild-local"
 backend = "nixos-rebuild-target-host"
 target_host = "wilson@192.168.0.100"
 use_remote_sudo = true
+build_host = "local"
 
 [bootstrap]
 backend = "none"
@@ -253,12 +339,77 @@ Will create:
   config/modules/home/packages.nix
   config/modules/nixos/packages.nix
 
+Will copy as reference if present:
+  /etc/nixos/hardware-configuration.nix
+  /etc/nixos/configuration.nix -> references/original-configuration.nix
+
 Will not:
   repartition disks
   overwrite /etc/nixos
+  import /etc/nixos/configuration.nix as active config without approval
   enable Homebrew
   deploy without approval
 ```
+
+## Remaining uncertainties
+
+These are not blockers for a plan-only Forge implementation, but they must be resolved before broader mutation/deployment work.
+
+### Capsule root and legacy config migration
+
+`.nex/machine.toml` should become capsule-local authority, but existing users still have `~/.config/nex/config.pkl`. The migration path must avoid surprising users who run `nex install` outside a capsule.
+
+Initial rule: keep legacy fallback, but prefer explicit capsule discovery when present.
+
+### Provider target defaults by machine role
+
+Nex needs a visible default for whether packages land in Home Manager packages or system packages.
+
+Initial rule:
+
+- workstation/user capsules default to Home Manager packages;
+- server capsules may default to `environment.systemPackages`;
+- `.nex/machine.toml` records the selected targets, so `nex install` does not need to infer later.
+
+### Hostname versus flake output
+
+Most capsules can use the same value for both, but they should be separate fields:
+
+```toml
+hostname = "nucleus"
+flake_output = "nucleus"
+```
+
+This avoids future trouble if DNS names, hostnames, and flake output names diverge.
+
+### Forge validation scope
+
+`forge apply` should create local files only. Non-mutating validation is allowed, but should be explicit:
+
+```bash
+nex forge apply --check
+```
+
+Potential checks:
+
+- generated files parse;
+- `nix flake check` succeeds;
+- `nixos-rebuild build --flake .#host` succeeds locally if feasible.
+
+No remote activation belongs in `forge apply`.
+
+### Renderer reuse
+
+Nex already has init/materialization code for flake scaffolding. Forge should reuse or factor this code rather than introduce a parallel renderer. If existing renderers are too coupled to legacy layout, extract a small plain-flake renderer shared by both paths.
+
+### Failure recovery
+
+`forge apply` writes local files. It should either:
+
+- render into a temp directory and rename into place; or
+- use backup/edit sessions for every existing file touched.
+
+Partially written capsules should be recoverable or clearly reported.
 
 ## Phased implementation
 
@@ -292,6 +443,7 @@ Responsibilities:
 - scaffold plain flake;
 - write provider target modules;
 - write `.nex/machine.toml`;
+- copy hardware config/reference files only as described by plan;
 - no remote activation.
 
 ### Phase 3: deploy existing capsule
@@ -330,4 +482,9 @@ Only when requirements justify them:
 - [assumption] Nex should use ordinary flakes as the applied config substrate rather than requiring flake-parts, Snowfall Lib, Blueprint, deploy-rs, or Colmena.
 - [assumption] A machine capsule should be one checkout per concrete machine containing both profile.toml and a config/ flake tree.
 - [assumption] Backend execution should remain an internal enum/command registry initially, not a dynamic plugin ABI.
+- [assumption] Capsule metadata paths are relative to the capsule root, not the config flake root.
+- [assumption] Forge apply creates local capsule files only; remote mutation is exclusively handled by nex deploy/switch.
+- [assumption] Forge adopt-existing may copy hardware facts/reference files but must not import /etc/nixos/configuration.nix as active config without explicit approval.
+- [assumption] The first NixOS deployment backend assumes SSH access and a known sudo strategy; Nex will not infer remote privilege escalation silently.
+- [assumption] Existing init/materialization renderers should be reused or factored rather than duplicated by Forge.
 - What assumptions is this design making that haven't been stated?
