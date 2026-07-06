@@ -1319,7 +1319,7 @@ pub fn run(config: &Config, repo_ref: &str, verify: bool, dry_run: bool) -> Resu
         },
     };
     changes += apply_nix_packages(config, &mut session, &merged_pkgs, dry_run)?;
-    if config.platform == Platform::Darwin {
+    if config.has_homebrew_provider() {
         changes += apply_brew_packages(config, &mut session, &merged_pkgs, dry_run)?;
         apply_taps(config, &merged_pkgs, dry_run)?;
     }
@@ -1561,23 +1561,27 @@ fn apply_brew_packages(
 
     // Brews
     if let Some(brews) = &pkgs.brews {
-        let existing: HashSet<String> =
-            edit::list_packages(&config.homebrew_file, &nixfile::HOMEBREW_BREWS)?
-                .into_iter()
-                .collect();
+        let target = match config.homebrew_formula_target() {
+            Some(path) => path,
+            None => return Ok(0),
+        };
+        let existing: HashSet<String> = edit::list_packages(target, &nixfile::HOMEBREW_BREWS)?
+            .into_iter()
+            .collect();
         let new: Vec<&String> = brews.iter().filter(|b| !existing.contains(*b)).collect();
         if !new.is_empty() {
             if dry_run {
                 for b in &new {
                     output::dry_run(&format!("would add brew formula {b}"));
                 }
-                return Ok(new.len());
-            }
-            session.backup(&config.homebrew_file)?;
-            for b in &new {
-                if edit::insert(&config.homebrew_file, &nixfile::HOMEBREW_BREWS, b)? {
-                    println!("  {} {} {}", style("+").green(), b, style("(brew)").dim());
-                    added += 1;
+                added += new.len();
+            } else {
+                session.backup(target)?;
+                for b in &new {
+                    if edit::insert(target, &nixfile::HOMEBREW_BREWS, b)? {
+                        println!("  {} {} {}", style("+").green(), b, style("(brew)").dim());
+                        added += 1;
+                    }
                 }
             }
         }
@@ -1585,23 +1589,27 @@ fn apply_brew_packages(
 
     // Casks
     if let Some(casks) = &pkgs.casks {
-        let existing: HashSet<String> =
-            edit::list_packages(&config.homebrew_file, &nixfile::HOMEBREW_CASKS)?
-                .into_iter()
-                .collect();
+        let target = match config.homebrew_cask_target() {
+            Some(path) => path,
+            None => return Ok(added),
+        };
+        let existing: HashSet<String> = edit::list_packages(target, &nixfile::HOMEBREW_CASKS)?
+            .into_iter()
+            .collect();
         let new: Vec<&String> = casks.iter().filter(|c| !existing.contains(*c)).collect();
         if !new.is_empty() {
             if dry_run {
                 for c in &new {
                     output::dry_run(&format!("would add brew cask {c}"));
                 }
-                return Ok(added + new.len());
-            }
-            session.backup(&config.homebrew_file)?;
-            for c in &new {
-                if edit::insert(&config.homebrew_file, &nixfile::HOMEBREW_CASKS, c)? {
-                    println!("  {} {} {}", style("+").green(), c, style("(cask)").dim());
-                    added += 1;
+                added += new.len();
+            } else {
+                session.backup(target)?;
+                for c in &new {
+                    if edit::insert(target, &nixfile::HOMEBREW_CASKS, c)? {
+                        println!("  {} {} {}", style("+").green(), c, style("(cask)").dim());
+                        added += 1;
+                    }
                 }
             }
         }
@@ -1617,9 +1625,14 @@ fn apply_taps(config: &Config, pkgs: &ProfilePackages, dry_run: bool) -> Result<
         _ => return Ok(()),
     };
 
-    // Check if taps are declared in homebrew.nix
-    let content = std::fs::read_to_string(&config.homebrew_file)
-        .with_context(|| format!("reading {}", config.homebrew_file.display()))?;
+    let target = match config.homebrew_formula_target() {
+        Some(path) => path,
+        None => return Ok(()),
+    };
+
+    // Check if taps are declared in the Homebrew formula target.
+    let content = std::fs::read_to_string(target)
+        .with_context(|| format!("reading {}", target.display()))?;
 
     // If there's no taps section, we need to add one
     if !content.contains("taps = [") {
@@ -1640,7 +1653,7 @@ fn apply_taps(config: &Config, pkgs: &ProfilePackages, dry_run: bool) -> Result<
             );
             crate::output::warn("could not insert taps block — 'brews = [' pattern not found in homebrew.nix; manual edit may be required");
         }
-        crate::edit::atomic_write_bytes(&config.homebrew_file, patched.as_bytes())?;
+        crate::edit::atomic_write_bytes(target, patched.as_bytes())?;
     }
 
     Ok(())
