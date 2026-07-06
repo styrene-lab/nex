@@ -28,10 +28,6 @@ struct MigrateCandidate {
 
 pub fn run(config: &Config) -> Result<()> {
     tracing::debug!("checking migration candidates");
-    if !exec::brew_available() {
-        output::error("brew not found — nothing to migrate");
-        return Ok(());
-    }
     let formula_target = match config.homebrew_formula_target() {
         Some(path) => path,
         None => {
@@ -41,6 +37,12 @@ pub fn run(config: &Config) -> Result<()> {
             return Ok(());
         }
     };
+
+    if !exec::brew_available() {
+        output::error("brew not found — nothing to migrate");
+        return Ok(());
+    }
+
     let cask_target = config.homebrew_cask_target();
 
     output::status("scanning installed brew packages...");

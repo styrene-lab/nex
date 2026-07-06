@@ -20,11 +20,6 @@ fn confirm_or_default(prompt: &str, default: bool) -> Result<bool> {
 /// existing Macs.
 pub fn run(config: &Config, dry_run: bool) -> Result<()> {
     tracing::info!("adopting brew packages");
-    if !exec::brew_available() {
-        output::error("brew not found — nothing to adopt");
-        return Ok(());
-    }
-
     let formula_target = match config.homebrew_formula_target() {
         Some(path) => path,
         None => {
@@ -32,6 +27,12 @@ pub fn run(config: &Config, dry_run: bool) -> Result<()> {
             return Ok(());
         }
     };
+
+    if !exec::brew_available() {
+        output::error("brew not found — nothing to adopt");
+        return Ok(());
+    }
+
     let cask_target = config.homebrew_cask_target();
 
     println!();
