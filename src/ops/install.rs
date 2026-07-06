@@ -221,10 +221,12 @@ fn resolve_source(pkg: &str, dry_run: bool, config: &Config) -> Result<Source> {
             }
         }
         Resolution::NotFound => {
-            let hint = if result.brew_checked {
+            let hint = if !config.has_homebrew_provider() {
+                "not found in enabled package providers"
+            } else if result.brew_checked {
                 "not found in nixpkgs or homebrew"
             } else {
-                "not found in nixpkgs (brew unavailable — install homebrew?)"
+                "not found in nixpkgs (brew unavailable for the enabled Homebrew provider)"
             };
             output::not_found(pkg, hint);
             anyhow::bail!("package {pkg} not found");
