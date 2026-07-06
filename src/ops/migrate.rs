@@ -32,6 +32,16 @@ pub fn run(config: &Config) -> Result<()> {
         output::error("brew not found — nothing to migrate");
         return Ok(());
     }
+    let formula_target = match config.homebrew_formula_target() {
+        Some(path) => path,
+        None => {
+            output::error(
+                "Homebrew formula provider is not enabled for this profile — nothing to migrate",
+            );
+            return Ok(());
+        }
+    };
+    let cask_target = config.homebrew_cask_target();
 
     output::status("scanning installed brew packages...");
 
@@ -42,18 +52,23 @@ pub fn run(config: &Config) -> Result<()> {
             managed_nix.insert(pkg);
         }
     }
-    let managed_brews: HashSet<String> =
-        edit::list_packages(&config.homebrew_file, &nixfile::HOMEBREW_BREWS)?
+    let managed_brews: HashSet<String> = edit::list_packages(formula_target, &nixfile::HOMEBREW_BREWS)?
+        .into_iter()
+        .collect();
+    let managed_casks: HashSet<String> = match cask_target {
+        Some(target) => edit::list_packages(target, &nixfile::HOMEBREW_CASKS)?
             .into_iter()
-            .collect();
-    let managed_casks: HashSet<String> =
-        edit::list_packages(&config.homebrew_file, &nixfile::HOMEBREW_CASKS)?
-            .into_iter()
-            .collect();
+            .collect(),
+        None => HashSet::new(),
+    };
 
     // Get what's actually installed
     let installed_formulae = exec::brew_leaves()?;
-    let installed_casks = exec::brew_list_casks()?;
+    let installed_casks = if cask_target.is_some() {
+        exec::brew_list_casks()?
+    } else {
+        Vec::new()
+    };
 
     let mut report = MigrateReport {
         candidates: Vec::new(),

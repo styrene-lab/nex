@@ -25,6 +25,15 @@ pub fn run(config: &Config, dry_run: bool) -> Result<()> {
         return Ok(());
     }
 
+    let formula_target = match config.homebrew_formula_target() {
+        Some(path) => path,
+        None => {
+            output::error("Homebrew formula provider is not enabled for this profile — nothing to adopt");
+            return Ok(());
+        }
+    };
+    let cask_target = config.homebrew_cask_target();
+
     println!();
     println!(
         "  {} — capturing installed packages",
@@ -33,18 +42,23 @@ pub fn run(config: &Config, dry_run: bool) -> Result<()> {
     println!();
 
     // What nex already manages
-    let managed_brews: HashSet<String> =
-        edit::list_packages(&config.homebrew_file, &nixfile::HOMEBREW_BREWS)?
+    let managed_brews: HashSet<String> = edit::list_packages(formula_target, &nixfile::HOMEBREW_BREWS)?
+        .into_iter()
+        .collect();
+    let managed_casks: HashSet<String> = match cask_target {
+        Some(target) => edit::list_packages(target, &nixfile::HOMEBREW_CASKS)?
             .into_iter()
-            .collect();
-    let managed_casks: HashSet<String> =
-        edit::list_packages(&config.homebrew_file, &nixfile::HOMEBREW_CASKS)?
-            .into_iter()
-            .collect();
+            .collect(),
+        None => HashSet::new(),
+    };
 
     // What's actually installed
     let installed_formulae = exec::brew_leaves()?;
-    let installed_casks = exec::brew_list_casks()?;
+    let installed_casks = if cask_target.is_some() {
+        exec::brew_list_casks()?
+    } else {
+        Vec::new()
+    };
 
     // Figure out what's missing from the config
     let new_formulae: Vec<&String> = installed_formulae
@@ -91,7 +105,7 @@ pub fn run(config: &Config, dry_run: bool) -> Result<()> {
             "would add {} formulae and {} casks to {}",
             new_formulae.len(),
             new_casks.len(),
-            config.homebrew_file.display()
+            formula_target.display()
         ));
         println!();
         print_bootstrap_recommendations(config)?;
@@ -101,10 +115,7 @@ pub fn run(config: &Config, dry_run: bool) -> Result<()> {
     // Confirm
     let total = new_formulae.len() + new_casks.len();
     let confirm = confirm_or_default(
-        &format!(
-            "  Add {total} packages to {}?",
-            config.homebrew_file.display()
-        ),
+        &format!("  Add {total} packages to {}?", formula_target.display()),
         true,
     )?;
 
@@ -115,21 +126,28 @@ pub fn run(config: &Config, dry_run: bool) -> Result<()> {
 
     // Back up before bulk edit so we can revert on failure
     let mut session = EditSession::new();
-    session.backup(&config.homebrew_file)?;
+    session.backup(formula_target)?;
+    if let Some(target) = cask_target {
+        if target != formula_target {
+            session.backup(target)?;
+        }
+    }
 
     // Insert formulae
     let mut added_formulae = 0;
     for formula in &new_formulae {
-        if edit::insert(&config.homebrew_file, &nixfile::HOMEBREW_BREWS, formula)? {
+        if edit::insert(formula_target, &nixfile::HOMEBREW_BREWS, formula)? {
             added_formulae += 1;
         }
     }
 
     // Insert casks
     let mut added_casks = 0;
-    for cask in &new_casks {
-        if edit::insert(&config.homebrew_file, &nixfile::HOMEBREW_CASKS, cask)? {
-            added_casks += 1;
+    if let Some(target) = cask_target {
+        for cask in &new_casks {
+            if edit::insert(target, &nixfile::HOMEBREW_CASKS, cask)? {
+                added_casks += 1;
+            }
         }
     }
 

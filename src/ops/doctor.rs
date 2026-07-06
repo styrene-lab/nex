@@ -120,12 +120,22 @@ fn readiness_checks(config: &Config) -> Result<Vec<ReadinessCheck>> {
         format!("config repo {}", config.repo.display()),
         "Run `nex init`".to_string(),
     ));
-    checks.push(path_check(
-        "homebrew-module",
-        config.homebrew_file.exists(),
-        format!("homebrew module {}", config.homebrew_file.display()),
-        "Run `nex init` or repair the config repo".to_string(),
-    ));
+    if let Some(target) = config.homebrew_formula_target() {
+        checks.push(path_check(
+            "homebrew-formula-module",
+            target.exists(),
+            format!("homebrew formula module {}", target.display()),
+            "Run `nex init` or repair the config repo".to_string(),
+        ));
+    }
+    if let Some(target) = config.homebrew_cask_target() {
+        checks.push(path_check(
+            "homebrew-cask-module",
+            target.exists(),
+            format!("homebrew cask module {}", target.display()),
+            "Run `nex init` or repair the config repo".to_string(),
+        ));
+    }
 
     Ok(checks)
 }
