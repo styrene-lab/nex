@@ -4,6 +4,10 @@ All notable changes to nex are documented here. Format follows [Keep a Changelog
 
 ## [Unreleased]
 
+### Fixed
+- Prevent Homebrew bootstrap repair from disabling an unmanaged installation and leaving nix-darwin unable to activate; Nex now uses upstream `nix-homebrew.autoMigrate` when supported and otherwise fails without mutating Homebrew.
+- Report unmanaged Homebrew as a blocker in JSON doctor readiness so it agrees with the switch preflight.
+
 ## [0.25.7] - 2026-06-25
 
 ### Fixed

@@ -89,27 +89,42 @@ fn readiness_checks(config: &Config) -> Result<Vec<ReadinessCheck>> {
             "Run `xcode-select --install`",
         ));
         let brew_exists = crate::homebrew_bootstrap::expected_brew_binary_exists();
+        let homebrew_conflict = crate::homebrew_bootstrap::detect_existing(config)?
+            .is_some_and(|existing| existing.is_conflict());
         checks.push(ReadinessCheck {
             id: "homebrew-expected-prefix",
-            status: if brew_exists {
+            status: if homebrew_conflict {
+                ReadinessStatus::Missing
+            } else if brew_exists {
                 ReadinessStatus::Ok
             } else {
                 ReadinessStatus::Warning
             },
-            severity: if brew_exists {
+            severity: if homebrew_conflict {
+                ReadinessSeverity::Blocker
+            } else if brew_exists {
                 ReadinessSeverity::Info
             } else {
                 ReadinessSeverity::Warning
             },
-            message: if brew_exists {
+            message: if homebrew_conflict {
+                "existing Homebrew installation is unmanaged by nix-homebrew".to_string()
+            } else if brew_exists {
                 "expected Homebrew binary exists".to_string()
             } else {
                 "expected Homebrew binary is missing; nix-homebrew may bootstrap it on first switch"
                     .to_string()
             },
-            suggested_action: (!brew_exists).then(|| {
-                "Run `nex switch`; if Homebrew is bootstrapped, run it once more".to_string()
-            }),
+            suggested_action: if homebrew_conflict {
+                Some(
+                    "Run `nex doctor --fix homebrew-bootstrap` to enable nix-homebrew migration"
+                        .to_string(),
+                )
+            } else {
+                (!brew_exists).then(|| {
+                    "Run `nex switch`; if Homebrew is bootstrapped, run it once more".to_string()
+                })
+            },
             read_only: true,
         });
     }
