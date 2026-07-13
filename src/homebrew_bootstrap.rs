@@ -207,13 +207,17 @@ fn choice_from_index(supports_auto_migrate: bool, choice: usize) -> HomebrewBoot
 }
 
 pub(crate) fn enable_auto_migrate(config: &Config) -> Result<bool> {
+    let upgraded = ensure_nix_homebrew_integration(config)?;
     let path = &config.homebrew_file;
     let content =
         std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
     let patched = add_auto_migrate_to_nix_homebrew_module(&content)
         .context("could not find nix-homebrew block to patch autoMigrate")?;
     if patched == content {
-        return Ok(false);
+        if upgraded {
+            crate::exec::git_commit(&config.repo, "nex doctor: integrate nix-homebrew migration");
+        }
+        return Ok(upgraded);
     }
     crate::edit::atomic_write_bytes(path, patched.as_bytes())?;
     crate::exec::git_commit(&config.repo, "nex doctor: enable nix-homebrew autoMigrate");
@@ -221,39 +225,181 @@ pub(crate) fn enable_auto_migrate(config: &Config) -> Result<bool> {
 }
 
 pub(crate) fn nix_homebrew_auto_migrate_supported(config: &Config) -> bool {
-    if config.repo.join("flake.nix").exists() {
-        return nix_homebrew_auto_migrate_supported_by_flake(&config.repo).unwrap_or(false);
-    }
-    config
-        .homebrew_file
-        .exists()
-        .then(|| std::fs::read_to_string(&config.homebrew_file).ok())
-        .flatten()
-        .is_some_and(|content| content.contains("nix-homebrew = {"))
+    nix_homebrew_integration_present(config)
+        || can_upgrade_nix_homebrew_integration(config)
+        || (!config.repo.join("flake.nix").exists()
+            && config
+                .homebrew_file
+                .exists()
+                .then(|| std::fs::read_to_string(&config.homebrew_file).ok())
+                .flatten()
+                .is_some_and(|content| content.contains("nix-homebrew = {")))
 }
 
-fn nix_homebrew_auto_migrate_supported_by_flake(repo: &Path) -> Result<bool> {
-    if !repo.join("flake.nix").exists() {
+fn nix_homebrew_integration_present(config: &Config) -> bool {
+    let flake = std::fs::read_to_string(config.repo.join("flake.nix")).unwrap_or_default();
+    let mk_host =
+        std::fs::read_to_string(config.repo.join("nix/lib/mkHost.nix")).unwrap_or_default();
+    flake.contains("nix-homebrew.url")
+        && mk_host.contains("nix-homebrew.darwinModules.nix-homebrew")
+        && config
+            .homebrew_file
+            .exists()
+            .then(|| std::fs::read_to_string(&config.homebrew_file).ok())
+            .flatten()
+            .is_some_and(|content| content.contains("nix-homebrew = {"))
+}
+
+fn can_upgrade_nix_homebrew_integration(config: &Config) -> bool {
+    if config.platform != Platform::Darwin {
+        return false;
+    }
+    let flake = std::fs::read_to_string(config.repo.join("flake.nix")).ok();
+    let mk_host = std::fs::read_to_string(config.repo.join("nix/lib/mkHost.nix")).ok();
+    let homebrew = std::fs::read_to_string(&config.homebrew_file).ok();
+    match (flake, mk_host, homebrew) {
+        (Some(flake), Some(mk_host), Some(homebrew)) => {
+            upgrade_legacy_flake(&flake).is_some()
+                && upgrade_legacy_mk_host(&mk_host).is_some()
+                && upgrade_legacy_homebrew_module(&homebrew).is_some()
+        }
+        _ => false,
+    }
+}
+
+fn ensure_nix_homebrew_integration(config: &Config) -> Result<bool> {
+    if nix_homebrew_integration_present(config) {
         return Ok(false);
     }
-    let expr = r#"let
-  flake = builtins.getFlake (toString ./.);
-  module = flake.inputs.nix-homebrew.darwinModules.nix-homebrew;
-  eval = flake.inputs.nix-darwin.lib.darwinSystem {
-    system = builtins.currentSystem;
-    modules = [ module { nix-homebrew.enable = false; } ];
-  };
-in eval.options ? "nix-homebrew" && eval.options."nix-homebrew" ? autoMigrate"#;
+    if !can_upgrade_nix_homebrew_integration(config) {
+        bail!("cannot upgrade this repository to nix-homebrew automatically");
+    }
+
+    let flake_path = config.repo.join("flake.nix");
+    let mk_host_path = config.repo.join("nix/lib/mkHost.nix");
+    let original_flake = std::fs::read_to_string(&flake_path)
+        .with_context(|| format!("reading {}", flake_path.display()))?;
+    let original_mk_host = std::fs::read_to_string(&mk_host_path)
+        .with_context(|| format!("reading {}", mk_host_path.display()))?;
+    let original_homebrew = std::fs::read_to_string(&config.homebrew_file)
+        .with_context(|| format!("reading {}", config.homebrew_file.display()))?;
+
+    let flake = upgrade_legacy_flake(&original_flake)
+        .context("legacy flake shape is not safe to upgrade automatically")?;
+    let mk_host = upgrade_legacy_mk_host(&original_mk_host)
+        .context("legacy mkHost.nix shape is not safe to upgrade automatically")?;
+    let homebrew = upgrade_legacy_homebrew_module(&original_homebrew)
+        .context("legacy homebrew.nix shape is not safe to upgrade automatically")?;
+
+    let lock_path = config.repo.join("flake.lock");
+    let original_lock = std::fs::read(&lock_path).ok();
+    let lock_existed = lock_path.exists();
+
+    crate::edit::atomic_write_bytes(&flake_path, flake.as_bytes())?;
+    if let Err(error) = (|| -> Result<()> {
+        crate::edit::atomic_write_bytes(&mk_host_path, mk_host.as_bytes())?;
+        crate::edit::atomic_write_bytes(&config.homebrew_file, homebrew.as_bytes())?;
+        update_flake_lock_for_nix_homebrew(&config.repo)
+    })() {
+        let _ = crate::edit::atomic_write_bytes(&flake_path, original_flake.as_bytes());
+        let _ = crate::edit::atomic_write_bytes(&mk_host_path, original_mk_host.as_bytes());
+        let _ =
+            crate::edit::atomic_write_bytes(&config.homebrew_file, original_homebrew.as_bytes());
+        match (lock_existed, original_lock) {
+            (true, Some(bytes)) => {
+                let _ = crate::edit::atomic_write_bytes(&lock_path, &bytes);
+            }
+            (false, _) => {
+                let _ = std::fs::remove_file(&lock_path);
+            }
+            _ => {}
+        }
+        return Err(error).context("rolled back nix-homebrew repository upgrade");
+    }
+    Ok(true)
+}
+
+fn update_flake_lock_for_nix_homebrew(repo: &Path) -> Result<()> {
     let output = crate::exec::nix_command()
-        .args(["eval", "--impure", "--expr", expr, "--raw"])
+        .args(["flake", "lock", "--update-input", "nix-homebrew"])
         .current_dir(repo)
-        .stderr(std::process::Stdio::null())
         .output()
-        .context("failed to evaluate nix-homebrew.autoMigrate support")?;
+        .context("updating flake.lock for nix-homebrew")?;
     if !output.status.success() {
-        return Ok(false);
+        bail!(
+            "failed to add nix-homebrew to flake.lock: {}",
+            crate::exec::captured_text(&output.stderr).trim()
+        );
     }
-    Ok(crate::exec::captured_text(&output.stdout).trim() == "true")
+    Ok(())
+}
+
+fn upgrade_legacy_flake(content: &str) -> Option<String> {
+    if content.contains("nix-homebrew.url") {
+        return Some(content.to_string());
+    }
+    let input_anchor = "    mac-app-util.url = \"github:hraban/mac-app-util\";";
+    let output_anchor = "mac-app-util }";
+    let inherit_anchor = "inherit nixpkgs nix-darwin home-manager mac-app-util;";
+    if !content.contains(input_anchor)
+        || !content.contains(output_anchor)
+        || !content.contains(inherit_anchor)
+    {
+        return None;
+    }
+    Some(
+        content
+            .replace(
+                input_anchor,
+                &format!(
+                    "{input_anchor}\n    nix-homebrew.url = \"github:zhaofengli/nix-homebrew\";"
+                ),
+            )
+            .replace(output_anchor, "mac-app-util, nix-homebrew }")
+            .replace(
+                inherit_anchor,
+                "inherit nixpkgs nix-darwin home-manager mac-app-util nix-homebrew;",
+            ),
+    )
+}
+
+fn upgrade_legacy_mk_host(content: &str) -> Option<String> {
+    if content.contains("nix-homebrew.darwinModules.nix-homebrew") {
+        return Some(content.to_string());
+    }
+    let args_anchor = "{ nixpkgs, nix-darwin, home-manager, mac-app-util }:";
+    let module_anchor = "    mac-app-util.darwinModules.default";
+    if !content.contains(args_anchor) || !content.contains(module_anchor) {
+        return None;
+    }
+    Some(
+        content
+            .replace(
+                args_anchor,
+                "{ nixpkgs, nix-darwin, home-manager, mac-app-util, nix-homebrew }:",
+            )
+            .replace(
+                module_anchor,
+                "    mac-app-util.darwinModules.default\n    nix-homebrew.darwinModules.nix-homebrew",
+            ),
+    )
+}
+
+fn upgrade_legacy_homebrew_module(content: &str) -> Option<String> {
+    if content.contains("nix-homebrew = {") {
+        return add_auto_migrate_to_nix_homebrew_module(content);
+    }
+    let args_end = content.find(':')?;
+    if content.get(..args_end)?.trim() != "{ ... }" {
+        return None;
+    }
+    let body = content.get(args_end + 1..)?.trim_start();
+    if !body.starts_with("{") || !body.contains("homebrew = {") {
+        return None;
+    }
+    let mut upgraded = String::from("{ pkgs, username, ... }:\n\n{\n  nix-homebrew = {\n    enable = true;\n    enableRosetta = pkgs.stdenv.hostPlatform.isAarch64;\n    user = username;\n    autoMigrate = true;\n  };\n\n");
+    upgraded.push_str(body.strip_prefix("{\n").unwrap_or(body));
+    Some(upgraded)
 }
 
 fn add_auto_migrate_to_nix_homebrew_module(content: &str) -> Option<String> {
@@ -262,7 +408,8 @@ fn add_auto_migrate_to_nix_homebrew_module(content: &str) -> Option<String> {
     }
 
     let start = content.find("nix-homebrew = {")?;
-    let relative_enable = content[start..].find("    enable = true;\n")?;
+    let block = nix_homebrew_block(content)?;
+    let relative_enable = block.find("    enable = true;\n")?;
     let idx = start + relative_enable + "    enable = true;\n".len();
     let mut patched = String::with_capacity(content.len() + 32);
     patched.push_str(&content[..idx]);
@@ -336,9 +483,62 @@ fn homebrew_prefixes_for_host() -> Vec<PathBuf> {
 mod tests {
     use super::{
         add_auto_migrate_to_nix_homebrew_module, managed_by_nix_homebrew,
-        nix_homebrew_auto_migrate_configured_in_content, ExistingHomebrew,
+        nix_homebrew_auto_migrate_configured_in_content, upgrade_legacy_flake,
+        upgrade_legacy_homebrew_module, upgrade_legacy_mk_host, ExistingHomebrew,
     };
     use std::path::PathBuf;
+
+    #[test]
+    fn upgrades_legacy_darwin_repository_fragments() {
+        let flake = r#"{
+  inputs = {
+    mac-app-util.url = "github:hraban/mac-app-util";
+  };
+  outputs = { self, nixpkgs, nix-darwin, home-manager, mac-app-util }:
+    let mkHost = import ./nix/lib/mkHost.nix { inherit nixpkgs nix-darwin home-manager mac-app-util; };
+}"#;
+        let upgraded_flake = upgrade_legacy_flake(flake).expect("upgrade flake");
+        assert!(upgraded_flake.contains("nix-homebrew.url"));
+        assert!(upgraded_flake.contains("mac-app-util, nix-homebrew }"));
+        assert!(upgraded_flake.contains("mac-app-util nix-homebrew;"));
+
+        let mk_host = r#"{ nixpkgs, nix-darwin, home-manager, mac-app-util }:
+nix-darwin.lib.darwinSystem {
+  modules = [
+    mac-app-util.darwinModules.default
+  ];
+}"#;
+        let upgraded_host = upgrade_legacy_mk_host(mk_host).expect("upgrade mkHost");
+        assert!(upgraded_host.contains("mac-app-util, nix-homebrew }:"));
+        assert!(upgraded_host.contains("nix-homebrew.darwinModules.nix-homebrew"));
+
+        let homebrew = "{ ... }:\n\n{\n  homebrew = {\n    enable = true;\n  };\n}\n";
+        let upgraded_homebrew = upgrade_legacy_homebrew_module(homebrew).expect("upgrade homebrew");
+        assert!(upgraded_homebrew.contains("{ pkgs, username, ... }:"));
+        assert!(upgraded_homebrew.contains("enableRosetta = pkgs.stdenv.hostPlatform.isAarch64;"));
+        assert!(upgraded_homebrew.contains("nix-homebrew = {"));
+        assert!(upgraded_homebrew.contains("autoMigrate = true;"));
+        assert!(upgraded_homebrew.contains("homebrew = {"));
+    }
+
+    #[test]
+    fn rejects_legacy_homebrew_with_named_arguments() {
+        let input = "{ lib, ... }:\n{ homebrew.enable = lib.mkDefault true; }\n";
+        assert!(upgrade_legacy_homebrew_module(input).is_none());
+    }
+
+    #[test]
+    fn legacy_upgrade_is_idempotent() {
+        let flake = "    nix-homebrew.url = \"github:zhaofengli/nix-homebrew\";\n";
+        assert_eq!(upgrade_legacy_flake(flake).as_deref(), Some(flake));
+        let mk_host = "    nix-homebrew.darwinModules.nix-homebrew\n";
+        assert_eq!(upgrade_legacy_mk_host(mk_host).as_deref(), Some(mk_host));
+        let homebrew = "nix-homebrew = {\n    enable = true;\n    autoMigrate = true;\n};\n";
+        assert_eq!(
+            upgrade_legacy_homebrew_module(homebrew).as_deref(),
+            Some(homebrew)
+        );
+    }
 
     #[test]
     fn inserts_auto_migrate_only_in_nix_homebrew_block() {
@@ -352,6 +552,13 @@ mod tests {
             .expect("homebrew block");
         assert!(homebrew_block.contains("homebrew = {\n    enable = true;\n};"));
         assert!(!homebrew_block.contains("autoMigrate = true;"));
+    }
+
+    #[test]
+    fn auto_migrate_patch_never_crosses_nix_homebrew_block() {
+        let input =
+            "nix-homebrew = {\n    enable = false;\n};\n\nhomebrew = {\n    enable = true;\n};\n";
+        assert!(add_auto_migrate_to_nix_homebrew_module(input).is_none());
     }
 
     #[test]
@@ -372,16 +579,6 @@ mod tests {
 
         let right_block = "homebrew = {\n    enable = true;\n};\n\nnix-homebrew = {\n    enable = true;\n    autoMigrate = true;\n};\n";
         assert!(nix_homebrew_auto_migrate_configured_in_content(right_block));
-    }
-
-    #[test]
-    fn auto_migrate_support_eval_returns_false_without_flake() {
-        let dir = tempfile::tempdir().expect("temp dir");
-
-        assert!(
-            !super::nix_homebrew_auto_migrate_supported_by_flake(dir.path())
-                .expect("support check")
-        );
     }
 
     #[test]

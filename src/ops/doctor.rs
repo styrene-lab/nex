@@ -253,16 +253,11 @@ pub fn run(config: &Config, fix: bool, json: bool, scope: Option<DoctorScope>) -
     check_bootstrap(config, fix)?;
     homebrew_bootstrap::doctor(config, fix)?;
 
-    // Check mac-app-util integration
-    if check_mac_app_util(config, &mut fixed)? {
-        // Changes were made — need a switch
+    if fix {
+        check_mac_app_util(config, &mut fixed)?;
+        check_allow_unfree(config, &mut fixed)?;
+        check_session_path(config, &mut fixed)?;
     }
-
-    // Check unfree packages allowed
-    check_allow_unfree(config, &mut fixed)?;
-
-    // Check ~/.local/bin is on PATH via home.sessionPath
-    check_session_path(config, &mut fixed)?;
 
     if fixed > 0 {
         // Commit the changes so nix doesn't complain about dirty tree
