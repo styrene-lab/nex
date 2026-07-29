@@ -127,10 +127,15 @@ impl Config {
             );
         }
 
-        // Standard file locations — detect scaffolded vs flat layout
-        let scaffolded = repo.join("nix/modules/home").exists();
+        // Standard file locations — detect scaffolded vs flat layout.
+        // "Scaffolded" means nex init created the full nix/hosts/<hostname>/ structure.
+        // A hybrid layout (nix/modules/home/ exists but no hosts/ dir) uses base.nix
+        // for packages but home.nix for imports — treated as scaffolded for file paths
+        // but flat for import wiring.
+        let has_modules_dir = repo.join("nix/modules/home").exists();
+        let scaffolded = has_modules_dir;
 
-        let nix_packages_file = if scaffolded {
+        let nix_packages_file = if has_modules_dir {
             repo.join("nix/modules/home/base.nix")
         } else if repo.join("home.nix").exists() {
             repo.join("home.nix")

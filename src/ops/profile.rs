@@ -1396,6 +1396,9 @@ pub fn run(config: &Config, repo_ref: &str, verify: bool, dry_run: bool) -> Resu
         },
     };
     changes += apply_nix_packages(config, &mut session, &merged_pkgs, dry_run)?;
+    if !dry_run && changes > 0 {
+        ensure_base_import(config)?;
+    }
     if config.has_homebrew_provider() {
         changes += apply_brew_packages(config, &mut session, &merged_pkgs, dry_run)?;
         apply_taps(config, &merged_pkgs, dry_run)?;
@@ -2030,6 +2033,66 @@ fn download_tree(
             }
         }
     }
+    Ok(())
+}
+
+/// Ensure base.nix is imported by the home-manager configuration.
+///
+/// When nex writes packages to `nix/modules/home/base.nix` but the config
+/// predates `nex init`, the import may not exist. For flat layouts with a
+/// `home.nix`, add the import there. For scaffolded layouts, the host
+/// `default.nix` should already reference base.nix.
+fn ensure_base_import(config: &Config) -> Result<()> {
+    let base_nix = config.repo.join("nix/modules/home/base.nix");
+    if !base_nix.exists() {
+        return Ok(());
+    }
+
+    // Check if a flat home.nix exists — hybrid layout
+    let home_nix = config.repo.join("home.nix");
+    if !home_nix.exists() {
+        return Ok(());
+    }
+
+    let content = std::fs::read_to_string(&home_nix)?;
+
+    // Already imported (any reference to base.nix or the modules path)
+    if content.contains("base.nix") || content.contains("nix/modules/home/base.nix") {
+        return Ok(());
+    }
+
+    // Wire the import into home.nix
+    let patched = if content.contains("imports = [") {
+        content.replace(
+            "imports = [",
+            "imports = [\n    ./nix/modules/home/base.nix",
+        )
+    } else if content.contains("{\n") {
+        content.replacen(
+            "{\n",
+            "{\n  imports = [ ./nix/modules/home/base.nix ];\n\n",
+            1,
+        )
+    } else {
+        println!(
+            "  {} could not wire base.nix import into {}",
+            style("!").yellow(),
+            style(home_nix.display()).dim()
+        );
+        println!(
+            "    Add {} to your home-manager imports manually",
+            style("./nix/modules/home/base.nix").bold()
+        );
+        return Ok(());
+    };
+
+    crate::edit::atomic_write_bytes(&home_nix, patched.as_bytes())?;
+    println!(
+        "  {} wired {} into {}",
+        style("✓").green(),
+        style("base.nix").bold(),
+        style("home.nix").dim()
+    );
     Ok(())
 }
 
