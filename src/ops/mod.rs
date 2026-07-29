@@ -33,3 +33,4 @@ pub mod self_update;
 pub mod switch;
 pub mod try_pkg;
 pub mod update;
+pub mod user_profile;

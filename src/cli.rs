@@ -59,6 +59,9 @@ pub enum Command {
         /// Install as a Homebrew formula
         #[arg(long, conflicts_with_all = ["nix", "cask"])]
         brew: bool,
+        /// Persist in declarative machine configuration and rebuild the system
+        #[arg(long, conflicts_with_all = ["cask", "brew", "lock_only"])]
+        system: bool,
         /// Resolve/write Armory package locks without fetching OCI payloads
         #[arg(long)]
         lock_only: bool,
@@ -67,6 +70,9 @@ pub enum Command {
     },
     /// Remove packages
     Remove {
+        /// Remove from declarative machine configuration and rebuild the system
+        #[arg(long, conflicts_with_all = ["cask", "brew"])]
+        system: bool,
         /// Remove a Homebrew cask
         #[arg(long)]
         cask: bool,

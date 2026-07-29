@@ -78,14 +78,19 @@ release VERSION:
     # 2. Check CHANGELOG has an entry (or add a stub)
     if ! grep -q '## \[{{VERSION}}\]' CHANGELOG.md; then
       DATE=$(date +%Y-%m-%d)
-      # Insert after the header line
-      sed -i '' "/^# Changelog/a\\
-\\
-## [{{VERSION}}] - ${DATE}\\
-\\
-### Changed\\
-- (fill in before publishing)\\
-" CHANGELOG.md
+      # Insert after the header line (portable across GNU/BSD userlands)
+      CHANGELOG_DATE="$DATE" CHANGELOG_VERSION="{{VERSION}}" python3 - <<'PY'
+      from pathlib import Path
+      import os
+
+      path = Path("CHANGELOG.md")
+      content = path.read_text()
+      heading, remainder = content.split("\n", 1)
+      version = os.environ["CHANGELOG_VERSION"]
+      date = os.environ["CHANGELOG_DATE"]
+      entry = f"\n## [{version}] - {date}\n\n### Changed\n- (fill in before publishing)\n"
+      path.write_text(f"{heading}\n{entry}\n{remainder}")
+      PY
       # Add link reference
       sed -i '' "s|\[${CURRENT}\]: https://github.com/styrene-lab/nex/compare/|[{{VERSION}}]: https://github.com/styrene-lab/nex/compare/v${CURRENT}...v{{VERSION}}\n[${CURRENT}]: https://github.com/styrene-lab/nex/compare/|" CHANGELOG.md
       echo "  added CHANGELOG stub for {{VERSION}} — edit before tagging"

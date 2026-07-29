@@ -602,6 +602,23 @@ pub fn nix_flake_update(repo: &Path) -> Result<()> {
     run(nix_command().args(["flake", "update"]).current_dir(repo))
 }
 
+/// Rebuild a named Nix profile from a complete, durable set of installables.
+pub fn nix_profile_reconcile(profile: &Path, installables: &[String]) -> Result<()> {
+    if profile.exists() {
+        run(nix_command()
+            .args(["profile", "wipe-history", "--profile"])
+            .arg(profile))?;
+        let _ = std::fs::remove_file(profile);
+    }
+    if installables.is_empty() {
+        return Ok(());
+    }
+    let mut command = nix_command();
+    command.args(["profile", "add", "--profile"]).arg(profile);
+    command.args(installables);
+    run(&mut command)
+}
+
 /// Run nix shell for an ephemeral package.
 pub fn nix_shell(pkg: &str) -> Result<()> {
     run(nix_command().args(["shell", &format!("nixpkgs#{pkg}")]))

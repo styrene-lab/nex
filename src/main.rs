@@ -54,6 +54,20 @@ fn main() -> Result<()> {
         Command::Capabilities { json } => return ops::capabilities::run(json),
         Command::Init { from } => return ops::init::run(from, cli.dry_run),
         Command::Relocate { ref to } => return ops::relocate::run(to.as_deref(), cli.dry_run),
+        Command::Install {
+            system: false,
+            nix: false,
+            cask: false,
+            brew: false,
+            ref packages,
+            ..
+        } => return ops::user_profile::install(packages, cli.dry_run),
+        Command::Remove {
+            system: false,
+            cask: false,
+            brew: false,
+            ref packages,
+        } => return ops::user_profile::remove(packages, cli.dry_run),
         Command::Search { .. } | Command::Info { .. } => {}
         Command::Lock {
             action: cli::LockAction::Status,
@@ -139,7 +153,12 @@ fn main() -> Result<()> {
                 cli.dry_run,
             );
         }
-        Command::Polymerize { ref bundle } => return ops::polymerize::run(bundle.as_deref()),
+        Command::Polymerize { ref bundle } => {
+            if bundle.is_none() && std::path::Path::new("/run/current-system").exists() {
+                return ops::user_profile::polymerize(cli.dry_run);
+            }
+            return ops::polymerize::run(bundle.as_deref());
+        }
         Command::BuildImage {
             ref source,
             ref name,
@@ -266,6 +285,7 @@ fn main() -> Result<()> {
             nix,
             cask,
             brew,
+            system: _,
             lock_only,
             packages,
         } => {
@@ -281,6 +301,7 @@ fn main() -> Result<()> {
             ops::install::run(&config, mode, &packages, cli.dry_run, lock_only)
         }
         Command::Remove {
+            system: _,
             cask,
             brew,
             packages,

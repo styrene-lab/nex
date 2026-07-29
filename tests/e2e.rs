@@ -1124,14 +1124,40 @@ fn profile_apply_hint_in_help() {
 // ── Install tests ───────────────────────────────────────────────────────────
 
 #[test]
-fn install_nix_adds_to_file() {
+fn install_defaults_to_live_machine_profile() {
+    let sb = Sandbox::new();
+
+    sb.nex()
+        .args(["install", "ripgrep", "--dry-run"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "would record ripgrep in the live machine profile",
+        ));
+}
+
+#[test]
+fn install_system_adds_to_declarative_file() {
     let sb = Sandbox::new().with_config();
 
     sb.nex()
-        .args(["install", "--nix", "ripgrep", "--dry-run"])
+        .args(["install", "--system", "ripgrep", "--dry-run"])
         .assert()
         .success()
         .stderr(predicate::str::contains("would add ripgrep"));
+}
+
+#[test]
+fn remove_defaults_to_live_machine_profile() {
+    let sb = Sandbox::new();
+
+    sb.nex()
+        .args(["remove", "ripgrep", "--dry-run"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "would remove ripgrep from the live machine profile",
+        ));
 }
 
 #[test]
