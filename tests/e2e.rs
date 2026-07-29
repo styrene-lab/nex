@@ -1148,6 +1148,18 @@ fn install_system_adds_to_declarative_file() {
 }
 
 #[test]
+fn install_defaults_to_existing_provider_flow_on_macos() {
+    let sb = Sandbox::new().with_config();
+
+    sb.nex()
+        .env("NEX_TEST_PLATFORM", "darwin")
+        .args(["install", "ripgrep", "--dry-run"])
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("would add ripgrep"));
+}
+
+#[test]
 fn remove_defaults_to_live_machine_profile() {
     let sb = Sandbox::new();
 

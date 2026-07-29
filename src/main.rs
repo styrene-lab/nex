@@ -61,13 +61,17 @@ fn main() -> Result<()> {
             brew: false,
             ref packages,
             ..
-        } => return ops::user_profile::install(packages, cli.dry_run),
+        } if discover::detect_platform() == discover::Platform::Linux => {
+            return ops::user_profile::install(packages, cli.dry_run);
+        }
         Command::Remove {
             system: false,
             cask: false,
             brew: false,
             ref packages,
-        } => return ops::user_profile::remove(packages, cli.dry_run),
+        } if discover::detect_platform() == discover::Platform::Linux => {
+            return ops::user_profile::remove(packages, cli.dry_run);
+        }
         Command::Search { .. } | Command::Info { .. } => {}
         Command::Lock {
             action: cli::LockAction::Status,

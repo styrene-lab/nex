@@ -29,8 +29,8 @@ pub fn install(packages: &[String], dry_run: bool) -> Result<()> {
         ));
         return Ok(());
     }
-    save(&intent)?;
-    reconcile(&intent)
+    reconcile(&intent)?;
+    save(&intent)
 }
 
 pub fn remove(packages: &[String], dry_run: bool) -> Result<()> {
@@ -46,8 +46,8 @@ pub fn remove(packages: &[String], dry_run: bool) -> Result<()> {
         ));
         return Ok(());
     }
-    save(&intent)?;
-    reconcile(&intent)
+    reconcile(&intent)?;
+    save(&intent)
 }
 
 pub fn polymerize(dry_run: bool) -> Result<()> {

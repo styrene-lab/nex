@@ -602,21 +602,33 @@ pub fn nix_flake_update(repo: &Path) -> Result<()> {
     run(nix_command().args(["flake", "update"]).current_dir(repo))
 }
 
-/// Rebuild a named Nix profile from a complete, durable set of installables.
+/// Rebuild a named Nix profile from a complete set of installables, replacing
+/// the active profile only after the new generation has materialized.
 pub fn nix_profile_reconcile(profile: &Path, installables: &[String]) -> Result<()> {
-    if profile.exists() {
-        run(nix_command()
-            .args(["profile", "wipe-history", "--profile"])
-            .arg(profile))?;
-        let _ = std::fs::remove_file(profile);
+    let staging = profile.with_extension(format!("staging-{}", std::process::id()));
+    if staging.exists() {
+        std::fs::remove_file(&staging)?;
     }
+
     if installables.is_empty() {
+        if profile.exists() {
+            std::fs::remove_file(profile)?;
+        }
         return Ok(());
     }
+
     let mut command = nix_command();
-    command.args(["profile", "add", "--profile"]).arg(profile);
-    command.args(installables);
-    run(&mut command)
+    command
+        .args(["profile", "add", "--profile"])
+        .arg(&staging)
+        .args(installables);
+    if let Err(error) = run(&mut command) {
+        let _ = std::fs::remove_file(&staging);
+        return Err(error);
+    }
+
+    std::fs::rename(&staging, profile)?;
+    Ok(())
 }
 
 /// Run nix shell for an ephemeral package.
