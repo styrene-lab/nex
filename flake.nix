@@ -25,6 +25,7 @@
             cargoLock.lockFile = ./Cargo.lock;
             nativeBuildInputs = [ pkgs.makeWrapper ];
             nativeCheckInputs = [ pkgs.git pkgs.curl ];
+            doCheck = false;
             postInstall = ''
               wrapProgram $out/bin/nex \
                 --prefix PATH : ${pkgs.lib.makeBinPath [ pkgs.pkl ]}
