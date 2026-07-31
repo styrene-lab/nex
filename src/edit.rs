@@ -58,19 +58,35 @@ pub fn contains(path: &Path, list: &NixList, pkg: &str) -> Result<bool> {
 
 /// Validate that a package name is safe to insert into a nix file.
 /// Rejects names with characters that could break nix syntax or enable injection.
+///
+/// `@`, `.` and `+` are permitted: Homebrew versioned formulae (`python@3.12`,
+/// `openssl@3`), nixpkgs attribute paths (`python3.12`) and C++ library names
+/// (`libstdc++`) all need them, and none can terminate or escape a Nix string
+/// literal. The characters that matter for injection -- `"`, `\`, `$`, braces,
+/// newlines -- remain rejected.
 fn validate_pkg_name(pkg: &str) -> Result<()> {
     if pkg.is_empty() {
         anyhow::bail!("package name cannot be empty");
     }
     for ch in pkg.chars() {
-        if !(ch.is_ascii_alphanumeric() || ch == '-' || ch == '_') {
+        if !(ch.is_ascii_alphanumeric()
+            || ch == '-'
+            || ch == '_'
+            || ch == '@'
+            || ch == '.'
+            || ch == '+')
+        {
             anyhow::bail!(
                 "invalid character '{}' in package name \"{}\": \
-                 only alphanumeric, hyphen, and underscore are allowed",
+                 only alphanumeric, hyphen, underscore, at-sign, dot, and plus are allowed",
                 ch,
                 pkg
             );
         }
+    }
+    // Defence in depth: never allow a relative path to escape the list.
+    if pkg.contains("..") {
+        anyhow::bail!("invalid package name \"{}\": '..' is not allowed", pkg);
     }
     Ok(())
 }
@@ -294,8 +310,108 @@ impl EditSession {
     }
 }
 
+/// Restore any backup that outlived its session.
+///
+/// Callers do bulk edits with `?`, so the first failing edit returns from the
+/// function and `revert_all` is never reached -- leaving the file partially
+/// written. `nex adopt` hit exactly this: a rejected package name aborted the
+/// loop after 15 of 38 packages were already inserted.
+///
+/// `commit_all` deletes the backups, so a surviving backup at drop time means
+/// the session did not complete. Restoring then is safe and needs no signature
+/// change on `commit_all`.
+impl Drop for EditSession {
+    fn drop(&mut self) {
+        for (original, bp) in &self.backups {
+            if !bp.exists() {
+                continue; // committed
+            }
+            tracing::warn!(
+                path = %original.display(),
+                "edit session dropped without commit — restoring backup"
+            );
+            if let Err(e) = restore(original, bp) {
+                tracing::error!(path = %original.display(), error = %e, "restore failed");
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn versioned_homebrew_formulae_are_valid_package_names() {
+        // Real names from `brew leaves` on a working Mac. Rejecting these made
+        // `nex adopt` abort partway through a 38-package capture.
+        for name in [
+            "python@3.12",
+            "python@3.13",
+            "openssl@3",
+            "node@20",
+            "libstdc++",
+            "python3.12",
+            "bash-completion",
+            "zsh-syntax-highlighting",
+        ] {
+            validate_pkg_name(name).unwrap_or_else(|e| panic!("{name} rejected: {e}"));
+        }
+    }
+
+    #[test]
+    fn nix_injection_vectors_are_still_rejected() {
+        for bad in [
+            "evil\"; x = \"",
+            "a$b",
+            "${builtins.exec}",
+            "a\\b",
+            "a\nb",
+            "a b",
+            "../../etc/passwd",
+            "",
+        ] {
+            assert!(
+                validate_pkg_name(bad).is_err(),
+                "should have rejected {bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn dropped_session_restores_partial_edits() {
+        // A bulk edit that fails midway must not leave the file half-written.
+        let dir = TempDir::new().expect("tempdir");
+        let file = dir.path().join("packages.nix");
+        let original = "{\n  brews = [\n  ];\n}\n";
+        std::fs::write(&file, original).expect("write");
+
+        {
+            let mut session = EditSession::new();
+            session.backup(&file).expect("backup");
+            std::fs::write(&file, "{\n  brews = [\n    \"partial\"\n  ];\n}\n").expect("write");
+            // Dropped without commit_all, as happens when `?` returns early.
+        }
+
+        let after = std::fs::read_to_string(&file).expect("read");
+        assert_eq!(after, original, "partial edit was not rolled back");
+    }
+
+    #[test]
+    fn committed_session_keeps_edits() {
+        let dir = TempDir::new().expect("tempdir");
+        let file = dir.path().join("packages.nix");
+        std::fs::write(&file, "original\n").expect("write");
+        let edited = "edited\n";
+
+        {
+            let mut session = EditSession::new();
+            session.backup(&file).expect("backup");
+            std::fs::write(&file, edited).expect("write");
+            session.commit_all().expect("commit");
+        }
+
+        assert_eq!(std::fs::read_to_string(&file).expect("read"), edited);
+    }
     use super::*;
     use crate::nixfile;
     use tempfile::TempDir;
