@@ -285,7 +285,14 @@ fn check_bootstrap(config: &Config, fix: bool) -> Result<()> {
         ok("darwin bootstrap", "ready");
         return Ok(());
     }
-    bootstrap::print_recommendations(&report, bootstrap::RepairHint::DoctorFixFlag);
+    // Only advise re-running with --fix when --fix was not already given;
+    // otherwise the repair is about to happen and the advice contradicts it.
+    let hint = if fix {
+        bootstrap::RepairHint::PromptFollows
+    } else {
+        bootstrap::RepairHint::DoctorFixFlag
+    };
+    bootstrap::print_recommendations(&report, hint);
     if fix {
         bootstrap::repair(&report)?;
     }

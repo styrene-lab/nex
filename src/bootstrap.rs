@@ -448,6 +448,9 @@ mod tests {
         let init_line = closing_line(RepairHint::PromptFollows);
         assert!(!init_line.contains("nex doctor"));
         assert!(init_line.contains("repair them now"));
+        // Also used by `doctor --fix`, where advising a re-run with --fix
+        // would contradict the repair that is about to happen.
+        assert!(!init_line.contains("--fix"));
 
         // Doctor pointing at doctor is a dead end; name the flag only.
         let doctor_line = closing_line(RepairHint::DoctorFixFlag);
