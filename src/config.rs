@@ -29,6 +29,9 @@ pub struct Config {
     pub nix_packages_file: PathBuf,
     /// Path to the homebrew nix file (relative to repo). None on Linux.
     pub homebrew_file: PathBuf,
+    /// File holding the `brews`/`casks` lists. Differs from `homebrew_file`
+    /// in the scaffolded layout, where bootstrap and package lists are split.
+    pub homebrew_packages_file: PathBuf,
     /// Additional nix module files with home.packages lists.
     pub module_files: Vec<(String, PathBuf)>,
     /// When true, auto-pick nix for equal-version conflicts without prompting.
@@ -146,6 +149,23 @@ impl Config {
             }
         };
 
+        // The scaffold splits Homebrew across two files: homebrew.nix bootstraps
+        // Homebrew itself (nix-homebrew, taps), while the brews/casks lists live
+        // in homebrew-packages.nix. Package edits must target the latter --
+        // homebrew.nix has no `brews = [` for the list editor to find.
+        // Falls back to homebrew_file for flat and pre-split layouts.
+        let homebrew_packages_file = match platform {
+            Platform::Darwin => {
+                let split = repo.join("nix/modules/darwin/homebrew-packages.nix");
+                if split.exists() {
+                    split
+                } else {
+                    homebrew_file.clone()
+                }
+            }
+            Platform::Linux => homebrew_file.clone(),
+        };
+
         // Discover additional module files with home.packages
         let mut module_files = Vec::new();
         let home_modules_dir = repo.join("nix/modules/home");
@@ -183,6 +203,7 @@ impl Config {
             hostname,
             nix_packages_file,
             homebrew_file,
+            homebrew_packages_file,
             module_files,
             prefer_nix_on_equal,
             platform,
@@ -202,7 +223,7 @@ impl Config {
     /// Configured Homebrew formula target, if this profile enables one.
     pub fn homebrew_formula_target(&self) -> Option<&Path> {
         match self.platform {
-            Platform::Darwin => Some(&self.homebrew_file),
+            Platform::Darwin => Some(&self.homebrew_packages_file),
             Platform::Linux => None,
         }
     }
@@ -210,7 +231,7 @@ impl Config {
     /// Configured Homebrew cask target, if this profile enables one.
     pub fn homebrew_cask_target(&self) -> Option<&Path> {
         match self.platform {
-            Platform::Darwin => Some(&self.homebrew_file),
+            Platform::Darwin => Some(&self.homebrew_packages_file),
             Platform::Linux => None,
         }
     }
@@ -547,6 +568,66 @@ fn pkl_literal(value: &toml::Value) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn homebrew_package_targets_follow_the_split_scaffold_layout() {
+        // The scaffold splits Homebrew bootstrap (homebrew.nix) from the
+        // brews/casks lists (homebrew-packages.nix). Package edits that target
+        // homebrew.nix fail with "could not find list opening: brews = [",
+        // which is how adopt broke on a real first run.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let repo = dir.path();
+        let darwin = repo.join("nix/modules/darwin");
+        std::fs::create_dir_all(&darwin).expect("mkdir");
+        std::fs::write(
+            darwin.join("homebrew.nix"),
+            "{ nix-homebrew.enable = true; }\n",
+        )
+        .expect("write");
+        std::fs::write(
+            darwin.join("homebrew-packages.nix"),
+            "{ homebrew.brews = [\n  ];\n}\n",
+        )
+        .expect("write");
+
+        let split = Config {
+            repo: repo.to_path_buf(),
+            hostname: "testhost".to_string(),
+            nix_packages_file: repo.join("nix/modules/darwin/packages.nix"),
+            homebrew_file: darwin.join("homebrew.nix"),
+            homebrew_packages_file: darwin.join("homebrew-packages.nix"),
+            module_files: Vec::new(),
+            prefer_nix_on_equal: false,
+            platform: Platform::Darwin,
+            registries: Vec::new(),
+        };
+
+        // Package edits go to the packages file, never the bootstrap file.
+        assert_eq!(
+            split.homebrew_formula_target(),
+            Some(darwin.join("homebrew-packages.nix").as_path())
+        );
+        assert_eq!(
+            split.homebrew_cask_target(),
+            Some(darwin.join("homebrew-packages.nix").as_path())
+        );
+        assert_ne!(
+            split.homebrew_formula_target(),
+            Some(split.homebrew_file.as_path()),
+            "adopt would write to the bootstrap file, which has no brews list"
+        );
+
+        // Flat/legacy layout: no split file, so both fall back to homebrew.nix
+        // rather than pointing at a path that does not exist.
+        let flat = Config {
+            homebrew_packages_file: darwin.join("homebrew.nix"),
+            ..split
+        };
+        assert_eq!(
+            flat.homebrew_formula_target(),
+            Some(flat.homebrew_file.as_path())
+        );
+    }
     use super::*;
     use std::fs;
 
