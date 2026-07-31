@@ -332,7 +332,6 @@ struct ProfileCosmic {
 }
 
 #[derive(Clone, Default, serde::Deserialize)]
-#[allow(dead_code)]
 struct ProfileSecurity {
     touchid_sudo: Option<bool>,
 }
@@ -2784,14 +2783,74 @@ fn write_system_defaults(config: &Config, macos: &ProfileMacos) -> Result<()> {
 }
 
 /// Apply security settings.
-fn apply_security(_config: &Config, _security: &ProfileSecurity, dry_run: bool) -> Result<()> {
-    if dry_run {
-        output::dry_run("would configure security settings");
+/// Apply security settings to the nix-darwin config.
+///
+/// The scaffold hardcodes `touchIdAuth = true` in darwin/base.nix. That is a
+/// good default but not a declaration: a profile could not turn it off, and a
+/// profile that set `touchid_sudo` got no feedback either way because this
+/// function was a stub.
+fn apply_security(config: &Config, security: &ProfileSecurity, dry_run: bool) -> Result<()> {
+    let Some(want) = security.touchid_sudo else {
+        return Ok(());
+    };
+
+    if config.platform != Platform::Darwin {
+        output::warn("security.touchid_sudo is macOS-only; ignoring on this platform");
         return Ok(());
     }
-    // TouchID sudo is handled by the nix-darwin module (security.nix)
-    // which the scaffold already includes.
+
+    if dry_run {
+        output::dry_run(&format!(
+            "would set security.pam.services.sudo_local.touchIdAuth = {want}"
+        ));
+        return Ok(());
+    }
+
+    let base_nix = config.repo.join("nix/modules/darwin/base.nix");
+    let content = std::fs::read_to_string(&base_nix)
+        .with_context(|| format!("reading {}", base_nix.display()))?;
+
+    let line = format!("  security.pam.services.sudo_local.touchIdAuth = {want};");
+    let patched = replace_or_insert_nix_line(
+        &content,
+        "security.pam.services.sudo_local.touchIdAuth",
+        &line,
+    );
+
+    if patched == content {
+        return Ok(());
+    }
+
+    crate::edit::atomic_write_bytes(&base_nix, patched.as_bytes())?;
+    output::status(&format!("security: TouchID sudo = {want}"));
+    output::warn(
+        "takes effect on the next activation; the first activation still needs a password",
+    );
     Ok(())
+}
+
+/// Replace a single top-level Nix assignment by key, or insert it before the
+/// final closing brace when absent.
+fn replace_or_insert_nix_line(content: &str, key: &str, line: &str) -> String {
+    if let Some(pos) = content.find(key) {
+        let start = content[..pos].rfind('\n').map(|i| i + 1).unwrap_or(0);
+        let end = content[pos..]
+            .find('\n')
+            .map(|i| pos + i + 1)
+            .unwrap_or(content.len());
+        let mut out = content[..start].to_string();
+        out.push_str(line);
+        out.push('\n');
+        out.push_str(&content[end..]);
+        out
+    } else {
+        let insert_pos = content.rfind('}').unwrap_or(content.len());
+        let mut out = content[..insert_pos].to_string();
+        out.push_str(line);
+        out.push('\n');
+        out.push_str(&content[insert_pos..]);
+        out
+    }
 }
 
 /// Apply Linux / NixOS system configuration.
@@ -4315,6 +4374,38 @@ fn replace_or_insert_nix_block(content: &str, opener: &str, block: &str) -> Stri
 
 #[cfg(test)]
 mod launchd_tests {
+
+    #[test]
+    fn touchid_sudo_replaces_the_scaffolded_line_rather_than_duplicating_it() {
+        // The scaffold hardcodes `= true`. A profile setting false must edit
+        // that line, not append a second definition -- two definitions of one
+        // option is a nix module conflict.
+        let scaffolded = "{ pkgs, username, ... }:\n\n{\n  nix.enable = false;\n  security.pam.services.sudo_local.touchIdAuth = true;\n}\n";
+        let out = replace_or_insert_nix_line(
+            scaffolded,
+            "security.pam.services.sudo_local.touchIdAuth",
+            "  security.pam.services.sudo_local.touchIdAuth = false;",
+        );
+        assert_eq!(out.matches("touchIdAuth").count(), 1, "duplicated: {out}");
+        assert!(out.contains("touchIdAuth = false;"));
+        assert!(
+            out.contains("nix.enable = false;"),
+            "clobbered siblings: {out}"
+        );
+    }
+
+    #[test]
+    fn touchid_sudo_inserts_when_absent() {
+        let bare = "{ pkgs, ... }:\n\n{\n  nix.enable = false;\n}\n";
+        let out = replace_or_insert_nix_line(
+            bare,
+            "security.pam.services.sudo_local.touchIdAuth",
+            "  security.pam.services.sudo_local.touchIdAuth = true;",
+        );
+        assert!(out.contains("touchIdAuth = true;"));
+        assert!(out.contains("nix.enable = false;"));
+        assert!(out.trim_end().ends_with("}"), "brace lost: {out}");
+    }
     use super::*;
 
     fn unit(program: &str, scope: &str) -> ProfileLaunchdService {
