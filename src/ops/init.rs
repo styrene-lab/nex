@@ -220,8 +220,11 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
             Platform::Darwin => "darwin-rebuild switch",
             Platform::Linux => "nixos-rebuild switch",
         };
-        output::dry_run(&format!("would run {rebuild_cmd}"));
+        // Report blockers BEFORE the switch line. The real path repairs at
+        // maybe_repair_for_init() and only then activates, so printing the
+        // switch first told the operator the opposite of what happens.
         bootstrap::maybe_repair_for_init(platform, true)?;
+        output::dry_run(&format!("would run {rebuild_cmd}"));
         println!();
         return Ok(());
     }

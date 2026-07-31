@@ -1631,8 +1631,8 @@ fn apply_taps(config: &Config, pkgs: &ProfilePackages, dry_run: bool) -> Result<
     };
 
     // Check if taps are declared in the Homebrew formula target.
-    let content = std::fs::read_to_string(target)
-        .with_context(|| format!("reading {}", target.display()))?;
+    let content =
+        std::fs::read_to_string(target).with_context(|| format!("reading {}", target.display()))?;
 
     // If there's no taps section, we need to add one
     if !content.contains("taps = [") {

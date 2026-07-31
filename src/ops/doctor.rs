@@ -285,7 +285,7 @@ fn check_bootstrap(config: &Config, fix: bool) -> Result<()> {
         ok("darwin bootstrap", "ready");
         return Ok(());
     }
-    bootstrap::print_recommendations(&report);
+    bootstrap::print_recommendations(&report, bootstrap::RepairHint::DoctorFixFlag);
     if fix {
         bootstrap::repair(&report)?;
     }
