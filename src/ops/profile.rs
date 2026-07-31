@@ -86,6 +86,28 @@ struct ProfileCli {
 #[derive(Clone, Default, serde::Deserialize)]
 struct ProfileServices {
     ssh: Option<ProfileSshService>,
+    /// macOS launchd units, keyed by service name. Renders to
+    /// `launchd.daemons.<name>` or `launchd.agents.<name>` in nix-darwin.
+    launchd: Option<BTreeMap<String, ProfileLaunchdService>>,
+}
+
+/// A launchd unit. `scope = "daemon"` runs as root before login and is the
+/// only scope that can serve a machine that has rebooted to a locked login
+/// window; `scope = "agent"` runs inside the user session.
+#[derive(Clone, Default, serde::Deserialize)]
+struct ProfileLaunchdService {
+    enable: Option<bool>,
+    /// launchd Label. Defaults to the table key when omitted.
+    label: Option<String>,
+    scope: Option<String>,
+    program: Option<String>,
+    args: Option<Vec<String>>,
+    run_at_load: Option<bool>,
+    keep_alive: Option<bool>,
+    working_directory: Option<String>,
+    stdout_path: Option<String>,
+    stderr_path: Option<String>,
+    environment: Option<BTreeMap<String, String>>,
 }
 
 #[derive(Clone, Default, serde::Deserialize)]
@@ -701,6 +723,53 @@ impl ProfileServices {
             self.ssh
                 .get_or_insert_with(ProfileSshService::default)
                 .merge_from(ssh);
+        }
+        if let Some(overlay_units) = &overlay.launchd {
+            let units = self.launchd.get_or_insert_with(BTreeMap::new);
+            for (name, unit) in overlay_units {
+                units.entry(name.clone()).or_default().merge_from(unit);
+            }
+        }
+    }
+}
+
+impl ProfileLaunchdService {
+    fn merge_from(&mut self, overlay: &ProfileLaunchdService) {
+        if overlay.enable.is_some() {
+            self.enable = overlay.enable;
+        }
+        if overlay.label.is_some() {
+            self.label = overlay.label.clone();
+        }
+        if overlay.scope.is_some() {
+            self.scope = overlay.scope.clone();
+        }
+        if overlay.program.is_some() {
+            self.program = overlay.program.clone();
+        }
+        if overlay.args.is_some() {
+            self.args = overlay.args.clone();
+        }
+        if overlay.run_at_load.is_some() {
+            self.run_at_load = overlay.run_at_load;
+        }
+        if overlay.keep_alive.is_some() {
+            self.keep_alive = overlay.keep_alive;
+        }
+        if overlay.working_directory.is_some() {
+            self.working_directory = overlay.working_directory.clone();
+        }
+        if overlay.stdout_path.is_some() {
+            self.stdout_path = overlay.stdout_path.clone();
+        }
+        if overlay.stderr_path.is_some() {
+            self.stderr_path = overlay.stderr_path.clone();
+        }
+        if let Some(env) = &overlay.environment {
+            let merged = self.environment.get_or_insert_with(BTreeMap::new);
+            for (k, v) in env {
+                merged.insert(k.clone(), v.clone());
+            }
         }
     }
 }
@@ -1376,6 +1445,11 @@ pub fn run(config: &Config, repo_ref: &str, verify: bool, dry_run: bool) -> Resu
     if config.platform == Platform::Darwin {
         if let Some(ref macos) = merged.macos {
             apply_macos(config, macos, dry_run)?;
+        }
+        // launchd units are independent of `[macos]` defaults — a profile may
+        // declare services without touching a single defaults(1) key.
+        if let Some(ref units) = merged.services.launchd {
+            apply_launchd(config, units, dry_run)?;
         }
     }
 
@@ -4026,4 +4100,342 @@ fn chrono_now() -> String {
         .and_then(|o| String::from_utf8(o.stdout).ok())
         .map(|s| s.trim().to_string())
         .unwrap_or_else(|| "unknown".to_string())
+}
+
+/// Escape a string for a Nix double-quoted literal.
+fn nix_str(value: &str) -> String {
+    let escaped = value
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('$', "\\$")
+        .replace('\n', "\\n");
+    format!("\"{escaped}\"")
+}
+
+/// Render `launchd.daemons.*` / `launchd.agents.*` for nix-darwin.
+///
+/// A daemon runs as root before login and is the only scope that can serve a
+/// machine that has rebooted to a locked login window. An agent runs inside
+/// the user session and dies with it.
+fn render_launchd_block(units: &BTreeMap<String, ProfileLaunchdService>) -> Option<String> {
+    let mut lines: Vec<String> = Vec::new();
+
+    for (name, unit) in units {
+        if !unit.enable.unwrap_or(true) {
+            continue;
+        }
+        let Some(program) = unit.program.as_ref() else {
+            crate::output::warn(&format!(
+                "services.launchd.{name} has no `program`; skipping (nothing to run)"
+            ));
+            continue;
+        };
+
+        let scope = unit.scope.as_deref().unwrap_or("daemon");
+        let attr = match scope {
+            "daemon" => "daemons",
+            "agent" => "agents",
+            other => {
+                crate::output::warn(&format!(
+                    "services.launchd.{name} has unknown scope {other:?}; expected \"daemon\" or \"agent\" — skipping"
+                ));
+                continue;
+            }
+        };
+
+        let label = unit.label.clone().unwrap_or_else(|| name.clone());
+        let mut argv = vec![program.clone()];
+        if let Some(args) = &unit.args {
+            argv.extend(args.iter().cloned());
+        }
+        let argv_str = argv
+            .iter()
+            .map(|a| nix_str(a))
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        lines.push(format!("    {name} = {{"));
+        lines.push("      serviceConfig = {".to_string());
+        lines.push(format!("        Label = {};", nix_str(&label)));
+        lines.push(format!("        ProgramArguments = [ {argv_str} ];"));
+        lines.push(format!(
+            "        RunAtLoad = {};",
+            unit.run_at_load.unwrap_or(true)
+        ));
+        lines.push(format!(
+            "        KeepAlive = {};",
+            unit.keep_alive.unwrap_or(true)
+        ));
+        if let Some(wd) = &unit.working_directory {
+            lines.push(format!("        WorkingDirectory = {};", nix_str(wd)));
+        }
+        if let Some(p) = &unit.stdout_path {
+            lines.push(format!("        StandardOutPath = {};", nix_str(p)));
+        }
+        if let Some(p) = &unit.stderr_path {
+            lines.push(format!("        StandardErrorPath = {};", nix_str(p)));
+        }
+        if let Some(env) = &unit.environment {
+            if !env.is_empty() {
+                lines.push("        EnvironmentVariables = {".to_string());
+                for (k, v) in env {
+                    lines.push(format!("          {k} = {};", nix_str(v)));
+                }
+                lines.push("        };".to_string());
+            }
+        }
+        lines.push("      };".to_string());
+        lines.push("    };".to_string());
+
+        // Group by scope on a second pass below; tag the block for splitting.
+        lines.push(format!("@@SCOPE:{attr}@@"));
+    }
+
+    if lines.is_empty() {
+        return None;
+    }
+
+    // Split accumulated unit blocks by scope tag.
+    let mut daemons: Vec<String> = Vec::new();
+    let mut agents: Vec<String> = Vec::new();
+    let mut current: Vec<String> = Vec::new();
+    for line in lines {
+        if let Some(scope) = line
+            .strip_prefix("@@SCOPE:")
+            .and_then(|s| s.strip_suffix("@@"))
+        {
+            if scope == "daemons" {
+                daemons.append(&mut current);
+            } else {
+                agents.append(&mut current);
+            }
+            current.clear();
+        } else {
+            current.push(line);
+        }
+    }
+
+    let mut out: Vec<String> = vec!["  launchd = {".to_string()];
+    if !daemons.is_empty() {
+        out.push("    daemons = {".to_string());
+        out.extend(daemons.iter().map(|l| format!("  {l}")));
+        out.push("    };".to_string());
+    }
+    if !agents.is_empty() {
+        out.push("    agents = {".to_string());
+        out.extend(agents.iter().map(|l| format!("  {l}")));
+        out.push("    };".to_string());
+    }
+    out.push("  };".to_string());
+    Some(out.join("\n"))
+}
+
+/// Write a `launchd` block into darwin/base.nix for nix-darwin.
+fn apply_launchd(
+    config: &Config,
+    units: &BTreeMap<String, ProfileLaunchdService>,
+    dry_run: bool,
+) -> Result<()> {
+    let Some(block) = render_launchd_block(units) else {
+        return Ok(());
+    };
+
+    let names: Vec<&str> = units
+        .iter()
+        .filter(|(_, u)| u.enable.unwrap_or(true) && u.program.is_some())
+        .map(|(n, _)| n.as_str())
+        .collect();
+
+    if dry_run {
+        crate::output::dry_run(&format!(
+            "would declare {} launchd unit(s): {}",
+            names.len(),
+            names.join(", ")
+        ));
+        return Ok(());
+    }
+
+    let base_nix = config.repo.join("nix/modules/darwin/base.nix");
+    let content = std::fs::read_to_string(&base_nix)
+        .with_context(|| format!("reading {}", base_nix.display()))?;
+
+    let patched = replace_or_insert_nix_block(&content, "  launchd = {", &format!("\n{block}\n"));
+    crate::edit::atomic_write_bytes(&base_nix, patched.as_bytes())?;
+    crate::output::status(&format!(
+        "launchd: {} unit(s) declared: {}",
+        names.len(),
+        names.join(", ")
+    ));
+    Ok(())
+}
+
+/// Replace an existing top-level Nix attribute block, or append it before the
+/// final closing brace. Brace-depth aware so nested attrsets do not truncate
+/// the block early.
+fn replace_or_insert_nix_block(content: &str, opener: &str, block: &str) -> String {
+    if let Some(start) = content.find(opener) {
+        let after = &content[start..];
+        let mut depth: i32 = 0;
+        let mut end = content.len();
+        for (i, c) in after.char_indices() {
+            match c {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        let mut stop = start + i + 1;
+                        if content[stop..].starts_with(';') {
+                            stop += 1;
+                        }
+                        if content[stop..].starts_with('\n') {
+                            stop += 1;
+                        }
+                        end = stop;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut out = content[..start].to_string();
+        out.push_str(block.trim_start_matches('\n'));
+        out.push_str(&content[end..]);
+        out
+    } else {
+        let insert_pos = content.rfind('}').unwrap_or(content.len());
+        let mut out = content[..insert_pos].to_string();
+        out.push_str(block);
+        out.push('}');
+        if content.ends_with('\n') {
+            out.push('\n');
+        }
+        out
+    }
+}
+
+#[cfg(test)]
+mod launchd_tests {
+    use super::*;
+
+    fn unit(program: &str, scope: &str) -> ProfileLaunchdService {
+        ProfileLaunchdService {
+            enable: Some(true),
+            program: Some(program.to_string()),
+            scope: Some(scope.to_string()),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn daemon_and_agent_render_into_separate_attrsets() {
+        // A daemon runs as root before login; an agent dies with the user
+        // session. Conflating them means a machine that reboots to a locked
+        // login window is unreachable -- the exact failure this surface exists
+        // to prevent.
+        let mut units = BTreeMap::new();
+        units.insert(
+            "rustdesk".to_string(),
+            unit("/usr/local/bin/rustdesk", "daemon"),
+        );
+        units.insert(
+            "syncthing".to_string(),
+            unit("/usr/local/bin/syncthing", "agent"),
+        );
+
+        let out = render_launchd_block(&units).expect("block");
+        assert!(out.contains("daemons = {"));
+        assert!(out.contains("agents = {"));
+
+        let daemons_at = out.find("daemons = {").expect("daemons attrset");
+        let agents_at = out.find("agents = {").expect("agents attrset");
+        let rustdesk_at = out.find("rustdesk = {").expect("rustdesk unit");
+        let syncthing_at = out.find("syncthing = {").expect("syncthing unit");
+        assert!(daemons_at < rustdesk_at && rustdesk_at < agents_at);
+        assert!(syncthing_at > agents_at);
+    }
+
+    #[test]
+    fn unknown_scope_is_skipped_not_silently_downgraded() {
+        // Silently treating an unknown scope as "agent" would produce a unit
+        // that looks installed but cannot serve a locked machine.
+        let mut units = BTreeMap::new();
+        units.insert("bad".to_string(), unit("/bin/true", "systemd"));
+        assert!(render_launchd_block(&units).is_none());
+    }
+
+    #[test]
+    fn unit_without_program_is_skipped() {
+        let mut units = BTreeMap::new();
+        units.insert(
+            "empty".to_string(),
+            ProfileLaunchdService {
+                enable: Some(true),
+                ..Default::default()
+            },
+        );
+        assert!(render_launchd_block(&units).is_none());
+    }
+
+    #[test]
+    fn disabled_unit_is_not_rendered() {
+        let mut units = BTreeMap::new();
+        let mut u = unit("/bin/true", "daemon");
+        u.enable = Some(false);
+        units.insert("off".to_string(), u);
+        assert!(render_launchd_block(&units).is_none());
+    }
+
+    #[test]
+    fn profile_values_cannot_inject_nix_expressions() {
+        // Profiles are fetched from GitHub. An unescaped `"` or `${...}` in a
+        // program path would let a profile author execute arbitrary Nix at
+        // build time, as root, via a LaunchDaemon.
+        let mut units = BTreeMap::new();
+        let mut u = unit("/bin/sh", "daemon");
+        u.args = Some(vec![
+            "\"; evil = ${builtins.exec [\"sh\"]}; x = \"".to_string()
+        ]);
+        u.label = Some("a\"b".to_string());
+        units.insert("inject".to_string(), u);
+
+        let out = render_launchd_block(&units).expect("block");
+        // Every `${` must be preceded by a backslash, or Nix interpolates it.
+        for (i, _) in out.match_indices("${") {
+            assert!(
+                i > 0 && out.as_bytes()[i - 1] == b'\\',
+                "unescaped interpolation at {i}: {out}"
+            );
+        }
+        // The injected quote must not terminate the Nix string early.
+        assert!(
+            out.contains("Label = \"a\\\"b\";"),
+            "quote not escaped: {out}"
+        );
+    }
+
+    #[test]
+    fn defaults_favour_an_always_available_daemon() {
+        let mut units = BTreeMap::new();
+        units.insert("svc".to_string(), unit("/bin/true", "daemon"));
+        let out = render_launchd_block(&units).expect("block");
+        assert!(out.contains("RunAtLoad = true;"));
+        assert!(out.contains("KeepAlive = true;"));
+        assert!(out.contains("Label = \"svc\";"));
+    }
+
+    #[test]
+    fn block_replacement_is_brace_depth_aware() {
+        let existing = "{\n  launchd = {\n    daemons = {\n      a = { x = 1; };\n    };\n  };\n  other = true;\n}\n";
+        let out = replace_or_insert_nix_block(
+            existing,
+            "  launchd = {",
+            "\n  launchd = {\n    NEW = true;\n  };\n",
+        );
+        assert!(out.contains("NEW = true;"));
+        assert!(
+            out.contains("other = true;"),
+            "nested braces truncated the tail: {out}"
+        );
+        assert!(!out.contains("a = { x = 1; };"));
+    }
 }
