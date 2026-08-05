@@ -1,3 +1,4 @@
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -2742,6 +2743,68 @@ fn chrono_now() -> String {
 mod tests {
     use super::*;
 
+    #[test]
+    fn resolve_flash_image_accepts_one_nested_zstd_image() {
+        let dir = tempfile::tempdir().unwrap();
+        let nested = dir.path().join("sd-image");
+        std::fs::create_dir(&nested).unwrap();
+        let image = nested.join("network-core.img.zst");
+        std::fs::write(&image, b"image").unwrap();
+
+        assert_eq!(
+            resolve_flash_image(dir.path()).unwrap(),
+            image.canonicalize().unwrap()
+        );
+    }
+
+    #[test]
+    fn resolve_flash_image_rejects_ambiguous_output() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.img"), b"a").unwrap();
+        std::fs::write(dir.path().join("b.img.gz"), b"b").unwrap();
+
+        let error = resolve_flash_image(dir.path()).unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("expected exactly one flashable image"));
+    }
+
+    #[test]
+    fn compressed_image_readers_restore_original_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let bytes = b"nixos-rpi-image".repeat(256);
+
+        let gzip = dir.path().join("image.img.gz");
+        {
+            let file = std::fs::File::create(&gzip).unwrap();
+            let mut encoder = flate2::write::GzEncoder::new(file, flate2::Compression::default());
+            encoder.write_all(&bytes).unwrap();
+            encoder.finish().unwrap();
+        }
+        let zstd = dir.path().join("image.img.zst");
+        std::fs::write(
+            &zstd,
+            zstd::stream::encode_all(bytes.as_slice(), 1).unwrap(),
+        )
+        .unwrap();
+
+        for image in [&gzip, &zstd] {
+            let mut restored = Vec::new();
+            open_image_reader(image)
+                .unwrap()
+                .read_to_end(&mut restored)
+                .unwrap();
+            assert_eq!(restored, bytes);
+            assert_eq!(decompressed_image_size(image).unwrap(), bytes.len() as u64);
+        }
+    }
+
+    #[test]
+    fn plist_integer_extracts_disk_size() {
+        let plist = "<key>Size</key>\n<integer>64000000000</integer>";
+        assert_eq!(plist_integer(plist, "Size"), Some(64_000_000_000));
+    }
+
     fn write_minimal_elf(path: &Path, machine: u16) {
         let mut bytes = vec![0u8; 64];
         bytes[0..4].copy_from_slice(b"\x7fELF");
@@ -3469,6 +3532,270 @@ pub fn run_build_module(source: &Path, name: &str, output: &Path) -> Result<()> 
     export.write(&payload)?;
     println!("nixosModule exported: {}", output.display());
     Ok(())
+}
+
+pub fn run_flash_image(
+    image: &Path,
+    disk: &str,
+    attest_disk: &str,
+    execute: bool,
+    receipt: Option<&Path>,
+    dry_run: bool,
+) -> Result<()> {
+    if disk != attest_disk {
+        bail!("disk attestation mismatch: --disk and --attest-disk must be identical");
+    }
+    if !disk.starts_with("/dev/") || disk.contains(char::is_whitespace) {
+        bail!("target must be a whole-disk /dev path");
+    }
+
+    let image = resolve_flash_image(image)?;
+    let image_bytes = decompressed_image_size(&image)?;
+    attest_removable_disk(disk, image_bytes)?;
+
+    println!("flash image: {}", image.display());
+    println!("target disk: {disk}");
+    println!("write size: {image_bytes} bytes");
+
+    if dry_run || !execute {
+        output::dry_run("validated image and removable target; no data written");
+        if !execute {
+            println!("re-run with --yes to erase and flash {disk}");
+        }
+        return Ok(());
+    }
+
+    unmount_flash_target(disk)?;
+    let raw_disk = raw_disk_path(disk);
+    let mut source = open_image_reader(&image)?;
+    let mut target = std::fs::OpenOptions::new()
+        .write(true)
+        .open(&raw_disk)
+        .with_context(|| format!("opening target disk {raw_disk}"))?;
+    let written = std::io::copy(&mut source, &mut target)
+        .with_context(|| format!("writing image to {disk}"))?;
+    target.flush().context("flushing target disk")?;
+    target.sync_all().context("syncing target disk")?;
+    if written != image_bytes {
+        bail!("short image write: expected {image_bytes} bytes, wrote {written}");
+    }
+
+    verify_flash_prefix(&image, &raw_disk, written)?;
+    eject_flash_target(disk);
+
+    let value = serde_json::json!({
+        "schema_version": 1,
+        "operation": "flash-image",
+        "image": image,
+        "disk": disk,
+        "bytes_written": written,
+        "verification": "sha256-full-written-range",
+        "completed_at": chrono_now(),
+    });
+    let rendered = serde_json::to_string_pretty(&value)?;
+    if let Some(path) = receipt {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(path, format!("{rendered}\n"))?;
+    }
+    println!("{rendered}");
+    Ok(())
+}
+
+fn resolve_flash_image(path: &Path) -> Result<PathBuf> {
+    if path.is_file() {
+        validate_flash_image_extension(path)?;
+        return path
+            .canonicalize()
+            .with_context(|| format!("resolving image {}", path.display()));
+    }
+    if !path.is_dir() {
+        bail!("image path does not exist: {}", path.display());
+    }
+    let mut matches = Vec::new();
+    collect_flash_images(path, &mut matches)?;
+    match matches.len() {
+        0 => bail!(
+            "no .img, .img.zst, or .img.gz found under {}",
+            path.display()
+        ),
+        1 => matches.remove(0).canonicalize().context("resolving image"),
+        count => bail!(
+            "expected exactly one flashable image under {}, found {count}",
+            path.display()
+        ),
+    }
+}
+
+fn collect_flash_images(path: &Path, matches: &mut Vec<PathBuf>) -> Result<()> {
+    for entry in std::fs::read_dir(path).with_context(|| format!("reading {}", path.display()))? {
+        let entry = entry?;
+        let file_type = entry.file_type()?;
+        if file_type.is_symlink() {
+            continue;
+        }
+        if file_type.is_dir() {
+            collect_flash_images(&entry.path(), matches)?;
+        } else if is_flash_image(&entry.path()) {
+            matches.push(entry.path());
+        }
+    }
+    Ok(())
+}
+
+fn is_flash_image(path: &Path) -> bool {
+    let name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("");
+    name.ends_with(".img") || name.ends_with(".img.zst") || name.ends_with(".img.gz")
+}
+
+fn validate_flash_image_extension(path: &Path) -> Result<()> {
+    if !is_flash_image(path) {
+        bail!(
+            "unsupported image {}; expected .img, .img.zst, or .img.gz",
+            path.display()
+        );
+    }
+    Ok(())
+}
+
+fn open_image_reader(path: &Path) -> Result<Box<dyn Read>> {
+    let file = std::fs::File::open(path).with_context(|| format!("opening {}", path.display()))?;
+    let name = path.to_string_lossy();
+    if name.ends_with(".zst") {
+        Ok(Box::new(
+            zstd::stream::read::Decoder::new(file).context("opening zstd image")?,
+        ))
+    } else if name.ends_with(".gz") {
+        Ok(Box::new(flate2::read::GzDecoder::new(file)))
+    } else {
+        Ok(Box::new(file))
+    }
+}
+
+fn decompressed_image_size(path: &Path) -> Result<u64> {
+    let mut reader = open_image_reader(path)?;
+    let mut sink = std::io::sink();
+    std::io::copy(&mut reader, &mut sink).context("validating and sizing image stream")
+}
+
+fn attest_removable_disk(disk: &str, image_bytes: u64) -> Result<()> {
+    let is_macos = crate::discover::detect_platform() == crate::discover::Platform::Darwin;
+    if is_macos {
+        let output = Command::new("diskutil")
+            .args(["info", "-plist", disk])
+            .output()?;
+        if !output.status.success() {
+            bail!("diskutil could not inspect {disk}");
+        }
+        let info = crate::exec::captured_text(&output.stdout);
+        if !info.contains("<key>Whole</key>\n\t<true/>")
+            || !(info.contains("<key>RemovableMedia</key>\n\t<true/>")
+                || info.contains("<key>Internal</key>\n\t<false/>"))
+        {
+            bail!("{disk} is not attested as a removable/external whole disk");
+        }
+        let size = plist_integer(&info, "Size").context("diskutil did not report target size")?;
+        if size < image_bytes {
+            bail!("target disk is too small: {size} bytes < {image_bytes} image bytes");
+        }
+    } else {
+        let name = Path::new(disk)
+            .file_name()
+            .and_then(|v| v.to_str())
+            .unwrap_or("");
+        if name.is_empty() || name.chars().any(|c| c.is_ascii_whitespace()) {
+            bail!("invalid target disk path");
+        }
+        let removable =
+            std::fs::read_to_string(format!("/sys/block/{name}/removable")).unwrap_or_default();
+        let transport = std::fs::read_to_string(format!("/sys/block/{name}/device/transport"))
+            .unwrap_or_default();
+        if removable.trim() != "1" && !transport.trim().contains("usb") {
+            bail!("{disk} is not attested as removable or USB media");
+        }
+        let sectors: u64 = std::fs::read_to_string(format!("/sys/block/{name}/size"))?
+            .trim()
+            .parse()
+            .context("parsing target disk size")?;
+        if sectors.saturating_mul(512) < image_bytes {
+            bail!("target disk is too small for the image");
+        }
+    }
+    Ok(())
+}
+
+fn plist_integer(plist: &str, key: &str) -> Option<u64> {
+    let marker = format!("<key>{key}</key>");
+    let tail = plist.split_once(&marker)?.1;
+    let value = tail.split_once("<integer>")?.1.split_once("</integer>")?.0;
+    value.trim().parse().ok()
+}
+
+fn unmount_flash_target(disk: &str) -> Result<()> {
+    if crate::discover::detect_platform() == crate::discover::Platform::Darwin {
+        let status = Command::new("diskutil")
+            .args(["unmountDisk", disk])
+            .status()?;
+        if !status.success() {
+            bail!("failed to unmount {disk}");
+        }
+    } else {
+        let output = Command::new("lsblk")
+            .args(["-ln", "-o", "PATH", disk])
+            .output()?;
+        let mut partitions: Vec<_> = crate::exec::captured_text(&output.stdout)
+            .lines()
+            .skip(1)
+            .map(str::to_string)
+            .collect();
+        partitions.reverse();
+        for partition in partitions {
+            let _ = Command::new("umount").arg(&partition).status();
+        }
+    }
+    Ok(())
+}
+
+fn raw_disk_path(disk: &str) -> String {
+    if crate::discover::detect_platform() == crate::discover::Platform::Darwin {
+        disk.replacen("/dev/disk", "/dev/rdisk", 1)
+    } else {
+        disk.to_string()
+    }
+}
+
+fn verify_flash_prefix(image: &Path, disk: &str, bytes: u64) -> Result<()> {
+    use sha2::{Digest, Sha256};
+    let mut source = open_image_reader(image)?;
+    let mut target =
+        std::fs::File::open(disk).with_context(|| format!("opening {disk} for verification"))?;
+    let mut source_hash = Sha256::new();
+    let mut target_hash = Sha256::new();
+    let mut source_buf = [0u8; 1024 * 1024];
+    let mut target_buf = [0u8; 1024 * 1024];
+    let mut remaining = bytes;
+    while remaining > 0 {
+        let take = remaining.min(source_buf.len() as u64) as usize;
+        source.read_exact(&mut source_buf[..take])?;
+        target.read_exact(&mut target_buf[..take])?;
+        source_hash.update(&source_buf[..take]);
+        target_hash.update(&target_buf[..take]);
+        remaining -= take as u64;
+    }
+    if source_hash.finalize() != target_hash.finalize() {
+        bail!("post-write SHA-256 verification failed");
+    }
+    Ok(())
+}
+
+fn eject_flash_target(disk: &str) {
+    if crate::discover::detect_platform() == crate::discover::Platform::Darwin {
+        let _ = Command::new("diskutil").args(["eject", disk]).status();
+    }
 }
 
 pub fn run_build_materialization(

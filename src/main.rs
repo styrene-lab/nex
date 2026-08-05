@@ -108,6 +108,20 @@ fn main() -> Result<()> {
                         name,
                         output,
                     } => ops::forge::run_build_module(source, name, output),
+                    cli::ForgeAction::FlashImage {
+                        image,
+                        disk,
+                        attest_disk,
+                        yes,
+                        receipt,
+                    } => ops::forge::run_flash_image(
+                        image,
+                        disk,
+                        attest_disk,
+                        *yes,
+                        receipt.as_deref(),
+                        cli.dry_run,
+                    ),
                     cli::ForgeAction::BuildMaterialization {
                         source,
                         hostname,

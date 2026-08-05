@@ -360,6 +360,28 @@ pub enum ForgeAction {
         #[arg(long, short)]
         output: PathBuf,
     },
+    /// Flash an existing NixOS SD/raw image to removable media
+    FlashImage {
+        /// Image file or Nix build output containing exactly one .img, .img.zst, or .img.gz
+        #[arg(value_name = "IMAGE")]
+        image: PathBuf,
+
+        /// Whole-disk target (for example /dev/disk4 or /dev/sdb)
+        #[arg(long)]
+        disk: String,
+
+        /// Repeat the exact whole-disk target as destructive-action attestation
+        #[arg(long)]
+        attest_disk: String,
+
+        /// Execute the destructive write; without this flag the command stops after validation
+        #[arg(long)]
+        yes: bool,
+
+        /// Optional path for the JSON flash receipt
+        #[arg(long)]
+        receipt: Option<PathBuf>,
+    },
     /// Build a deterministic materialization output after validation
     BuildMaterialization {
         /// Canonical Pkl materialization source; TOML is compatibility/interchange
