@@ -184,6 +184,33 @@ fn check_darwin_bootstrap_at(etc: &Path) -> Result<BootstrapReport> {
 
     add_synthetic_conf_findings(&etc.join("synthetic.conf"), &mut findings)?;
 
+    // nix-darwin also refuses to overwrite these. init.rs moves them aside on
+    // the fresh-scaffold path, but the preflight did not check them, so
+    // `nex doctor --fix darwin-bootstrap` reported "ready" and activation then
+    // aborted with "Unexpected files in /etc". Any file nix-darwin will refuse
+    // to clobber has to be visible here, not just on one init branch.
+    for rel in ["shells", "nix/nix.conf"] {
+        let path = etc.join(rel);
+        if !path.exists() {
+            continue;
+        }
+        let backup = next_backup_path(&path, "before-nix-darwin");
+        if backup.exists() {
+            continue; // already moved aside
+        }
+        findings.push(BootstrapFinding {
+            id: "darwin.etc.unmanaged",
+            message: format!(
+                "{} exists and will block nix-darwin activation",
+                path.display()
+            ),
+            repair: Some(BootstrapRepair {
+                description: format!("move {} to {}", path.display(), backup.display()),
+                kind: BootstrapRepairKind::MoveShellRc { from: path },
+            }),
+        });
+    }
+
     Ok(BootstrapReport {
         scope: BootstrapScope::DarwinBootstrap,
         findings,
@@ -437,6 +464,44 @@ mod tests {
                 "bare token would render as an unusable line: {line}"
             );
         }
+    }
+
+    #[test]
+    fn preflight_catches_every_etc_file_nix_darwin_refuses_to_clobber() {
+        // doctor --fix reported "darwin bootstrap: ready" and activation then
+        // died with "Unexpected files in /etc: /etc/shells". init.rs moved
+        // that file aside on one branch, so the knowledge existed but was not
+        // in the preflight.
+        let dir = tempdir().expect("tempdir");
+        let etc = dir.path();
+        fs::create_dir_all(etc.join("nix")).expect("mkdir");
+        fs::write(etc.join("shells"), "/bin/zsh\n").expect("write");
+        fs::write(etc.join("nix/nix.conf"), "max-jobs = 4\n").expect("write");
+
+        let report = check_darwin_bootstrap_at(etc).expect("check");
+        let msgs: Vec<&str> = report.findings.iter().map(|f| f.message.as_str()).collect();
+        assert!(
+            msgs.iter().any(|m| m.contains("shells")),
+            "missed /etc/shells: {msgs:?}"
+        );
+        assert!(
+            msgs.iter().any(|m| m.contains("nix.conf")),
+            "missed /etc/nix/nix.conf: {msgs:?}"
+        );
+    }
+
+    #[test]
+    fn already_moved_etc_files_are_not_reported_again() {
+        let dir = tempdir().expect("tempdir");
+        let etc = dir.path();
+        fs::write(etc.join("shells"), "/bin/zsh\n").expect("write");
+        fs::write(etc.join("shells.before-nix-darwin"), "old\n").expect("write");
+
+        let report = check_darwin_bootstrap_at(etc).expect("check");
+        assert!(
+            !report.findings.iter().any(|f| f.message.contains("shells")),
+            "re-reported an already-backed-up file"
+        );
     }
 
     #[test]
