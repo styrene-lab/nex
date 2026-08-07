@@ -277,6 +277,15 @@ fn test_mode() -> bool {
     std::env::var_os("NEX_TESTING").is_some()
 }
 
+fn bootstrap_darwin_rebuild_error() -> anyhow::Error {
+    anyhow::anyhow!(
+        "darwin-rebuild not found and could not be bootstrapped from the flake.\n\
+         hint: from your config repo run\n  \
+         nix build .#darwinConfigurations.<hostname>.system\n  \
+         sudo ./result/sw/bin/darwin-rebuild switch --flake .#<hostname>"
+    )
+}
+
 /// Resolve the absolute path to darwin-rebuild so sudo can find it.
 /// Checks well-known locations first to prevent PATH-based binary injection.
 /// Resolve darwin-rebuild, building it from the flake if nix-darwin has never
@@ -329,12 +338,7 @@ fn find_darwin_rebuild_in(repo: Option<&Path>, hostname: Option<&str>) -> Result
         }
     }
 
-    bail!(
-        "darwin-rebuild not found and could not be bootstrapped from the flake.\n\
-         hint: from your config repo run\n  \
-         nix build .#darwinConfigurations.<hostname>.system\n  \
-         sudo ./result/sw/bin/darwin-rebuild switch --flake .#<hostname>"
-    )
+    Err(bootstrap_darwin_rebuild_error())
 }
 
 /// Resolve the absolute path to nixos-rebuild.
@@ -632,7 +636,7 @@ pub fn nix_gc() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::find_darwin_rebuild_in;
+    use super::{bootstrap_darwin_rebuild_error, rebuild_experimental_args};
 
     #[test]
     fn bootstrap_error_names_a_command_that_works_before_activation() {
@@ -641,11 +645,7 @@ mod tests {
         // says to run switch, while switch says to run init. Neither ever
         // performs the first activation. The error must name commands that
         // work with no darwin-rebuild on the system.
-        let dir = tempfile::tempdir().expect("tempdir");
-        // No flake.nix, so the bootstrap build path is skipped and we get the
-        // terminal error rather than a real nix invocation.
-        let err = find_darwin_rebuild_in(Some(dir.path()), Some("somehost"))
-            .expect_err("should fail without flake.nix");
+        let err = bootstrap_darwin_rebuild_error();
         let msg = err.to_string();
         assert!(
             !msg.contains("nex init"),
@@ -657,7 +657,6 @@ mod tests {
             "missing bootstrap activation path: {msg}"
         );
     }
-    use super::rebuild_experimental_args;
 
     #[test]
     fn darwin_rebuild_uses_supported_experimental_feature_option() {

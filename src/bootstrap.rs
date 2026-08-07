@@ -491,7 +491,20 @@ mod tests {
     }
 
     #[test]
-    fn already_moved_etc_files_are_not_reported_again() {
+    fn moved_etc_files_are_not_reported_again() {
+        let dir = tempdir().expect("tempdir");
+        let etc = dir.path();
+        fs::write(etc.join("shells.before-nix-darwin"), "old\n").expect("write");
+
+        let report = check_darwin_bootstrap_at(etc).expect("check");
+        assert!(
+            !report.findings.iter().any(|f| f.message.contains("shells")),
+            "reported a source file that has already been moved away"
+        );
+    }
+
+    #[test]
+    fn recreated_etc_file_is_reported_even_when_an_older_backup_exists() {
         let dir = tempdir().expect("tempdir");
         let etc = dir.path();
         fs::write(etc.join("shells"), "/bin/zsh\n").expect("write");
@@ -499,8 +512,8 @@ mod tests {
 
         let report = check_darwin_bootstrap_at(etc).expect("check");
         assert!(
-            !report.findings.iter().any(|f| f.message.contains("shells")),
-            "re-reported an already-backed-up file"
+            report.findings.iter().any(|f| f.message.contains("shells")),
+            "a recreated blocker must be moved to the next available backup path"
         );
     }
 

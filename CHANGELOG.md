@@ -4,6 +4,19 @@ All notable changes to nex are documented here. Format follows [Keep a Changelog
 
 ## [Unreleased]
 
+## [0.26.1] - 2026-08-05
+
+### Added
+- Add declarative macOS launchd agents and daemons through `[services.launchd.<name>]` profile entries.
+- Apply `security.touchid_sudo` to the generated nix-darwin configuration instead of treating it as an inert schema field.
+
+### Fixed
+- Make first-run macOS bootstrap diagnostics actionable and detect unmanaged `/etc/shells` and `/etc/nix/nix.conf` files before nix-darwin activation.
+- Keep `nex adopt` from writing discovered packages into a temporary bootstrap profile, and stop initialization cleanly after failed activation.
+- Allow the initial switch to use a freshly built `darwin-rebuild`, breaking the initialization deadlock on never-activated Macs.
+- Accept versioned Homebrew formula names such as `python@3.12` and roll back partial configuration edits when validation fails.
+- Avoid recommending `doctor --fix` again while a fix is already being applied.
+
 ### Fixed
 - Upgrade legacy generated Darwin repositories to nix-homebrew transactionally, enable `autoMigrate`, and preserve existing Homebrew installations through activation.
 - Keep read-only `nex doctor` invocations from applying unrelated configuration fixes.
