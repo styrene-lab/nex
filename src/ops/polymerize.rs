@@ -1020,7 +1020,7 @@ fn step_profile(defaults: &Defaults) -> Result<(Option<String>, Option<String>)>
 
             match result {
                 Ok(resolved) => {
-                    println!("  {} Resolved {}", style("✓").green(), &profile_ref);
+                    println!("  {} Resolved {}", style("✓").green(), profile_ref);
                     for layer in &resolved.chain {
                         println!("    {} {}", style("↳").dim(), style(layer).dim());
                     }
