@@ -54,9 +54,10 @@ pub fn run(config: &Config) -> Result<()> {
             managed_nix.insert(pkg);
         }
     }
-    let managed_brews: HashSet<String> = edit::list_packages(formula_target, &nixfile::HOMEBREW_BREWS)?
-        .into_iter()
-        .collect();
+    let managed_brews: HashSet<String> =
+        edit::list_packages(formula_target, &nixfile::HOMEBREW_BREWS)?
+            .into_iter()
+            .collect();
     let managed_casks: HashSet<String> = match cask_target {
         Some(target) => edit::list_packages(target, &nixfile::HOMEBREW_CASKS)?
             .into_iter()

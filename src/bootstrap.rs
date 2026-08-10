@@ -29,12 +29,10 @@ impl BootstrapRepair {
         match &self.kind {
             BootstrapRepairKind::MoveShellRc { from } => {
                 let to = next_backup_path(from, "before-nix-darwin");
-                vec![
-                    "sudo".to_string(),
-                    "mv".to_string(),
-                    from.display().to_string(),
-                    to.display().to_string(),
-                ]
+                // One element per displayed line. Returning argv tokens here
+                // rendered as four unusable lines ("sudo" / "mv" / path / path)
+                // while EnsureSyntheticConf below returned whole commands.
+                vec![format!("sudo mv {} {}", from.display(), to.display())]
             }
             BootstrapRepairKind::EnsureSyntheticConf { path } => vec![
                 format!("sudo touch {}", path.display()),
@@ -70,7 +68,23 @@ pub fn check(platform: Platform) -> Result<Option<BootstrapReport>> {
     }
 }
 
-pub fn print_recommendations(report: &BootstrapReport) {
+/// What the caller will do next, so the closing line points somewhere the
+/// operator can actually go.
+///
+/// `nex doctor` resolves a config repo before it runs, so during `nex init`
+/// the repo does not exist yet and "run nex doctor" is advice the operator
+/// cannot take. Doctor pointing at itself is likewise a dead end.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RepairHint {
+    /// Caller offers an interactive repair immediately after this report.
+    PromptFollows,
+    /// Caller is doctor itself; name the flag, not the whole command.
+    DoctorFixFlag,
+    /// Caller has a resolved config repo; `nex doctor` is reachable.
+    RunDoctor,
+}
+
+pub fn print_recommendations(report: &BootstrapReport, hint: RepairHint) {
     if !report.has_blockers() {
         return;
     }
@@ -88,16 +102,31 @@ pub fn print_recommendations(report: &BootstrapReport) {
         }
     }
     eprintln!();
-    eprintln!(
-        "  Run {} before activating this machine.",
-        style("nex doctor --fix darwin-bootstrap").bold()
-    );
+    eprintln!("{}", closing_line(hint));
+}
+
+/// Closing guidance for a blocker report. Split out from `print_recommendations`
+/// so the routing is unit-testable without capturing stderr.
+fn closing_line(hint: RepairHint) -> String {
+    match hint {
+        RepairHint::PromptFollows => {
+            "  These must be cleared before activation. nex can repair them now.".to_string()
+        }
+        RepairHint::DoctorFixFlag => format!(
+            "  Re-run with {} to apply these repairs.",
+            style("--fix darwin-bootstrap").bold()
+        ),
+        RepairHint::RunDoctor => format!(
+            "  Run {} before activating this machine.",
+            style("nex doctor --fix darwin-bootstrap").bold()
+        ),
+    }
 }
 
 pub fn ensure_switch_ready(platform: Platform) -> Result<()> {
     if let Some(report) = check(platform)? {
         if report.has_blockers() {
-            print_recommendations(&report);
+            print_recommendations(&report, RepairHint::RunDoctor);
             bail!("Darwin bootstrap blockers must be fixed before activation");
         }
     }
@@ -111,7 +140,7 @@ pub fn maybe_repair_for_init(platform: Platform, dry_run: bool) -> Result<()> {
     if !report.has_blockers() {
         return Ok(());
     }
-    print_recommendations(&report);
+    print_recommendations(&report, RepairHint::PromptFollows);
     if dry_run {
         return Ok(());
     }
@@ -154,6 +183,33 @@ fn check_darwin_bootstrap_at(etc: &Path) -> Result<BootstrapReport> {
     }
 
     add_synthetic_conf_findings(&etc.join("synthetic.conf"), &mut findings)?;
+
+    // nix-darwin also refuses to overwrite these. init.rs moves them aside on
+    // the fresh-scaffold path, but the preflight did not check them, so
+    // `nex doctor --fix darwin-bootstrap` reported "ready" and activation then
+    // aborted with "Unexpected files in /etc". Any file nix-darwin will refuse
+    // to clobber has to be visible here, not just on one init branch.
+    for rel in ["shells", "nix/nix.conf"] {
+        let path = etc.join(rel);
+        if !path.exists() {
+            continue;
+        }
+        let backup = next_backup_path(&path, "before-nix-darwin");
+        if backup.exists() {
+            continue; // already moved aside
+        }
+        findings.push(BootstrapFinding {
+            id: "darwin.etc.unmanaged",
+            message: format!(
+                "{} exists and will block nix-darwin activation",
+                path.display()
+            ),
+            repair: Some(BootstrapRepair {
+                description: format!("move {} to {}", path.display(), backup.display()),
+                kind: BootstrapRepairKind::MoveShellRc { from: path },
+            }),
+        });
+    }
 
     Ok(BootstrapReport {
         scope: BootstrapScope::DarwinBootstrap,
@@ -300,7 +356,8 @@ fn next_backup_path(path: &Path, suffix: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::{
-        check_darwin_bootstrap_at, etc_root, next_backup_path, shell_rc_blocks_activation,
+        check_darwin_bootstrap_at, closing_line, etc_root, next_backup_path,
+        shell_rc_blocks_activation, BootstrapRepair, BootstrapRepairKind, RepairHint,
     };
     use std::fs;
     use std::path::{Path, PathBuf};
@@ -386,5 +443,100 @@ mod tests {
             .findings
             .iter()
             .any(|f| f.id == "darwin.synthetic-conf.mode"));
+    }
+
+    #[test]
+    fn command_preview_yields_one_runnable_command_per_line() {
+        // Every element is printed on its own line, so each must be a command
+        // an operator can paste -- not an argv token.
+        let repair = BootstrapRepair {
+            description: "move /etc/zshrc aside".to_string(),
+            kind: BootstrapRepairKind::MoveShellRc {
+                from: PathBuf::from("/etc/zshrc"),
+            },
+        };
+        let preview = repair.command_preview();
+        assert_eq!(preview.len(), 1);
+        assert!(preview[0].starts_with("sudo mv /etc/zshrc "));
+        for line in &preview {
+            assert!(
+                line.split_whitespace().count() > 1,
+                "bare token would render as an unusable line: {line}"
+            );
+        }
+    }
+
+    #[test]
+    fn preflight_catches_every_etc_file_nix_darwin_refuses_to_clobber() {
+        // doctor --fix reported "darwin bootstrap: ready" and activation then
+        // died with "Unexpected files in /etc: /etc/shells". init.rs moved
+        // that file aside on one branch, so the knowledge existed but was not
+        // in the preflight.
+        let dir = tempdir().expect("tempdir");
+        let etc = dir.path();
+        fs::create_dir_all(etc.join("nix")).expect("mkdir");
+        fs::write(etc.join("shells"), "/bin/zsh\n").expect("write");
+        fs::write(etc.join("nix/nix.conf"), "max-jobs = 4\n").expect("write");
+
+        let report = check_darwin_bootstrap_at(etc).expect("check");
+        let msgs: Vec<&str> = report.findings.iter().map(|f| f.message.as_str()).collect();
+        assert!(
+            msgs.iter().any(|m| m.contains("shells")),
+            "missed /etc/shells: {msgs:?}"
+        );
+        assert!(
+            msgs.iter().any(|m| m.contains("nix.conf")),
+            "missed /etc/nix/nix.conf: {msgs:?}"
+        );
+    }
+
+    #[test]
+    fn moved_etc_files_are_not_reported_again() {
+        let dir = tempdir().expect("tempdir");
+        let etc = dir.path();
+        fs::write(etc.join("shells.before-nix-darwin"), "old\n").expect("write");
+
+        let report = check_darwin_bootstrap_at(etc).expect("check");
+        assert!(
+            !report.findings.iter().any(|f| f.message.contains("shells")),
+            "reported a source file that has already been moved away"
+        );
+    }
+
+    #[test]
+    fn recreated_etc_file_is_reported_even_when_an_older_backup_exists() {
+        let dir = tempdir().expect("tempdir");
+        let etc = dir.path();
+        fs::write(etc.join("shells"), "/bin/zsh\n").expect("write");
+        fs::write(etc.join("shells.before-nix-darwin"), "old\n").expect("write");
+
+        let report = check_darwin_bootstrap_at(etc).expect("check");
+        assert!(
+            report.findings.iter().any(|f| f.message.contains("shells")),
+            "a recreated blocker must be moved to the next available backup path"
+        );
+    }
+
+    #[test]
+    fn closing_line_never_sends_operator_somewhere_unreachable() {
+        // During `nex init` the config repo does not exist yet, so `nex doctor`
+        // bails with "Could not find nix-darwin repo" -- naming it there is
+        // advice the operator cannot act on. An interactive repair follows
+        // instead.
+        let init_line = closing_line(RepairHint::PromptFollows);
+        assert!(!init_line.contains("nex doctor"));
+        assert!(init_line.contains("repair them now"));
+        // Also used by `doctor --fix`, where advising a re-run with --fix
+        // would contradict the repair that is about to happen.
+        assert!(!init_line.contains("--fix"));
+
+        // Doctor pointing at doctor is a dead end; name the flag only.
+        let doctor_line = closing_line(RepairHint::DoctorFixFlag);
+        assert!(!doctor_line.contains("nex doctor"));
+        assert!(doctor_line.contains("--fix darwin-bootstrap"));
+
+        // With a resolved repo the full command is reachable and correct.
+        let generic_line = closing_line(RepairHint::RunDoctor);
+        assert!(generic_line.contains("nex doctor --fix darwin-bootstrap"));
     }
 }

@@ -23,7 +23,9 @@ pub fn run(config: &Config, dry_run: bool) -> Result<()> {
     let formula_target = match config.homebrew_formula_target() {
         Some(path) => path,
         None => {
-            output::error("Homebrew formula provider is not enabled for this profile — nothing to adopt");
+            output::error(
+                "Homebrew formula provider is not enabled for this profile — nothing to adopt",
+            );
             return Ok(());
         }
     };
@@ -43,9 +45,10 @@ pub fn run(config: &Config, dry_run: bool) -> Result<()> {
     println!();
 
     // What nex already manages
-    let managed_brews: HashSet<String> = edit::list_packages(formula_target, &nixfile::HOMEBREW_BREWS)?
-        .into_iter()
-        .collect();
+    let managed_brews: HashSet<String> =
+        edit::list_packages(formula_target, &nixfile::HOMEBREW_BREWS)?
+            .into_iter()
+            .collect();
     let managed_casks: HashSet<String> = match cask_target {
         Some(target) => edit::list_packages(target, &nixfile::HOMEBREW_CASKS)?
             .into_iter()
@@ -235,7 +238,7 @@ pub fn run(config: &Config, dry_run: bool) -> Result<()> {
     println!();
 
     if let Some(report) = bootstrap::check(config.platform)? {
-        bootstrap::print_recommendations(&report);
+        bootstrap::print_recommendations(&report, bootstrap::RepairHint::RunDoctor);
     }
     if let Some(existing) = crate::homebrew_bootstrap::detect_existing(config)? {
         if existing.is_conflict() {
@@ -253,7 +256,7 @@ pub fn run(config: &Config, dry_run: bool) -> Result<()> {
 
 fn print_bootstrap_recommendations(config: &Config) -> Result<()> {
     if let Some(report) = bootstrap::check(config.platform)? {
-        bootstrap::print_recommendations(&report);
+        bootstrap::print_recommendations(&report, bootstrap::RepairHint::RunDoctor);
     }
     Ok(())
 }

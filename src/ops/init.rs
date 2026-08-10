@@ -220,8 +220,11 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
             Platform::Darwin => "darwin-rebuild switch",
             Platform::Linux => "nixos-rebuild switch",
         };
-        output::dry_run(&format!("would run {rebuild_cmd}"));
+        // Report blockers BEFORE the switch line. The real path repairs at
+        // maybe_repair_for_init() and only then activates, so printing the
+        // switch first told the operator the opposite of what happens.
         bootstrap::maybe_repair_for_init(platform, true)?;
+        output::dry_run(&format!("would run {rebuild_cmd}"));
         println!();
         return Ok(());
     }
@@ -295,7 +298,24 @@ pub fn run(from: Option<String>, dry_run: bool) -> Result<()> {
                         .args(["build", &build_attr, "--show-trace"])
                         .current_dir(&repo_path)
                         .status();
+                } else {
+                    // Never fall through to activation on a failed adopt. The
+                    // operator confirmed capturing these packages; activating
+                    // anyway would apply a config that does not contain them,
+                    // and under a cleanup policy of "zap" that uninstalls
+                    // everything they just agreed to keep.
+                    bail!(
+                        "adopt failed, so the generated config does not contain your existing \
+                         packages.\n  Refusing to activate -- activating now could remove them.\n  \
+                         Re-run `nex adopt` in {} to see the error, then `nex switch`.",
+                        repo_path.display()
+                    );
                 }
+            } else {
+                bail!(
+                    "could not run `nex adopt`, so existing packages were not captured.\n  \
+                     Refusing to activate -- activating now could remove them."
+                );
             }
         }
     }

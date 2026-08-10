@@ -277,9 +277,23 @@ fn test_mode() -> bool {
     std::env::var_os("NEX_TESTING").is_some()
 }
 
+fn bootstrap_darwin_rebuild_error() -> anyhow::Error {
+    anyhow::anyhow!(
+        "darwin-rebuild not found and could not be bootstrapped from the flake.\n\
+         hint: from your config repo run\n  \
+         nix build .#darwinConfigurations.<hostname>.system\n  \
+         sudo ./result/sw/bin/darwin-rebuild switch --flake .#<hostname>"
+    )
+}
+
 /// Resolve the absolute path to darwin-rebuild so sudo can find it.
 /// Checks well-known locations first to prevent PATH-based binary injection.
-fn find_darwin_rebuild() -> Result<String> {
+/// Resolve darwin-rebuild, building it from the flake if nix-darwin has never
+/// been activated on this machine.
+///
+/// `repo` is the config repo used for the bootstrap build. Passing `None`
+/// keeps the old behaviour for callers that have no repo context.
+fn find_darwin_rebuild_in(repo: Option<&Path>, hostname: Option<&str>) -> Result<String> {
     if test_mode() {
         return Ok("darwin-rebuild".to_string());
     }
@@ -302,10 +316,29 @@ fn find_darwin_rebuild() -> Result<String> {
         }
     }
 
-    bail!(
-        "darwin-rebuild not found — is nix-darwin activated?\n\
-         hint: run `nex init` first, or see nex.styrene.io"
-    )
+    // Never activated. The well-known paths are created BY the first
+    // activation, so requiring them here deadlocks a first run: `nex switch`
+    // says to run `nex init`, and `nex init` on an existing config repo just
+    // records it and says to run `nex switch`. Build the system from the flake
+    // and use the darwin-rebuild inside the build result to bootstrap.
+    if let (Some(repo), Some(hostname)) = (repo, hostname) {
+        if repo.join("flake.nix").exists() {
+            eprintln!("  >>> nix-darwin not yet activated — building bootstrap darwin-rebuild");
+            let nix = find_nix();
+            let attr = format!(".#darwinConfigurations.{hostname}.system");
+            let built = Command::new(&nix)
+                .args(nix_experimental_args())
+                .args(["build", &attr])
+                .current_dir(repo)
+                .status();
+            let bootstrap = repo.join("result/sw/bin/darwin-rebuild");
+            if matches!(built, Ok(s) if s.success()) && bootstrap.exists() {
+                return Ok(bootstrap.display().to_string());
+            }
+        }
+    }
+
+    Err(bootstrap_darwin_rebuild_error())
 }
 
 /// Resolve the absolute path to nixos-rebuild.
@@ -344,7 +377,7 @@ fn find_nixos_rebuild() -> Result<String> {
 pub fn darwin_rebuild_switch(repo: &Path, hostname: &str) -> Result<()> {
     tracing::info!(repo = %repo.display(), %hostname, "system rebuild switch");
     ensure_profile_dirs();
-    let dr = find_darwin_rebuild()?;
+    let dr = find_darwin_rebuild_in(Some(repo), Some(hostname))?;
     let flake = format!(".#{hostname}");
     run(Command::new("sudo")
         .arg(&dr)
@@ -496,7 +529,7 @@ fn refresh_app_icons() {
 
 /// Run darwin-rebuild build (for diff). No sudo needed — build only.
 pub fn darwin_rebuild_build(repo: &Path, hostname: &str) -> Result<()> {
-    let dr = find_darwin_rebuild()?;
+    let dr = find_darwin_rebuild_in(Some(repo), Some(hostname))?;
     let flake = format!(".#{hostname}");
     run(Command::new(&dr)
         .arg("build")
@@ -530,7 +563,7 @@ pub fn system_rebuild_build(
 
 /// Run darwin-rebuild --rollback (requires sudo for system activation).
 pub fn darwin_rebuild_rollback(repo: &Path, hostname: &str) -> Result<()> {
-    let dr = find_darwin_rebuild()?;
+    let dr = find_darwin_rebuild_in(Some(repo), Some(hostname))?;
     let flake = format!(".#{hostname}");
     run(Command::new("sudo")
         .arg(&dr)
@@ -603,7 +636,27 @@ pub fn nix_gc() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::rebuild_experimental_args;
+    use super::{bootstrap_darwin_rebuild_error, rebuild_experimental_args};
+
+    #[test]
+    fn bootstrap_error_names_a_command_that_works_before_activation() {
+        // The old message said "run `nex init` first", which deadlocks: on a
+        // machine whose config repo already exists, init records the repo and
+        // says to run switch, while switch says to run init. Neither ever
+        // performs the first activation. The error must name commands that
+        // work with no darwin-rebuild on the system.
+        let err = bootstrap_darwin_rebuild_error();
+        let msg = err.to_string();
+        assert!(
+            !msg.contains("nex init"),
+            "error still points back at init, which is the deadlock: {msg}"
+        );
+        assert!(msg.contains("nix build"), "missing bootstrap build: {msg}");
+        assert!(
+            msg.contains("result/sw/bin/darwin-rebuild"),
+            "missing bootstrap activation path: {msg}"
+        );
+    }
 
     #[test]
     fn darwin_rebuild_uses_supported_experimental_feature_option() {
