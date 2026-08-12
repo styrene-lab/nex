@@ -1,0 +1,4 @@
+[rules.redundant-clone]
+# Profile overlays own their merged values. Most clones in profile.rs cross the
+# deserialized-layer/owned-result boundary and cannot be replaced by borrows.
+weight = 0.25
