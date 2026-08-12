@@ -45,7 +45,6 @@ struct ProfileTopology {
 }
 
 #[derive(Clone, Default, serde::Deserialize)]
-#[allow(dead_code)]
 struct ProfileKitty {
     font: Option<String>,
     font_size: Option<f64>,
@@ -66,7 +65,10 @@ struct ProfilePackages {
 
 #[derive(Clone, serde::Deserialize)]
 struct ProfileShell {
-    #[allow(dead_code)]
+    #[expect(
+        dead_code,
+        reason = "accepted profile schema; rendering is not implemented yet"
+    )]
     default: Option<String>,
     aliases: Option<std::collections::HashMap<String, String>>,
     env: Option<std::collections::HashMap<String, String>>,
@@ -125,7 +127,6 @@ struct ProfileGit {
 }
 
 #[derive(Clone, Default, serde::Deserialize)]
-#[allow(dead_code)]
 struct ProfileMacos {
     show_all_extensions: Option<bool>,
     show_hidden_files: Option<bool>,
@@ -147,14 +148,12 @@ struct ProfileMacos {
 }
 
 #[derive(Clone, Default, serde::Deserialize)]
-#[allow(dead_code)]
 struct ProfileFonts {
     nerd: Option<Vec<String>>,
     families: Option<Vec<String>>,
 }
 
 #[derive(Clone, Default, serde::Deserialize)]
-#[allow(dead_code)]
 struct ProfileDock {
     persistent_apps: Option<Vec<String>>,
     tile_size: Option<u32>,
@@ -168,7 +167,6 @@ struct ProfileDock {
 }
 
 #[derive(Clone, Default, serde::Deserialize)]
-#[allow(dead_code)]
 struct ProfileAppearance {
     dark_mode: Option<bool>,
     accent_color: Option<String>,
@@ -178,7 +176,6 @@ struct ProfileAppearance {
 }
 
 #[derive(Clone, Default, serde::Deserialize)]
-#[allow(dead_code)]
 struct ProfileInput {
     key_repeat: Option<u32>,         // lower = faster (1-15, default 6)
     initial_key_repeat: Option<u32>, // lower = shorter delay (10-120, default 25)
@@ -187,7 +184,6 @@ struct ProfileInput {
 }
 
 #[derive(Clone, Default, serde::Deserialize)]
-#[allow(dead_code)]
 struct ProfileFinder {
     default_view: Option<String>, // "list", "icon", "column", "gallery"
     show_path_bar: Option<bool>,
@@ -200,7 +196,6 @@ struct ProfileFinder {
 }
 
 #[derive(Clone, Default, serde::Deserialize)]
-#[allow(dead_code)]
 struct ProfileScreenshots {
     location: Option<String>,
     format: Option<String>, // "png", "jpg", "pdf", "tiff"
@@ -208,7 +203,6 @@ struct ProfileScreenshots {
 }
 
 #[derive(Clone, Default, serde::Deserialize)]
-#[allow(dead_code)]
 struct ProfileDefaultApps {
     browser: Option<String>, // bundle id, e.g. "com.apple.Safari"
 }
@@ -216,14 +210,12 @@ struct ProfileDefaultApps {
 // ── SSH client profile structs ───────────────────────────────────────────
 
 #[derive(Clone, serde::Deserialize)]
-#[allow(dead_code)]
 struct ProfileSsh {
     canonical_domains: Option<Vec<String>>,
     hosts: Option<Vec<ProfileSshHost>>,
 }
 
 #[derive(Clone, serde::Deserialize)]
-#[allow(dead_code)]
 struct ProfileSshHost {
     pattern: String,
     user: Option<String>,
@@ -246,7 +238,6 @@ struct MergedSsh {
 // ── Linux / NixOS profile structs ────────────────────────────────────────
 
 #[derive(Clone, serde::Deserialize)]
-#[allow(dead_code)]
 struct ProfileLinux {
     desktop: Option<String>,         // "gnome", "kde", "cosmic"
     display_manager: Option<String>, // "gdm", "sddm", "greetd"
@@ -255,14 +246,25 @@ struct ProfileLinux {
     gaming: Option<ProfileGaming>,
     services: Option<Vec<String>>, // extra NixOS services to enable
     kernel_params: Option<Vec<String>>,
+    #[expect(
+        dead_code,
+        reason = "accepted desktop profile schema; rendering is not implemented yet"
+    )]
     gnome: Option<ProfileGnome>,
+    #[expect(
+        dead_code,
+        reason = "accepted desktop profile schema; rendering is not implemented yet"
+    )]
     kde: Option<ProfileKde>,
+    #[expect(
+        dead_code,
+        reason = "accepted desktop profile schema; rendering is not implemented yet"
+    )]
     cosmic: Option<ProfileCosmic>,
     ssh: Option<ProfileLinuxSsh>,
 }
 
 #[derive(Clone, serde::Deserialize)]
-#[allow(dead_code)]
 struct ProfileLinuxSsh {
     authorized_keys: Option<Vec<String>>,
     #[serde(rename = "authorizedKeys")]
@@ -270,9 +272,9 @@ struct ProfileLinuxSsh {
 }
 
 #[derive(Clone, serde::Deserialize)]
-#[allow(dead_code)]
 struct ProfileGpu {
     driver: Option<String>, // "amdgpu", "nvidia", "intel", "nouveau" (comma-separated for multi-GPU)
+    #[expect(dead_code, reason = "accepted GPU profile schema; Vulkan is implicit")]
     vulkan: Option<bool>,
     opencl: Option<bool>,
     vaapi: Option<bool>, // hardware video acceleration
@@ -282,7 +284,6 @@ struct ProfileGpu {
 }
 
 #[derive(Clone, serde::Deserialize)]
-#[allow(dead_code)]
 struct ProfileAudio {
     backend: Option<String>, // "pipewire", "pulseaudio"
     low_latency: Option<bool>,
@@ -290,7 +291,6 @@ struct ProfileAudio {
 }
 
 #[derive(Clone, serde::Deserialize)]
-#[allow(dead_code)]
 struct ProfileGaming {
     steam: Option<bool>,
     gamemode: Option<bool>,
@@ -301,7 +301,10 @@ struct ProfileGaming {
 }
 
 #[derive(Clone, serde::Deserialize)]
-#[allow(dead_code)]
+#[expect(
+    dead_code,
+    reason = "accepted GNOME profile schema; rendering is not implemented yet"
+)]
 struct ProfileGnome {
     dark_mode: Option<bool>,
     font_name: Option<String>,
@@ -314,7 +317,10 @@ struct ProfileGnome {
 }
 
 #[derive(Clone, serde::Deserialize)]
-#[allow(dead_code)]
+#[expect(
+    dead_code,
+    reason = "accepted KDE profile schema; rendering is not implemented yet"
+)]
 struct ProfileKde {
     color_scheme: Option<String>,
     icon_theme: Option<String>,
@@ -323,7 +329,10 @@ struct ProfileKde {
 }
 
 #[derive(Clone, serde::Deserialize)]
-#[allow(dead_code)]
+#[expect(
+    dead_code,
+    reason = "accepted COSMIC profile schema; rendering is not implemented yet"
+)]
 struct ProfileCosmic {
     dark_mode: Option<bool>,
     accent_color: Option<Vec<f64>>, // [r, g, b, a]
