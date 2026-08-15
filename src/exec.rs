@@ -7,15 +7,8 @@ pub fn nix_experimental_args() -> [&'static str; 2] {
     ["--extra-experimental-features", "nix-command flakes"]
 }
 
-fn rebuild_experimental_args(platform: crate::discover::Platform) -> &'static [&'static str] {
-    match platform {
-        crate::discover::Platform::Darwin => {
-            &["--option", "experimental-features", "nix-command flakes"]
-        }
-        crate::discover::Platform::Linux => {
-            &["--extra-experimental-features", "nix-command flakes"]
-        }
-    }
+fn rebuild_experimental_args(_platform: crate::discover::Platform) -> &'static [&'static str] {
+    &["--option", "experimental-features", "nix-command flakes"]
 }
 
 pub fn nix_command() -> Command {
@@ -696,10 +689,10 @@ mod tests {
     }
 
     #[test]
-    fn nixos_rebuild_keeps_nixos_rebuild_experimental_feature_flag() {
+    fn nixos_rebuild_uses_supported_experimental_feature_option() {
         assert_eq!(
             rebuild_experimental_args(crate::discover::Platform::Linux),
-            ["--extra-experimental-features", "nix-command flakes"]
+            ["--option", "experimental-features", "nix-command flakes"]
         );
     }
 }
