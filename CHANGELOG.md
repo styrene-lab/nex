@@ -4,6 +4,12 @@ All notable changes to nex are documented here. Format follows [Keep a Changelog
 
 ## [Unreleased]
 
+## [0.26.2] - 2026-08-17
+
+### Fixed
+- Refresh the pinned nix-homebrew input before Darwin install, remove, and switch activations so current Homebrew metadata is interpreted by a compatible patched Homebrew runtime.
+- Include flake.lock updates in activation rollback transactions.
+
 ## [0.26.1] - 2026-08-05
 
 ### Added
