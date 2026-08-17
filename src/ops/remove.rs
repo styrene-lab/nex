@@ -84,6 +84,7 @@ pub fn run(config: &Config, mode: RemoveMode, packages: &[String], dry_run: bool
         return Ok(());
     }
 
+    crate::homebrew_bootstrap::refresh_nix_homebrew_input(config, &mut session)?;
     output::status("switching...");
     match exec::system_rebuild_switch(&config.repo, &config.hostname, config.platform) {
         Ok(()) => {

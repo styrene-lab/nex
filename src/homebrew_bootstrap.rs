@@ -319,9 +319,27 @@ fn ensure_nix_homebrew_integration(config: &Config) -> Result<bool> {
     Ok(true)
 }
 
+pub(crate) fn refresh_nix_homebrew_input(
+    config: &Config,
+    session: &mut crate::edit::EditSession,
+) -> Result<()> {
+    if config.platform != Platform::Darwin || !nix_homebrew_integration_present(config) {
+        return Ok(());
+    }
+
+    let lock_path = config.repo.join("flake.lock");
+    session.backup(&lock_path)?;
+    output_refresh_status();
+    update_flake_lock_for_nix_homebrew(&config.repo)
+}
+
+fn output_refresh_status() {
+    eprintln!(">>> refreshing nix-homebrew compatibility...");
+}
+
 fn update_flake_lock_for_nix_homebrew(repo: &Path) -> Result<()> {
     let output = crate::exec::nix_command()
-        .args(["flake", "lock", "--update-input", "nix-homebrew"])
+        .args(["flake", "update", "nix-homebrew"])
         .current_dir(repo)
         .output()
         .context("updating flake.lock for nix-homebrew")?;
