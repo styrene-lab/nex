@@ -16,6 +16,8 @@ use anyhow::{bail, Context, Result};
 use console::style;
 use zeroize::Zeroizing;
 
+use crate::profile_bundle::ProfileBundle;
+
 // ── Drop guard for WiFi credential cleanup ──────────────────────────────
 
 mod scopeguard {
@@ -31,7 +33,7 @@ mod scopeguard {
 
 // ── Bundle defaults (written by `nex forge`) ─────────────────────────────
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct Defaults {
     hostname: Option<String>,
     username: Option<String>,
@@ -43,14 +45,13 @@ struct Defaults {
     wifi_ssid: Option<String>,
     wifi_psk: Option<String>,
     ssh_authorized_keys: Option<Vec<String>>,
-    profile_ref: Option<String>,
-    profile_toml: Option<String>,
+    profile: Option<ProfileBundle>,
 }
 
-fn load_defaults(bundle: Option<&Path>) -> Defaults {
-    let dir = match resolve_bundle_dir(bundle) {
+fn load_defaults(bundle: Option<&Path>) -> Result<Defaults> {
+    let dir = match resolve_bundle_dir(bundle)? {
         Some(d) => d,
-        None => return Defaults::default(),
+        None => return Ok(Defaults::default()),
     };
 
     let read = |name: &str| {
@@ -82,7 +83,9 @@ fn load_defaults(bundle: Option<&Path>) -> Defaults {
             .filter(|lines| !lines.is_empty())
     };
 
-    Defaults {
+    let profile = ProfileBundle::read_from(&dir.join("profile"))?;
+
+    Ok(Defaults {
         hostname: read("defaults/hostname"),
         username: read("defaults/username"),
         timezone: read("defaults/timezone"),
@@ -93,17 +96,23 @@ fn load_defaults(bundle: Option<&Path>) -> Defaults {
         wifi_ssid: read("defaults/wifi_ssid"),
         wifi_psk: read("defaults/wifi_psk"),
         ssh_authorized_keys: read_lines("defaults/ssh_authorized_keys"),
-        profile_ref: read("profile/source").or_else(|| read("nex/source")),
-        profile_toml: read("profile/profile.toml").or_else(|| read("nex/profile.toml")),
-    }
+        profile,
+    })
 }
 
 /// Look for the styrene/ bundle dir — explicit arg, or auto-detect from USB mounts.
-fn resolve_bundle_dir(explicit: Option<&Path>) -> Option<PathBuf> {
+fn resolve_bundle_dir(explicit: Option<&Path>) -> Result<Option<PathBuf>> {
     if let Some(p) = explicit {
-        if p.exists() {
-            return Some(p.to_path_buf());
+        if !p.exists() {
+            bail!("bundle path does not exist: {}", p.display());
         }
+        if !p.is_dir() {
+            bail!("bundle path is not a directory: {}", p.display());
+        }
+        if p.join("styrene").is_dir() {
+            return Ok(Some(p.join("styrene")));
+        }
+        return Ok(Some(p.to_path_buf()));
     }
 
     // Auto-detect: scan common mount points for styrene/ bundle
@@ -130,9 +139,9 @@ fn resolve_bundle_dir(explicit: Option<&Path>) -> Option<PathBuf> {
         {
             // If this dir has a styrene/ subdir, use that
             if p.join("styrene/profile").exists() || p.join("styrene/defaults").exists() {
-                return Some(p.join("styrene"));
+                return Ok(Some(p.join("styrene")));
             }
-            return Some(p);
+            return Ok(Some(p));
         }
     }
 
@@ -141,12 +150,12 @@ fn resolve_bundle_dir(explicit: Option<&Path>) -> Option<PathBuf> {
         for entry in entries.flatten() {
             let s = entry.path().join("styrene");
             if s.exists() {
-                return Some(s);
+                return Ok(Some(s));
             }
         }
     }
 
-    None
+    Ok(None)
 }
 
 // ── Main entry point ─────────────────────────────────────────────────────
@@ -157,7 +166,7 @@ pub fn run(bundle: Option<&Path>) -> Result<()> {
         bail!("nex polymerize must be run as root (use sudo)");
     }
 
-    let defaults = load_defaults(bundle);
+    let defaults = load_defaults(bundle)?;
 
     println!();
     println!(
@@ -173,11 +182,11 @@ pub fn run(bundle: Option<&Path>) -> Result<()> {
         style("╚══════════════════════════════════════════════════════╝").cyan()
     );
 
-    if let Some(ref p) = defaults.profile_ref {
+    if let Some(ref profile) = defaults.profile {
         println!(
             "  {} Bundled profile: {}",
             style("i").cyan(),
-            style(p).bold()
+            style(&profile.source).bold()
         );
     } else {
         println!(
@@ -221,7 +230,7 @@ pub fn run(bundle: Option<&Path>) -> Result<()> {
     let disk = step_disk()?;
 
     // ── 6. Profile ───────────────────────────────────────────────────
-    let (profile_ref, profile_toml) = step_profile(&defaults)?;
+    let profile = step_profile(&defaults)?;
 
     // ── Confirm ──────────────────────────────────────────────────────
     println!();
@@ -230,8 +239,8 @@ pub fn run(bundle: Option<&Path>) -> Result<()> {
     println!("  User:      {}", style(&username).cyan());
     println!("  Timezone:  {}", style(&timezone).cyan());
     println!("  Disk:      {}", style(&disk).cyan());
-    if let Some(ref p) = profile_ref {
-        println!("  Profile:   {}", style(p).cyan());
+    if let Some(ref profile) = profile {
+        println!("  Profile:   {}", style(&profile.source).cyan());
     } else {
         println!("  Profile:   {}", style("none (base NixOS)").dim());
     }
@@ -266,7 +275,7 @@ pub fn run(bundle: Option<&Path>) -> Result<()> {
         &username,
         &timezone,
         &disk,
-        profile_toml.as_deref(),
+        profile.as_ref(),
         defaults.ssh_authorized_keys.as_deref(),
     )?;
     exec_install(&hostname, &username)?;
@@ -989,16 +998,17 @@ fn detect_boot_device() -> Option<String> {
     None
 }
 
-fn step_profile(defaults: &Defaults) -> Result<(Option<String>, Option<String>)> {
+fn step_profile(defaults: &Defaults) -> Result<Option<ProfileBundle>> {
     println!("  {}", style("── Nex profile ──").bold());
 
-    if let Some(ref profile_ref) = defaults.profile_ref {
-        println!("  Bundled profile: {}", style(profile_ref).cyan());
+    if let Some(ref profile) = defaults.profile {
+        println!("  Bundled profile: {}", style(&profile.source).cyan());
         let use_bundled = crate::input::input().confirm("  Use this profile?", true)?;
 
         if use_bundled {
+            profile.validate()?;
             println!();
-            return Ok((Some(profile_ref.clone()), defaults.profile_toml.clone()));
+            return Ok(Some(profile.clone()));
         }
     }
 
@@ -1025,7 +1035,11 @@ fn step_profile(defaults: &Defaults) -> Result<(Option<String>, Option<String>)>
                         println!("    {} {}", style("↳").dim(), style(layer).dim());
                     }
                     println!();
-                    Ok((Some(profile_ref), Some(resolved.merged)))
+                    Ok(Some(ProfileBundle::new(
+                        &profile_ref,
+                        resolved.merged,
+                        &resolved.chain,
+                    )?))
                 }
                 Err(e) => {
                     println!("  {} Could not fetch: {e}", style("!").yellow());
@@ -1035,13 +1049,13 @@ fn step_profile(defaults: &Defaults) -> Result<(Option<String>, Option<String>)>
                         bail!("Aborted");
                     }
                     println!();
-                    Ok((None, None))
+                    Ok(None)
                 }
             }
         }
         _ => {
             println!();
-            Ok((None, None))
+            Ok(None)
         }
     }
 }
@@ -1292,17 +1306,42 @@ fn exec_write_config(
     username: &str,
     timezone: &str,
     disk: &str,
-    profile_toml: Option<&str>,
+    profile: Option<&ProfileBundle>,
     ssh_authorized_keys: Option<&[String]>,
 ) -> Result<()> {
     println!("  {} Writing NixOS configuration...", style(">>>").bold());
 
     let config_dir_string = config_dir_for(username);
     let config_dir = Path::new(&config_dir_string);
+    write_config_to_dir(
+        config_dir,
+        hostname,
+        username,
+        timezone,
+        disk,
+        profile,
+        ssh_authorized_keys,
+    )?;
+
+    println!("  {} Configuration written", style("✓").green().bold());
+    Ok(())
+}
+
+fn write_config_to_dir(
+    config_dir: &Path,
+    hostname: &str,
+    username: &str,
+    timezone: &str,
+    disk: &str,
+    bundled_profile: Option<&ProfileBundle>,
+    ssh_authorized_keys: Option<&[String]>,
+) -> Result<()> {
     std::fs::create_dir_all(config_dir)?;
 
-    // Parse profile for [linux] section if available
-    let profile: Option<toml::Value> = profile_toml.and_then(|t| toml::from_str(t).ok());
+    let profile = bundled_profile
+        .map(ProfileBundle::validate)
+        .transpose()
+        .context("refusing to write configuration from an invalid profile")?;
 
     // ── flake.nix ────────────────────────────────────────────────────
     let system = crate::discover::detect_system();
@@ -1321,9 +1360,13 @@ fn exec_write_config(
       url = "github:nix-community/home-manager";
       inputs.nixpkgs.follows = "nixpkgs";
     }};
+    nex = {{
+      url = "github:styrene-lab/nex";
+      inputs.nixpkgs.follows = "nixpkgs";
+    }};
   }};
 
-  outputs = {{ self, nixpkgs, home-manager }}:
+  outputs = {{ self, nixpkgs, home-manager, nex }}:
   {{
     nixosConfigurations."{hostname}" = nixpkgs.lib.nixosSystem {{
       system = "{system}";
@@ -1332,6 +1375,11 @@ fn exec_write_config(
         ./configuration.nix
         ./hardware-configuration.nix
         home-manager.nixosModules.home-manager
+        {{
+          environment.systemPackages = [
+            nex.packages."{system}".default
+          ];
+        }}
         {{
           home-manager = {{
             useGlobalPkgs = true;
@@ -1427,7 +1475,7 @@ fn exec_write_config(
             for path in paths {
                 if let Some(path_str) = path.as_str() {
                     if path_str != "$HOME/.local/bin" && path_str != "~/.local/bin" {
-                        home.push(format!("    \"{path_str}\""));
+                        home.push(format!("    {}", nix_string(path_str)));
                     }
                 }
             }
@@ -1474,7 +1522,7 @@ fn exec_write_config(
                         .replace('\\', "\\\\")
                         .replace('"', "\\\"")
                         .replace("${", "\\${");
-                    home.push(format!("    {name} = \"{escaped}\";"));
+                    home.push(format!("    {} = \"{escaped}\";", nix_string(name)));
                 }
             }
             home.push("  };".to_string());
@@ -1494,7 +1542,7 @@ fn exec_write_config(
                         .replace('\\', "\\\\")
                         .replace('"', "\\\"")
                         .replace("${", "\\${");
-                    home.push(format!("    {key} = \"{escaped}\";"));
+                    home.push(format!("    {} = \"{escaped}\";", nix_string(key)));
                 }
             }
             home.push("  };".to_string());
@@ -1545,7 +1593,10 @@ fn exec_write_config(
 
     std::fs::write(config_dir.join("home.nix"), home.join("\n"))?;
 
-    println!("  {} Configuration written", style("✓").green().bold());
+    if let Some(profile) = bundled_profile {
+        profile.write_to(&config_dir.join(".nex/profile"))?;
+    }
+
     Ok(())
 }
 
@@ -1954,7 +2005,7 @@ mod tests {
         )
         .unwrap();
 
-        let defaults = load_defaults(Some(dir.path()));
+        let defaults = load_defaults(Some(dir.path())).unwrap();
 
         assert_eq!(defaults.arch.as_deref(), Some("x86_64"));
         assert_eq!(defaults.install_mode.as_deref(), Some("server"));
@@ -1965,6 +2016,127 @@ mod tests {
         assert_eq!(
             defaults.ssh_authorized_keys.as_deref(),
             Some(["ssh-ed25519 AAAAC3Nza seed".to_string()].as_slice())
+        );
+    }
+
+    #[test]
+    fn load_defaults_reads_and_validates_forge_profile_bundle() {
+        let dir = tempfile::tempdir().unwrap();
+        let profile = ProfileBundle::new(
+            "owner/profile",
+            "[packages]\nnix = [\"ripgrep\"]\n".to_string(),
+            &["base/profile".to_string(), "owner/profile".to_string()],
+        )
+        .unwrap();
+        profile.write_to(&dir.path().join("profile")).unwrap();
+
+        let defaults = load_defaults(Some(dir.path())).unwrap();
+        let loaded = defaults.profile.unwrap();
+
+        assert_eq!(loaded.source, "owner/profile");
+        assert_eq!(loaded.state.layers.len(), 2);
+        assert_eq!(loaded.resolved_toml, profile.resolved_toml);
+    }
+
+    #[test]
+    fn load_defaults_rejects_incomplete_profile_before_installation() {
+        let dir = tempfile::tempdir().unwrap();
+        let profile_dir = dir.path().join("profile");
+        std::fs::create_dir_all(&profile_dir).unwrap();
+        std::fs::write(profile_dir.join("source"), "owner/profile\n").unwrap();
+
+        let error = load_defaults(Some(dir.path())).unwrap_err();
+        assert!(error.to_string().contains("incomplete bundled profile"));
+    }
+
+    #[test]
+    fn load_defaults_rejects_modified_profile_content() {
+        let dir = tempfile::tempdir().unwrap();
+        let profile_dir = dir.path().join("profile");
+        let profile = ProfileBundle::new(
+            "owner/profile",
+            "[packages]\nnix = [\"ripgrep\"]\n".to_string(),
+            &["owner/profile".to_string()],
+        )
+        .unwrap();
+        profile.write_to(&profile_dir).unwrap();
+        std::fs::write(
+            profile_dir.join("resolved.toml"),
+            "[packages]\nnix = [\"curl\"]\n",
+        )
+        .unwrap();
+
+        let error = load_defaults(Some(dir.path())).unwrap_err();
+        assert!(error.to_string().contains("digest does not match"));
+    }
+
+    #[test]
+    fn resolve_bundle_dir_normalizes_forge_output_root() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("styrene")).unwrap();
+
+        let resolved = resolve_bundle_dir(Some(dir.path())).unwrap().unwrap();
+
+        assert_eq!(resolved, dir.path().join("styrene"));
+    }
+
+    #[test]
+    fn resolve_bundle_dir_rejects_missing_explicit_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("missing");
+
+        let error = resolve_bundle_dir(Some(&missing)).unwrap_err();
+
+        assert!(error.to_string().contains("does not exist"));
+    }
+
+    #[test]
+    fn write_config_persists_profile_and_installs_nex_declaratively() {
+        let dir = tempfile::tempdir().unwrap();
+        let resolved = r#"
+[packages]
+nix = ["ripgrep"]
+
+[shell.aliases]
+ll = "ls -la"
+"#;
+        let profile = ProfileBundle::new(
+            "owner/profile",
+            resolved.to_string(),
+            &["owner/profile".to_string()],
+        )
+        .unwrap();
+
+        write_config_to_dir(
+            dir.path(),
+            "nucleus",
+            "wilson",
+            "America/New_York",
+            "/dev/sda",
+            Some(&profile),
+            None,
+        )
+        .unwrap();
+
+        let flake = std::fs::read_to_string(dir.path().join("flake.nix")).unwrap();
+        assert!(flake.contains("github:styrene-lab/nex"));
+        assert!(flake.contains(&format!(
+            "nex.packages.\"{}\".default",
+            crate::discover::detect_system()
+        )));
+
+        let home = std::fs::read_to_string(dir.path().join("home.nix")).unwrap();
+        assert!(home.contains("    ripgrep"));
+        assert!(home.contains("\"ll\" = \"ls -la\";"));
+
+        let persisted = ProfileBundle::read_from(&dir.path().join(".nex/profile"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(persisted.source, profile.source);
+        assert_eq!(persisted.resolved_toml, profile.resolved_toml);
+        assert_eq!(
+            persisted.state.resolved_content_sha256,
+            profile.state.resolved_content_sha256
         );
     }
 

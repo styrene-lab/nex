@@ -23,6 +23,7 @@ mod nixfile;
 mod ops;
 mod output;
 mod pkl;
+mod profile_bundle;
 mod profile_fragment;
 mod resolve;
 
