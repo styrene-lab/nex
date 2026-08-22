@@ -542,7 +542,7 @@ fn run_with_options(
     }
 
     // ── 1. Fetch and resolve machine profile chain ───────────────────
-    let profile_toml = if let Some(pref) = profile_ref {
+    let resolved_profile = if let Some(pref) = profile_ref {
         output::status("resolving machine profile chain...");
         let resolved = resolve_profile_chain(pref)?;
         println!(
@@ -558,7 +558,7 @@ fn run_with_options(
         for layer in &resolved.chain {
             println!("    {} {}", style("↳").dim(), style(layer).dim());
         }
-        Some(resolved.merged)
+        Some(resolved)
     } else {
         println!(
             "  {} generic styx installer (no machine profile baked in)",
@@ -627,17 +627,7 @@ fn run_with_options(
     }
 
     // ── 5. Write machine profile into bundle (if specified) ──────────
-    if let Some(ref toml_content) = profile_toml {
-        let profile_dir = styrene_dir.join("profile");
-        std::fs::create_dir_all(&profile_dir)?;
-        std::fs::write(
-            profile_dir.join(crate::machine_profile::MACHINE_PROFILE_FILE),
-            toml_content,
-        )?;
-        if let Some(pref) = profile_ref {
-            std::fs::write(profile_dir.join("source"), format!("{pref}\n"))?;
-        }
-    }
+    write_profile_bundle(&styrene_dir, profile_ref, resolved_profile.as_ref())?;
 
     // ── 6. Bundle nex binary for target arch ────────────────────────
     output::status(&format!(
@@ -1618,6 +1608,36 @@ fn write_polymerize_defaults(
     }
 
     Ok(())
+}
+
+fn write_profile_bundle(
+    styrene_dir: &Path,
+    profile_ref: Option<&str>,
+    resolved_profile: Option<&ResolvedProfile>,
+) -> Result<()> {
+    let profile_dir = styrene_dir.join("profile");
+    match resolved_profile {
+        Some(resolved) => {
+            let source = profile_ref.context("resolved profile is missing its source")?;
+            crate::profile_bundle::ProfileBundle::new(
+                source,
+                resolved.merged.clone(),
+                &resolved.chain,
+            )?
+            .write_to(&profile_dir)
+        }
+        None => {
+            if profile_dir.exists() {
+                std::fs::remove_dir_all(&profile_dir).with_context(|| {
+                    format!(
+                        "failed to remove stale profile at {}",
+                        profile_dir.display()
+                    )
+                })?;
+            }
+            Ok(())
+        }
+    }
 }
 
 #[cfg(unix)]
@@ -2949,6 +2969,21 @@ mod tests {
                 & 0o777;
             assert_eq!(mode, 0o600);
         }
+    }
+
+    #[test]
+    fn write_profile_bundle_replaces_stale_profile_with_generic_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let resolved = ResolvedProfile {
+            merged: "[packages]\nnix = [\"ripgrep\"]\n".to_string(),
+            chain: vec!["owner/profile".to_string()],
+        };
+
+        write_profile_bundle(dir.path(), Some("owner/profile"), Some(&resolved)).unwrap();
+        assert!(dir.path().join("profile/resolved.toml").exists());
+
+        write_profile_bundle(dir.path(), None, None).unwrap();
+        assert!(!dir.path().join("profile").exists());
     }
 
     #[test]
