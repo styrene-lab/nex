@@ -4,6 +4,12 @@ All notable changes to nex are documented here. Format follows [Keep a Changelog
 
 ## [Unreleased]
 
+## [0.26.3] - 2026-08-22
+
+### Fixed
+- Preserve validated Forge profile snapshots and provenance across Polymerize installation, rejecting incomplete or tampered profile bundles before disk mutation.
+- Install Nex declaratively in generated NixOS systems so the CLI remains available after reboot and follows system generations.
+
 ## [0.26.2] - 2026-08-17
 
 ### Fixed
